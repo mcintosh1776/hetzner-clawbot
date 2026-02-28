@@ -14,6 +14,7 @@ locals {
       users                    = var.bootstrap_users
       user_ssh_authorized_keys = var.bootstrap_user_ssh_public_keys
       enable_root_ssh          = var.enable_root_ssh
+      openclaw_repo_url        = var.openclaw_repo_url
     }
   )
   ssh_key_names = concat(

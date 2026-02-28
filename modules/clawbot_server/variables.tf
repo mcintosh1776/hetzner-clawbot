@@ -88,3 +88,9 @@ variable "cloud_init" {
   description = "Optional override for cloud-init data."
   default     = ""
 }
+
+variable "openclaw_repo_url" {
+  type        = string
+  description = "OpenClaw Git repository URL to clone under /srv/openclaw during cloud-init."
+  default     = "https://github.com/openclaw/openclaw.git"
+}

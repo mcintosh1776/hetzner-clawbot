@@ -124,5 +124,9 @@ runcmd:
   - systemctl restart ssh
   - systemctl enable --now auditd
   - systemctl enable --now fail2ban
-  - mkdir -p /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
+  - mkdir -p /srv /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
+%{ if trimspace(openclaw_repo_url) != "" ~}
+  - "if [ ! -d /srv/openclaw/.git ]; then git -C /srv clone --depth 1 --branch main ${openclaw_repo_url} openclaw; fi"
+  - "if [ -d /srv/openclaw ]; then chown -R ${users[0]}:${users[0]} /srv/openclaw; fi"
+%{ endif ~}
   - chown -R ${users[0]}:${users[0]} /opt/clawbot
