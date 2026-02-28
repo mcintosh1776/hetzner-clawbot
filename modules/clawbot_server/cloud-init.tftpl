@@ -166,6 +166,10 @@ write_files:
         chown "$${OPENCLAW_USER}:$${OPENCLAW_USER}" "$${OPENCLAW_HOME}/.openclaw/.env"
       fi
 
+      mkdir -p /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
+      chown -R "$${OPENCLAW_USER}:$${OPENCLAW_USER}" /opt/clawbot
+      chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
+
       echo "OpenClaw Podman one-time setup complete."
       echo ""
       echo "Run onboarding (your normal workflow):"
@@ -178,9 +182,11 @@ runcmd:
   - systemctl restart ssh
   - systemctl enable --now auditd
   - systemctl enable --now fail2ban
+  - "if ! id -u openclaw >/dev/null 2>&1; then useradd --system --create-home --home-dir /home/openclaw --shell /usr/sbin/nologin openclaw; fi"
   - mkdir -p /srv /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
+  - "if id -u openclaw >/dev/null 2>&1; then chown -R openclaw:openclaw /opt/clawbot; fi"
+  - chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
 %{ if trimspace(openclaw_repo_url) != "" ~}
   - "if [ ! -d /srv/openclaw/.git ]; then git -C /srv clone --depth 1 --branch main ${openclaw_repo_url} openclaw; fi"
   - "if [ -d /srv/openclaw ]; then chown -R ${users[0]}:${users[0]} /srv/openclaw; fi"
 %{ endif ~}
-  - chown -R ${users[0]}:${users[0]} /opt/clawbot

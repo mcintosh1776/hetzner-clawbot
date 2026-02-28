@@ -15,6 +15,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - Removed Docker and docker-compose from cloud-init package set; podman remains the supported container runtime on provisioned nodes.
 
+## [0.6.5] - 2026-02-28
+
+### Added
+
+- Added enforced `/opt/clawbot` ownership and permission model in cloud-init for container runtime layout:
+  - `/opt/clawbot` owner/group `openclaw`
+  - `/opt/clawbot/config` owner/group `openclaw`
+  - `/opt/clawbot/work` owner/group `openclaw`
+  - `/opt/clawbot/logs` owner/group `openclaw`
+  - mode `750` for all four directories
+
+### Changed
+
+- Updated cloud-init provisioning flow to create `openclaw` when missing and to set directory ownership to `openclaw` during setup.
+
+### Fixed
+
+- Rebuilt production node (`122385328`) and verified the runtime directories are now correctly provisioned with `openclaw:openclaw` ownership and `drwxr-x---` permissions.
+
 ## [0.6.4] - 2026-02-28
 
 ### Added
