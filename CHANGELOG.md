@@ -15,6 +15,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - Removed Docker and docker-compose from cloud-init package set; podman remains the supported container runtime on provisioned nodes.
 
+## [0.6.4] - 2026-02-28
+
+### Added
+
+- Added `systemd-container` and `dbus` to required cloud-init bootstrap packages for host-container tooling support.
+
+### Changed
+
+- Updated the base package set so `systemd-container` and `dbus` are guaranteed on every new production node.
+
+### Fixed
+
+- Rebuilt production node (`122384888`) after the package list change and verified:
+  - `dbus` installed
+  - `systemd-container` installed
+  - `/usr/bin/machinectl` present
+  - `systemd-machined` enabled
+  - `fail2ban` and `auditd` active
+
+## [0.6.3] - 2026-02-28
+
+### Added
+
+- Added rootless systemd Container unit generation to `/usr/local/bin/openclaw-podman-setup` and documented a quadlet-managed startup flow.
+- Added host directory preparation for `/opt/clawbot/{config,work,logs}` with restricted permissions for the `openclaw` runtime user.
+
+### Changed
+
+- Updated `openclaw-podman-setup` to write `/home/openclaw/.config/containers/systemd/openclaw.container` pointing to:
+  - `Image=openclaw:local`
+  - bind mounts from `/opt/clawbot/config` and `/opt/clawbot/work`
+  - environment files and vars for `OPENCLAW_CONFIG_DIR` and `OPENCLAW_WORKSPACE_DIR`
+- Added `systemd-container` and `dbus` to cloud-init package bootstrap.
+
+### Fixed
+
+- Ensured bootstrap writes and secures `/opt/clawbot/config/openclaw.json` and `/opt/clawbot/config/.env` when running the one-time setup helper.
+
 ## [0.6.2] - 2026-02-28
 
 ### Added
