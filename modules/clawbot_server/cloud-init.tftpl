@@ -176,6 +176,38 @@ write_files:
       echo "  sudo -u $${OPENCLAW_USER} $${RUN_SCRIPT} launch setup"
       echo "Start gateway:"
       echo "  sudo -u $${OPENCLAW_USER} $${RUN_SCRIPT} launch"
+  - path: /home/openclaw/.config/containers/systemd/openclaw.container
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=OpenClaw gateway (rootless Podman)
+
+      [Container]
+      Image=openclaw:local
+      ContainerName=openclaw
+      UserNS=keep-id
+
+      Volume=/opt/clawbot/config:/config
+      Volume=/opt/clawbot/work:/workspace
+
+      EnvironmentFile=/opt/clawbot/config/.env
+      Environment=OPENCLAW_CONFIG_DIR=/config
+      Environment=OPENCLAW_WORKSPACE_DIR=/workspace
+      Environment=TERM=xterm-256color
+
+      PublishPort=18789:18789
+      PublishPort=18790:18790
+
+      Pull=never
+      Exec=node dist/index.js gateway --bind lan --port 18789
+
+      [Service]
+      TimeoutStartSec=300
+      Restart=on-failure
+
+      [Install]
+      WantedBy=default.target
 
 runcmd:
   - sysctl --system
@@ -184,8 +216,16 @@ runcmd:
   - systemctl enable --now fail2ban
   - "if ! id -u openclaw >/dev/null 2>&1; then useradd --system --create-home --home-dir /home/openclaw --shell /usr/sbin/nologin openclaw; fi"
   - mkdir -p /srv /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
+  - "if id -u openclaw >/dev/null 2>&1; then mkdir -p /home/openclaw/.config/containers/systemd; fi"
+  - "if id -u openclaw >/dev/null 2>&1; then chown -R openclaw:openclaw /home/openclaw/.config/containers/systemd; fi"
+  - "printf \"%s\\n\" \"{\" \"  \\\"gateway\\\": {\" \"    \\\"mode\\\": \\\"local\\\"\" \"  }\" \"}\" > /opt/clawbot/config/openclaw.json"
+  - "[ -f /opt/clawbot/config/.env ] || { if command -v openssl >/dev/null 2>&1; then TOKEN=\"$(openssl rand -hex 32)\"; else TOKEN=\"$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)\"; fi; printf 'OPENCLAW_GATEWAY_TOKEN=%s\\n' \"$${TOKEN}\" > /opt/clawbot/config/.env; }"
   - "if id -u openclaw >/dev/null 2>&1; then chown -R openclaw:openclaw /opt/clawbot; fi"
   - chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
+  - "if id -u openclaw >/dev/null 2>&1; then chown openclaw:openclaw /opt/clawbot/config/openclaw.json; fi"
+  - "if id -u openclaw >/dev/null 2>&1; then chown openclaw:openclaw /opt/clawbot/config/.env; fi"
+  - "chmod 600 /opt/clawbot/config/openclaw.json"
+  - "if [ -f /opt/clawbot/config/.env ]; then chmod 600 /opt/clawbot/config/.env; fi"
 %{ if trimspace(openclaw_repo_url) != "" ~}
   - "if [ ! -d /srv/openclaw/.git ]; then git -C /srv clone --depth 1 --branch main ${openclaw_repo_url} openclaw; fi"
   - "if [ -d /srv/openclaw ]; then chown -R ${users[0]}:${users[0]} /srv/openclaw; fi"

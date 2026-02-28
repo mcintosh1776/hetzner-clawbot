@@ -15,6 +15,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - Removed Docker and docker-compose from cloud-init package set; podman remains the supported container runtime on provisioned nodes.
 
+## [0.7.0] - 2026-02-28
+
+### Added
+
+- Added `openclaw.container` quadlet definition at `/home/openclaw/.config/containers/systemd/openclaw.container` via cloud-init with rootless Podman settings, fixed port binds, and environment wiring for OpenClaw.
+- Added automatic creation of `/opt/clawbot/config/openclaw.json` with `{ "gateway": { "mode": "local" } }`.
+- Added automatic generation of `/opt/clawbot/config/.env` with `OPENCLAW_GATEWAY_TOKEN` when missing.
+
+### Changed
+
+- Hardened cloud-init runtime ownership/permissions for OpenClaw runtime artifacts:
+  - `/home/openclaw/.config/containers/systemd`
+  - `/opt/clawbot/config/openclaw.json`
+  - `/opt/clawbot/config/.env`
+
+### Fixed
+
+- Updated server provisioning so OpenClaw’s quadlet, gateway config, and gateway token are available directly under `/opt/clawbot` after reprovisioning.
+
 ## [0.6.5] - 2026-02-28
 
 ### Added
