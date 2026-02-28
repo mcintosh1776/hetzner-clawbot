@@ -2,8 +2,7 @@
 package_update: true
 package_upgrade: true
 packages:
-  - docker.io
-  - docker-compose
+  - podman
   - ca-certificates
   - curl
   - git
@@ -125,6 +124,5 @@ runcmd:
   - systemctl restart ssh
   - systemctl enable --now auditd
   - systemctl enable --now fail2ban
-  - "if ! command -v docker-compose >/dev/null 2>&1; then apt-get update && apt-get install -y docker-compose; fi"
   - mkdir -p /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
   - chown -R ${users[0]}:${users[0]} /opt/clawbot

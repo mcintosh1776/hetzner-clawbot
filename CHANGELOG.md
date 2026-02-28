@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 ### Removed
+- Removed Docker and docker-compose from cloud-init package set; podman remains the supported container runtime on provisioned nodes.
 
 ## [0.5.0] - 2026-02-28
 
