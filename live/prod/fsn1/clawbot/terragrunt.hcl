@@ -1,0 +1,32 @@
+terraform {
+  source = "../../../../modules/clawbot_server"
+}
+
+locals {
+  env_name     = basename(dirname(dirname(get_terragrunt_dir())))
+  region_name  = basename(dirname(get_terragrunt_dir()))
+  service_name = basename(get_terragrunt_dir())
+}
+
+inputs = {
+  env      = local.env_name
+  name     = "${local.service_name}-${local.env_name}-1"
+  location = local.region_name
+
+  server_type = "cpx22"
+  ssh_keys   = ["bmurphy@Keiths-MacBook-Air.local"]
+  ssh_public_keys = {
+    "clawbot-admin-gondor" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFgGwNzO+PNhcrPnzEXFBZPLbHY++pfVUfGHnqB2ss8z clawbot-admin@gondor"
+  }
+  firewall_ssh_cidrs = ["173.18.93.145/32"]
+  bootstrap_users    = ["mcintosh"]
+  bootstrap_user_ssh_public_keys = {
+    "mcintosh" = [
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFBKNOUcblDEYF2d7DKO63Kwzq5QWIQUCGh5fwcybFAt mcintosh@gondor"
+    ]
+  }
+  enable_root_ssh    = false
+
+  public_ipv4_enabled = true
+  public_ipv6_enabled = false
+}

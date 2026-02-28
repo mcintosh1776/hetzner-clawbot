@@ -1,0 +1,130 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - docker.io
+  - docker-compose
+  - ca-certificates
+  - curl
+  - git
+  - htop
+  - tmux
+  - auditd
+  - fail2ban
+  - unattended-upgrades
+
+users:
+%{ for user in users ~}
+  - name: ${user}
+    shell: /bin/bash
+    groups: [sudo]
+    lock_passwd: true
+    sudo:
+      - "ALL=(ALL) NOPASSWD:ALL"
+%{ if length(lookup(user_ssh_authorized_keys, user, [])) > 0 ~}
+    ssh_authorized_keys:
+%{ for key in lookup(user_ssh_authorized_keys, user, []) ~}
+      - ${key}
+%{ endfor ~}
+%{ endif ~}
+%{ endfor ~}
+
+ssh_pwauth: false
+disable_root: %{ if enable_root_ssh }false%{ else }true%{ endif }
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-clawbot-hardening.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      # SSH hardening
+      ChallengeResponseAuthentication no
+      KbdInteractiveAuthentication no
+      PasswordAuthentication no
+      PermitEmptyPasswords no
+      PermitRootLogin %{ if enable_root_ssh }yes%{ else }no%{ endif }
+      PubkeyAuthentication yes
+      LoginGraceTime 30
+      MaxAuthTries 4
+      MaxSessions 3
+      IgnoreRhosts yes
+      HostbasedAuthentication no
+      PermitUserEnvironment no
+      UseDNS no
+      AllowAgentForwarding no
+      X11Forwarding no
+      AllowTcpForwarding no
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+      Compression no
+
+  - path: /etc/fail2ban/jail.d/sshd.local
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [sshd]
+      enabled = true
+      mode = aggressive
+      port = ssh
+      logpath = /var/log/auth.log
+      maxretry = 5
+      findtime = 10m
+      bantime = 6h
+
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root:root
+    permissions: '0644'
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Download-Upgradeable-Packages "1";
+      APT::Periodic::AutocleanInterval "7";
+      APT::Periodic::Unattended-Upgrade "1";
+
+  - path: /etc/apt/apt.conf.d/50unattended-upgrades
+    owner: root:root
+    permissions: '0644'
+    content: |
+      Unattended-Upgrade::Origins-Pattern {
+        "origin=Ubuntu,archive=stable,label=Ubuntu";
+      };
+      Unattended-Upgrade::Package-Blacklist {};
+      Unattended-Upgrade::Automatic-Reboot "false";
+      Unattended-Upgrade::Mail "root";
+
+  - path: /etc/sysctl.d/99-clawbot-hardening.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      kernel.kptr_restrict = 2
+      kernel.randomize_va_space = 2
+      fs.protected_hardlinks = 1
+      fs.protected_symlinks = 1
+      fs.protected_fifos = 1
+      fs.protected_regular = 1
+      fs.suid_dumpable = 0
+      kernel.yama.ptrace_scope = 1
+      net.ipv4.conf.all.rp_filter = 1
+      net.ipv4.conf.default.rp_filter = 1
+      net.ipv4.tcp_syncookies = 1
+
+  - path: /etc/audit/rules.d/99-clawbot.rules
+    owner: root:root
+    permissions: '0644'
+    content: |
+      -w /etc/sudoers -p wa -k sudoers_changes
+      -w /etc/sudoers.d -p wa -k sudoers_changes
+      -w /etc/passwd -p wa -k identity
+      -w /etc/shadow -p wa -k identity
+      -w /etc/group -p wa -k identity
+      -w /etc/gshadow -p wa -k identity
+      -w /var/log/auth.log -p wa -k auth
+      -w /etc/ssh/sshd_config -p wa -k sshd_config
+
+runcmd:
+  - sysctl --system
+  - systemctl restart ssh
+  - systemctl enable --now auditd
+  - systemctl enable --now fail2ban
+  - "if ! command -v docker-compose >/dev/null 2>&1; then apt-get update && apt-get install -y docker-compose; fi"
+  - mkdir -p /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
+  - chown -R ${users[0]}:${users[0]} /opt/clawbot
