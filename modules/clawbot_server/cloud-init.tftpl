@@ -119,6 +119,58 @@ write_files:
       -w /var/log/auth.log -p wa -k auth
       -w /etc/ssh/sshd_config -p wa -k sshd_config
 
+  - path: /usr/local/bin/openclaw-podman-setup
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      OPENCLAW_DIR="$${OPENCLAW_DIR:-/srv/openclaw}"
+      OPENCLAW_USER="$${OPENCLAW_PODMAN_USER:-openclaw}"
+
+      if [[ "$(id -u)" -ne 0 ]]; then
+        echo "Run this as root: sudo openclaw-podman-setup" >&2
+        exit 1
+      fi
+
+      if [[ ! -x "$${OPENCLAW_DIR}/setup-podman.sh" ]]; then
+        echo "OpenClaw setup-podman.sh not found at $${OPENCLAW_DIR}/setup-podman.sh" >&2
+        exit 1
+      fi
+
+      "$${OPENCLAW_DIR}/setup-podman.sh" --container
+
+      if ! getent passwd "$${OPENCLAW_USER}" >/dev/null 2>&1; then
+        echo "User $${OPENCLAW_USER} not found after setup" >&2
+        exit 1
+      fi
+
+      OPENCLAW_HOME="$(getent passwd "$${OPENCLAW_USER}" | awk -F: '{print $6}')"
+      RUN_SCRIPT="$${OPENCLAW_HOME}/run-openclaw-podman.sh"
+
+      if [[ ! -f "$${RUN_SCRIPT}" ]]; then
+        echo "Expected run script missing: $${RUN_SCRIPT}" >&2
+        exit 1
+      fi
+
+      mkdir -p "$${OPENCLAW_HOME}/.openclaw/workspace"
+      chown -R "$${OPENCLAW_USER}:$${OPENCLAW_USER}" "$${OPENCLAW_HOME}/.openclaw"
+      # Keep one-time path: no default gateway local-mode JSON bootstrap.
+      printf '%s\n' "{}" > "$${OPENCLAW_HOME}/.openclaw/openclaw.json"
+      chown "$${OPENCLAW_USER}:$${OPENCLAW_USER}" "$${OPENCLAW_HOME}/.openclaw/openclaw.json"
+      chmod 600 "$${OPENCLAW_HOME}/.openclaw/openclaw.json" 2>/dev/null || true
+      if [[ -f "$${OPENCLAW_HOME}/.openclaw/.env" ]]; then
+        chown "$${OPENCLAW_USER}:$${OPENCLAW_USER}" "$${OPENCLAW_HOME}/.openclaw/.env"
+      fi
+
+      echo "OpenClaw Podman one-time setup complete."
+      echo ""
+      echo "Run onboarding (your normal workflow):"
+      echo "  sudo -u $${OPENCLAW_USER} $${RUN_SCRIPT} launch setup"
+      echo "Start gateway:"
+      echo "  sudo -u $${OPENCLAW_USER} $${RUN_SCRIPT} launch"
+
 runcmd:
   - sysctl --system
   - systemctl restart ssh

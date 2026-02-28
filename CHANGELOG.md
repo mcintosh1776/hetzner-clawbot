@@ -15,6 +15,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - Removed Docker and docker-compose from cloud-init package set; podman remains the supported container runtime on provisioned nodes.
 
+## [0.6.2] - 2026-02-28
+
+### Added
+
+- Added a host-side one-time Podman bootstrap helper at `/usr/local/bin/openclaw-podman-setup` via `modules/clawbot_server/cloud-init.tftpl`.
+- Added OpenClaw bootstrap steps to `docs/quickstart.md` for setup and onboarding flow.
+
+### Changed
+
+- Updated cloud-init bootstrap flow to avoid editing checked-in OpenClaw repository files in place.
+
 ## [0.6.1] - 2026-02-28
 
 ### Added

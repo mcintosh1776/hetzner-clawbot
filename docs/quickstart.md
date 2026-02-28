@@ -17,6 +17,26 @@ terragrunt output
 terragrunt destroy
 ```
 
+## One-time OpenClaw Podman setup on the host
+
+After first provision (or any reprovision), run:
+
+```bash
+sudo openclaw-podman-setup
+```
+
+Then onboard once:
+
+```bash
+sudo -u openclaw /home/openclaw/run-openclaw-podman.sh launch setup
+```
+
+Start the gateway afterward:
+
+```bash
+sudo -u openclaw /home/openclaw/run-openclaw-podman.sh launch
+```
+
 ## Provision (stage)
 
 ```bash
