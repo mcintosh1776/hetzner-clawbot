@@ -8,15 +8,15 @@ terraform {
 }
 
 locals {
-  bootstrap_runner_script = trimspace(file("${path.module}/bootstrap-node-runner.sh"))
+  bootstrap_runner_script = file("${path.module}/bootstrap-node-runner.sh")
   rendered_cloud_init = trimspace(var.cloud_init) != "" ? var.cloud_init : templatefile(
     "${path.module}/cloud-init.tftpl",
     {
-      users                    = var.bootstrap_users
-      user_ssh_authorized_keys = var.bootstrap_user_ssh_public_keys
-      enable_root_ssh          = var.enable_root_ssh
-      openclaw_repo_url        = var.openclaw_repo_url
-      bootstrap_runner_script  = local.bootstrap_runner_script
+      users                      = var.bootstrap_users
+      user_ssh_authorized_keys   = var.bootstrap_user_ssh_public_keys
+      enable_root_ssh            = var.enable_root_ssh
+      openclaw_repo_url          = var.openclaw_repo_url
+      bootstrap_runner_script     = local.bootstrap_runner_script
     }
   )
   ssh_key_names = distinct(concat(

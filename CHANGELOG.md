@@ -21,6 +21,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - Removed Docker and docker-compose from cloud-init package set; podman remains the supported container runtime on provisioned nodes.
 
+## [0.7.3] - 2026-03-01
+
+### Added
+
+- Added a dedicated `/usr/local/bin/openclaw-ctl` helper for reliable node checks and operational operations (`status`, `ps`, `health`, `token`, etc.).
+- Bootstrap runner now writes the helper script on every invocation and after completed runs (including skipped runs when marker exists).
+
+### Changed
+
+- Improved bootstrap runner script generation and templating by moving script emission handling out of inline YAML indentation pitfalls and using explicit line-splitting in cloud-init.
+- Updated helper and bootstrap execution flow to run steps through a shared `run_step` helper for clearer logs and easier failure diagnosis.
+- Switched quadlet user configuration in bootstrap to use dynamic `openclaw` UID (`User=$OPENCLAW_UID:$OPENCLAW_UID`) instead of hard-coded `999`.
+
+### Fixed
+
+- Fixed malformed helper script execution caused by leading blank/BOM characters in `/usr/local/bin/openclaw-ctl` (now consistently generated as valid Bash).
+- Fixed generated cloud-init quoting issues by writing `openclaw-node-bootstrap-runner` content via tokenized line emission.
+- Fixed rootless service enable/reload/restart flow by running user-unit operations as the `openclaw` user and explicitly writing back helper installation.
+
 ## [0.7.2] - 2026-03-01
 
 ### Added

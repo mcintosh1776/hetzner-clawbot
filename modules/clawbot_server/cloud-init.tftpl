@@ -122,11 +122,6 @@ write_files:
       -w /var/log/auth.log -p wa -k auth
       -w /etc/ssh/sshd_config -p wa -k sshd_config
 
-  - path: /usr/local/bin/openclaw-node-bootstrap-runner
-    owner: root:root
-    permissions: '0755'
-    content: |
-${indent(6, bootstrap_runner_script)}
   - path: /home/openclaw/.config/containers/systemd/openclaw.container
     owner: root:root
     permissions: '0644'
@@ -137,7 +132,6 @@ ${indent(6, bootstrap_runner_script)}
       [Container]
       Image=localhost/openclaw:local
       ContainerName=openclaw
-      User=999:999
       UserNS=keep-id
       Notify=no
 
@@ -160,10 +154,17 @@ ${indent(6, bootstrap_runner_script)}
       [Service]
       TimeoutStartSec=300
       Restart=on-failure
-      Type=simple
 
       [Install]
       WantedBy=default.target
+
+  - path: /usr/local/bin/openclaw-node-bootstrap-runner
+    owner: root:root
+    permissions: '0755'
+    content: |
+%{ for script_line in split("\n", bootstrap_runner_script) }
+      ${script_line}
+%{ endfor }
 
 runcmd:
   - bash -lc "OPENCLAW_REPO_URL='${openclaw_repo_url}' OPENCLAW_IMAGE='localhost/openclaw:local' /usr/local/bin/openclaw-node-bootstrap-runner"
