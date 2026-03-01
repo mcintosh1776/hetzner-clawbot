@@ -15,6 +15,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - Removed Docker and docker-compose from cloud-init package set; podman remains the supported container runtime on provisioned nodes.
 
+## [0.7.1] - 2026-03-01
+
+### Added
+
+- Added explicit OpenClaw quadlet guidance in cloud-init for local rootless execution:
+  - `Image=localhost/openclaw:local`
+  - `User=999:999`
+  - `Environment=OPENCLAW_CONFIG_PATH=/config/openclaw.json`
+- Added operational instructions to the setup flow for service lifecycle and openclaw-context Podman checks:
+  - `systemctl --machine openclaw@ --user daemon-reload`
+  - `systemctl --machine openclaw@ --user restart openclaw.service`
+  - `systemctl --machine openclaw@ --user status openclaw.service --no-pager`
+  - `sudo -u openclaw bash -lc 'podman ps -a'`
+  - `sudo -u openclaw bash -lc 'podman logs openclaw'`
+
+### Changed
+
+- Updated quadlet config env override to pass explicit config file path via `OPENCLAW_CONFIG_PATH`.
+- Updated runtime image reference to `localhost/openclaw:local` for rootless Podman image store compatibility.
+- Added rootless user runtime setup during cloud-init:
+  - ensured `/home/openclaw` ownership is fully assigned to `openclaw`
+  - enabled lingering and started `user@<uid>.service`
+  - ensured `/run/user/<uid>` runtime directory exists and is writable
+  - added subuid/subgid bootstrap entries and ran `podman system migrate`
+
+### Fixed
+
+- Removed rootless image-store mismatch during container startup by building and resolving the image under `openclaw` with tag `localhost/openclaw:local`.
+- Fixed missing mount access expectations by aligning podman runtime context via explicit `User=999:999` and keep-id settings with `/opt/clawbot` ownership.
+
 ## [0.7.0] - 2026-02-28
 
 ### Added
