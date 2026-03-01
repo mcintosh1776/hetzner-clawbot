@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
  - OpenClaw quadlet template now defaults to LAN binding for container UI access (`--bind lan`) and writes `allowedOrigins` in `openclaw.json`:
    - `http://127.0.0.1:18789`
    - `http://localhost:18789`
+ - Cloud-init openclaw config template now writes valid JSON without escaped quote characters so `openclaw.json` is parseable by the gateway.
 
 ### Fixed
 
