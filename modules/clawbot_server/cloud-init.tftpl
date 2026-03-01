@@ -122,70 +122,11 @@ write_files:
       -w /var/log/auth.log -p wa -k auth
       -w /etc/ssh/sshd_config -p wa -k sshd_config
 
-  - path: /usr/local/bin/openclaw-podman-setup
+  - path: /usr/local/bin/openclaw-node-bootstrap-runner
     owner: root:root
     permissions: '0755'
     content: |
-      #!/usr/bin/env bash
-      set -euo pipefail
-
-      OPENCLAW_DIR="$${OPENCLAW_DIR:-/srv/openclaw}"
-      OPENCLAW_USER="$${OPENCLAW_PODMAN_USER:-openclaw}"
-
-      if [[ "$(id -u)" -ne 0 ]]; then
-        echo "Run this as root: sudo openclaw-podman-setup" >&2
-        exit 1
-      fi
-
-      if [[ ! -x "$${OPENCLAW_DIR}/setup-podman.sh" ]]; then
-        echo "OpenClaw setup-podman.sh not found at $${OPENCLAW_DIR}/setup-podman.sh" >&2
-        exit 1
-      fi
-
-      "$${OPENCLAW_DIR}/setup-podman.sh" --container
-
-      if ! getent passwd "$${OPENCLAW_USER}" >/dev/null 2>&1; then
-        echo "User $${OPENCLAW_USER} not found after setup" >&2
-        exit 1
-      fi
-
-      OPENCLAW_HOME="$(getent passwd "$${OPENCLAW_USER}" | awk -F: '{print $6}')"
-      RUN_SCRIPT="$${OPENCLAW_HOME}/run-openclaw-podman.sh"
-
-      if [[ ! -f "$${RUN_SCRIPT}" ]]; then
-        echo "Expected run script missing: $${RUN_SCRIPT}" >&2
-        exit 1
-      fi
-
-      mkdir -p "$${OPENCLAW_HOME}/.openclaw/workspace"
-      chown -R "$${OPENCLAW_USER}:$${OPENCLAW_USER}" "$${OPENCLAW_HOME}/.openclaw"
-      # Keep one-time path: no default gateway local-mode JSON bootstrap.
-      printf '%s\n' "{}" > "$${OPENCLAW_HOME}/.openclaw/openclaw.json"
-      chown "$${OPENCLAW_USER}:$${OPENCLAW_USER}" "$${OPENCLAW_HOME}/.openclaw/openclaw.json"
-      chmod 600 "$${OPENCLAW_HOME}/.openclaw/openclaw.json" 2>/dev/null || true
-      if [[ -f "$${OPENCLAW_HOME}/.openclaw/.env" ]]; then
-        chown "$${OPENCLAW_USER}:$${OPENCLAW_USER}" "$${OPENCLAW_HOME}/.openclaw/.env"
-      fi
-
-      mkdir -p /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
-      chown -R "$${OPENCLAW_USER}:$${OPENCLAW_USER}" /opt/clawbot
-      chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
-
-      echo "OpenClaw Podman one-time setup complete."
-      echo ""
-      echo "Run onboarding (your normal workflow):"
-      echo "  sudo -u $${OPENCLAW_USER} $${RUN_SCRIPT} launch setup"
-      echo "Start gateway:"
-      echo "  sudo -u $${OPENCLAW_USER} $${RUN_SCRIPT} launch"
-      echo ""
-      echo "Service control:"
-      echo "  sudo systemctl --machine openclaw@ --user daemon-reload"
-      echo "  sudo systemctl --machine openclaw@ --user restart openclaw.service"
-      echo "  sudo systemctl --machine openclaw@ --user status openclaw.service --no-pager"
-      echo ""
-      echo "Podman notes (reliable openclaw context):"
-      echo "  sudo -u openclaw bash -lc 'podman ps -a'"
-      echo "  sudo -u openclaw bash -lc 'podman logs openclaw'"
+${indent(6, bootstrap_runner_script)}
   - path: /home/openclaw/.config/containers/systemd/openclaw.container
     owner: root:root
     permissions: '0644'
@@ -198,17 +139,20 @@ write_files:
       ContainerName=openclaw
       User=999:999
       UserNS=keep-id
+      Notify=no
 
       Volume=/opt/clawbot/config:/config
       Volume=/opt/clawbot/work:/workspace
+      Volume=/opt/clawbot/state:/state
 
       EnvironmentFile=/opt/clawbot/config/.env
       Environment=OPENCLAW_CONFIG_PATH=/config/openclaw.json
+      Environment=OPENCLAW_HOME=/state
       Environment=OPENCLAW_WORKSPACE_DIR=/workspace
       Environment=TERM=xterm-256color
 
-      PublishPort=18789:18789
-      PublishPort=18790:18790
+      PublishPort=127.0.0.1:18789:18789
+      PublishPort=127.0.0.1:18790:18790
 
       Pull=never
       Exec=node dist/index.js gateway --bind lan --port 18789
@@ -216,33 +160,10 @@ write_files:
       [Service]
       TimeoutStartSec=300
       Restart=on-failure
+      Type=simple
 
       [Install]
       WantedBy=default.target
 
 runcmd:
-  - sysctl --system
-  - systemctl restart ssh
-  - systemctl enable --now auditd
-  - systemctl enable --now fail2ban
-  - "if ! id -u openclaw >/dev/null 2>&1; then useradd --system --create-home --home-dir /home/openclaw --shell /usr/sbin/nologin openclaw; fi"
-  - mkdir -p /srv /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
-  - "if id -u openclaw >/dev/null 2>&1; then mkdir -p /home/openclaw/.config/containers/systemd; fi"
-  - "if id -u openclaw >/dev/null 2>&1; then chown -R openclaw:openclaw /home/openclaw/.config/containers/systemd; fi"
-  - "if id -u openclaw >/dev/null 2>&1; then chown -R openclaw:openclaw /home/openclaw; fi"
-  - "if id -u openclaw >/dev/null 2>&1; then OPENCLAW_UID=\"$(id -u openclaw)\"; loginctl enable-linger openclaw; systemctl start user@$OPENCLAW_UID.service; mkdir -p /run/user/$OPENCLAW_UID/containers; chown -R openclaw:openclaw /run/user/$OPENCLAW_UID; chmod 700 /run/user/$OPENCLAW_UID; fi"
-  - "if id -u openclaw >/dev/null 2>&1; then grep -q '^openclaw:100000:65536$' /etc/subuid || echo 'openclaw:100000:65536' >> /etc/subuid; grep -q '^openclaw:100000:65536$' /etc/subgid || echo 'openclaw:100000:65536' >> /etc/subgid; fi"
-  - "if id -u openclaw >/dev/null 2>&1; then sudo -u openclaw /usr/bin/podman system migrate; fi"
-  - "cat >/opt/clawbot/config/openclaw.json <<'EOF'\n{\n  \"gateway\": {\n    \"mode\": \"local\",\n    \"controlUi\": {\n      \"allowedOrigins\": [\n        \"http://127.0.0.1:18789\",\n        \"http://localhost:18789\"\n      ]\n    }\n  }\n}\nEOF"
-  - "[ -f /opt/clawbot/config/.env ] || { if command -v openssl >/dev/null 2>&1; then TOKEN=\"$(openssl rand -hex 32)\"; else TOKEN=\"$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)\"; fi; printf 'OPENCLAW_GATEWAY_TOKEN=%s\\n' \"$${TOKEN}\" > /opt/clawbot/config/.env; }"
-  - "if id -u openclaw >/dev/null 2>&1; then chown -R openclaw:openclaw /opt/clawbot; fi"
-  - chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
-  - "if id -u openclaw >/dev/null 2>&1; then chown openclaw:openclaw /opt/clawbot/config/openclaw.json; fi"
-  - "if id -u openclaw >/dev/null 2>&1; then chown openclaw:openclaw /opt/clawbot/config/.env; fi"
-  - "chmod 600 /opt/clawbot/config/openclaw.json"
-  - "if [ -f /opt/clawbot/config/.env ]; then chmod 600 /opt/clawbot/config/.env; fi"
-%{ if trimspace(openclaw_repo_url) != "" ~}
-  - "if [ ! -d /srv/openclaw/.git ]; then git -C /srv clone --depth 1 --branch main ${openclaw_repo_url} openclaw; fi"
-  - "if [ -d /srv/openclaw ]; then chown -R ${users[0]}:${users[0]} /srv/openclaw; fi"
-  - "if [ -d /srv/openclaw ]; then if ! sudo -u openclaw /usr/bin/podman image inspect localhost/openclaw:local >/dev/null 2>&1; then cd /srv/openclaw && sudo -u openclaw /usr/bin/podman build -t localhost/openclaw:local -f Dockerfile .; fi; fi"
-%{ endif ~}
+  - bash -lc "OPENCLAW_REPO_URL='${openclaw_repo_url}' OPENCLAW_IMAGE='localhost/openclaw:local' /usr/local/bin/openclaw-node-bootstrap-runner"

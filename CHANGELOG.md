@@ -21,6 +21,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - Removed Docker and docker-compose from cloud-init package set; podman remains the supported container runtime on provisioned nodes.
 
+## [0.7.2] - 2026-03-01
+
+### Added
+
+- Added a dedicated bootstrap runner script at `modules/clawbot_server/bootstrap-node-runner.sh`.
+- Provisioning now writes `/usr/local/bin/openclaw-node-bootstrap-runner` via cloud-init and executes it from `runcmd`.
+- Added `/opt/clawbot/state` as a dedicated OpenClaw state mount and wired `OPENCLAW_HOME=/state` into the quadlet config.
+
+### Changed
+
+- Reworked cloud-init bootstrap flow to delegate non-Terraform and container-runtime setup steps into the runner script for improved determinism and easier iteration.
+- Updated cloud-init template escaping by switching to direct runner-script injection from file content instead of embedded command templates.
+- Quadlet now uses `Type=simple` and `Notify=no` for compatibility with current service lifecycle behavior.
+
+### Fixed
+
+- Fixed repeated bootstrap failures caused by malformed embedded script interpolation and JSON escaping in user-data rendering.
+- Fixed rootless Podman runtime behavior by aligning image ownership/path assumptions (`localhost/openclaw:local`) and openclaw home mounts (`OPENCLAW_CONFIG_PATH`, `OPENCLAW_HOME`, `OPENCLAW_WORKSPACE_DIR`).
+
 ## [0.7.1] - 2026-03-01
 
 ### Added

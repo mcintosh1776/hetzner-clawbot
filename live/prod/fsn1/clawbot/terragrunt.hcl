@@ -17,6 +17,7 @@ inputs = {
   ssh_keys   = ["bmurphy@Keiths-MacBook-Air.local"]
   ssh_public_keys = {
     "clawbot-admin-gondor" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFgGwNzO+PNhcrPnzEXFBZPLbHY++pfVUfGHnqB2ss8z clawbot-admin@gondor"
+    "clawbot-recovery-mcintosh" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFBKNOUcblDEYF2d7DKO63Kwzq5QWIQUCGh5fwcybFAt mcintosh@gondor"
   }
   firewall_ssh_cidrs = ["173.18.93.145/32"]
   bootstrap_users    = ["mcintosh"]
@@ -25,7 +26,7 @@ inputs = {
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFBKNOUcblDEYF2d7DKO63Kwzq5QWIQUCGh5fwcybFAt mcintosh@gondor"
     ]
   }
-  enable_root_ssh    = false
+  enable_root_ssh    = true
 
   public_ipv4_enabled = true
   public_ipv6_enabled = false

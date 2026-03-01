@@ -152,12 +152,12 @@ bootstrap_openclaw() {
     useradd --system --create-home --home-dir "/home/${OPENCLAW_USER}" --shell /usr/sbin/nologin "${OPENCLAW_USER}"
   fi
 
-  mkdir -p /srv /opt/clawbot /opt/clawbot/{config,work,logs}
+  mkdir -p /srv /opt/clawbot /opt/clawbot/{config,work,logs,state}
   mkdir -p "/home/${OPENCLAW_USER}/.config/containers/systemd"
   chown -R "${OPENCLAW_USER}:${OPENCLAW_USER}" "/home/${OPENCLAW_USER}"
   chown -R "${OPENCLAW_USER}:${OPENCLAW_USER}" "/home/${OPENCLAW_USER}/.config/containers/systemd"
   chown -R "${OPENCLAW_USER}:${OPENCLAW_USER}" /opt/clawbot
-  chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
+  chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state
 
   sysctl --system
   systemctl restart ssh
@@ -212,17 +212,20 @@ Image=${OPENCLAW_IMAGE}
 ContainerName=openclaw
 User=999:999
 UserNS=keep-id
+Notify=no
 
 Volume=/opt/clawbot/config:/config
 Volume=/opt/clawbot/work:/workspace
+Volume=/opt/clawbot/state:/state
 
 EnvironmentFile=/opt/clawbot/config/.env
 Environment=OPENCLAW_CONFIG_PATH=/config/openclaw.json
+Environment=OPENCLAW_HOME=/state
 Environment=OPENCLAW_WORKSPACE_DIR=/workspace
 Environment=TERM=xterm-256color
 
-PublishPort=18789:18789
-PublishPort=18790:18790
+PublishPort=127.0.0.1:18789:18789
+PublishPort=127.0.0.1:18790:18790
 
 Pull=never
 Exec=node dist/index.js gateway --bind lan --port 18789
