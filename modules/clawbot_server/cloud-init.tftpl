@@ -211,7 +211,7 @@ write_files:
       PublishPort=18790:18790
 
       Pull=never
-      Exec=node dist/index.js gateway --bind loopback --port 18789
+      Exec=node dist/index.js gateway --bind lan --port 18789
 
       [Service]
       TimeoutStartSec=300
@@ -233,7 +233,7 @@ runcmd:
   - "if id -u openclaw >/dev/null 2>&1; then OPENCLAW_UID=\"$(id -u openclaw)\"; loginctl enable-linger openclaw; systemctl start user@$OPENCLAW_UID.service; mkdir -p /run/user/$OPENCLAW_UID/containers; chown -R openclaw:openclaw /run/user/$OPENCLAW_UID; chmod 700 /run/user/$OPENCLAW_UID; fi"
   - "if id -u openclaw >/dev/null 2>&1; then grep -q '^openclaw:100000:65536$' /etc/subuid || echo 'openclaw:100000:65536' >> /etc/subuid; grep -q '^openclaw:100000:65536$' /etc/subgid || echo 'openclaw:100000:65536' >> /etc/subgid; fi"
   - "if id -u openclaw >/dev/null 2>&1; then sudo -u openclaw /usr/bin/podman system migrate; fi"
-  - "printf \"%s\\n\" \"{\" \"  \\\"gateway\\\": {\" \"    \\\"mode\\\": \\\"local\\\"\" \"  }\" \"}\" > /opt/clawbot/config/openclaw.json"
+  - "cat >/opt/clawbot/config/openclaw.json <<'EOF'\n{\n  \\\"gateway\\\": {\n    \\\"mode\\\": \\\"local\\\",\n    \\\"controlUi\\\": {\n      \\\"allowedOrigins\\\": [\n        \\\"http://127.0.0.1:18789\\\",\n        \\\"http://localhost:18789\\\"\n      ]\n    }\n  }\n}\nEOF"
   - "[ -f /opt/clawbot/config/.env ] || { if command -v openssl >/dev/null 2>&1; then TOKEN=\"$(openssl rand -hex 32)\"; else TOKEN=\"$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)\"; fi; printf 'OPENCLAW_GATEWAY_TOKEN=%s\\n' \"$${TOKEN}\" > /opt/clawbot/config/.env; }"
   - "if id -u openclaw >/dev/null 2>&1; then chown -R openclaw:openclaw /opt/clawbot; fi"
   - chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs
