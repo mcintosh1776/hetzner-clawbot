@@ -218,7 +218,7 @@ PublishPort=18789:18789
 PublishPort=18790:18790
 
 Pull=never
-Exec=node dist/index.js gateway --bind lan --port 18789
+Exec=node dist/index.js gateway --bind loopback --port 18789
 
 [Service]
 TimeoutStartSec=300
