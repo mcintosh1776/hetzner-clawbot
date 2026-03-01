@@ -63,7 +63,8 @@ PermitUserEnvironment no
 UseDNS no
 AllowAgentForwarding no
 X11Forwarding no
-AllowTcpForwarding no
+AllowTcpForwarding yes
+DisableForwarding no
 ClientAliveInterval 300
 ClientAliveCountMax 2
 Compression no
