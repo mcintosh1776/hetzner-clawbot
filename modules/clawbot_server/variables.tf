@@ -94,3 +94,10 @@ variable "openclaw_repo_url" {
   description = "OpenClaw Git repository URL to clone under /srv/openclaw during cloud-init."
   default     = "https://github.com/openclaw/openclaw.git"
 }
+
+variable "openclaw_gateway_token" {
+  type        = string
+  description = "Optional fixed OPENCLAW_GATEWAY_TOKEN to persist across rebuilds."
+  default     = ""
+  sensitive   = true
+}

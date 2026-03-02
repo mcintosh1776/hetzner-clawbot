@@ -195,10 +195,16 @@ EOF
   chown "${OPENCLAW_USER}:${OPENCLAW_USER}" /opt/clawbot/config/openclaw.json
   chmod 600 /opt/clawbot/config/openclaw.json
 
-  if [[ ! -f /opt/clawbot/config/.env ]]; then
-    openssl rand -hex 32 > /tmp/openclaw_token
-    printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$(cat /tmp/openclaw_token)" >/opt/clawbot/config/.env
-    rm -f /tmp/openclaw_token
+  if [[ ! -f /opt/clawbot/config/.env ]] || \
+    ! awk -F= '/^OPENCLAW_GATEWAY_TOKEN=/{print $2; exit}' /opt/clawbot/config/.env | grep -q .; then
+    TOKEN="$(openssl rand -hex 32 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)"
+    if [[ -f /opt/clawbot/config/.env ]]; then
+      awk -F= '!/^OPENCLAW_GATEWAY_TOKEN=/' /opt/clawbot/config/.env > /tmp/openclaw_env.new
+      printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$TOKEN" >> /tmp/openclaw_env.new
+      mv /tmp/openclaw_env.new /opt/clawbot/config/.env
+    else
+      printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$TOKEN" >/opt/clawbot/config/.env
+    fi
   fi
   chown "${OPENCLAW_USER}:${OPENCLAW_USER}" /opt/clawbot/config/.env
   chmod 600 /opt/clawbot/config/.env

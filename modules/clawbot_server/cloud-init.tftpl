@@ -167,4 +167,4 @@ write_files:
 %{ endfor }
 
 runcmd:
-  - bash -lc "OPENCLAW_REPO_URL='${openclaw_repo_url}' OPENCLAW_IMAGE='localhost/openclaw:local' /usr/local/bin/openclaw-node-bootstrap-runner"
+  - bash -lc "OPENCLAW_REPO_URL='${openclaw_repo_url}' OPENCLAW_IMAGE='localhost/openclaw:local' OPENCLAW_GATEWAY_TOKEN='${openclaw_gateway_token}' /usr/local/bin/openclaw-node-bootstrap-runner"

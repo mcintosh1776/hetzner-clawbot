@@ -30,4 +30,5 @@ inputs = {
 
   public_ipv4_enabled = true
   public_ipv6_enabled = false
+  openclaw_gateway_token = get_env("OPENCLAW_GATEWAY_TOKEN", "")
 }

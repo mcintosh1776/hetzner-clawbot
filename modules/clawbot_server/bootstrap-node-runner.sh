@@ -33,6 +33,8 @@ if [ -z "$OPENCLAW_IMAGE" ]; then
   OPENCLAW_IMAGE="localhost/openclaw:local"
 fi
 
+OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
+
 BOOTSTRAP_MARKER="${BOOTSTRAP_MARKER:-}"
 if [ -z "$BOOTSTRAP_MARKER" ]; then
   BOOTSTRAP_MARKER="/var/lib/clawbot/bootstrap.done"
@@ -200,9 +202,23 @@ EOF
 chown "$OPENCLAW_USER:$OPENCLAW_USER" /opt/clawbot/config/openclaw.json
 chmod 600 /opt/clawbot/config/openclaw.json
 
-if [[ ! -f /opt/clawbot/config/.env ]]; then
+if [[ -n "$OPENCLAW_GATEWAY_TOKEN" ]]; then
+  TOKEN="$OPENCLAW_GATEWAY_TOKEN"
+elif [[ ! -f /opt/clawbot/config/.env ]] || \
+  ! awk -F= '/^OPENCLAW_GATEWAY_TOKEN=/{print $2; exit}' /opt/clawbot/config/.env | grep -q .; then
   TOKEN="$(openssl rand -hex 32 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)"
-  printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$TOKEN" >/opt/clawbot/config/.env
+else
+  TOKEN=""
+fi
+
+if [[ -n "$TOKEN" ]]; then
+  if [[ -f /opt/clawbot/config/.env ]]; then
+    awk -F= '!/^OPENCLAW_GATEWAY_TOKEN=/' /opt/clawbot/config/.env > /tmp/openclaw_env.new
+    printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$TOKEN" >> /tmp/openclaw_env.new
+    mv /tmp/openclaw_env.new /opt/clawbot/config/.env
+  else
+    printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$TOKEN" >/opt/clawbot/config/.env
+  fi
 fi
 chown "$OPENCLAW_USER:$OPENCLAW_USER" /opt/clawbot/config/.env
 chmod 600 /opt/clawbot/config/.env

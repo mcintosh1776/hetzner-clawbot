@@ -12,13 +12,15 @@ locals {
   rendered_cloud_init = trimspace(var.cloud_init) != "" ? var.cloud_init : templatefile(
     "${path.module}/cloud-init.tftpl",
     {
-      users                      = var.bootstrap_users
-      user_ssh_authorized_keys   = var.bootstrap_user_ssh_public_keys
-      enable_root_ssh            = var.enable_root_ssh
-      openclaw_repo_url          = var.openclaw_repo_url
-      bootstrap_runner_script     = local.bootstrap_runner_script
+      users                    = var.bootstrap_users
+      user_ssh_authorized_keys = var.bootstrap_user_ssh_public_keys
+      enable_root_ssh          = var.enable_root_ssh
+      openclaw_repo_url        = var.openclaw_repo_url
+      openclaw_gateway_token   = var.openclaw_gateway_token
+      bootstrap_runner_script  = local.bootstrap_runner_script
     }
   )
+  cloud_init_is_valid_yaml = can(yamldecode(local.rendered_cloud_init))
   ssh_key_names = distinct(concat(
     var.ssh_keys,
     [for key in hcloud_ssh_key.managed : key.name]
@@ -93,4 +95,11 @@ resource "hcloud_server" "clawbot" {
   firewall_ids = [hcloud_firewall.clawbot.id]
 
   user_data = var.enable_cloud_init ? local.rendered_cloud_init : ""
+
+  lifecycle {
+    precondition {
+      condition     = local.cloud_init_is_valid_yaml
+      error_message = "Rendered cloud-init is not valid YAML. Check modules/clawbot_server/cloud-init.tftpl for formatting issues."
+    }
+  }
 }
