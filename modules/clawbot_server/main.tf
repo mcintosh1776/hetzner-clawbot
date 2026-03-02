@@ -12,12 +12,16 @@ locals {
   rendered_cloud_init = trimspace(var.cloud_init) != "" ? var.cloud_init : templatefile(
     "${path.module}/cloud-init.tftpl",
     {
-      users                    = var.bootstrap_users
-      user_ssh_authorized_keys = var.bootstrap_user_ssh_public_keys
-      enable_root_ssh          = var.enable_root_ssh
-      openclaw_repo_url        = var.openclaw_repo_url
-      openclaw_gateway_token   = var.openclaw_gateway_token
-      bootstrap_runner_script  = local.bootstrap_runner_script
+      users                       = var.bootstrap_users
+      user_ssh_authorized_keys    = var.bootstrap_user_ssh_public_keys
+      enable_root_ssh             = var.enable_root_ssh
+      openclaw_repo_url           = var.openclaw_repo_url
+      openclaw_gateway_token      = var.openclaw_gateway_token
+      openclaw_opt_volume_enabled = var.opt_volume_enabled
+      openclaw_opt_volume_fstype  = var.opt_volume_fstype
+      openclaw_opt_volume_id      = var.opt_volume_enabled ? hcloud_volume.opt[0].id : ""
+      openclaw_opt_volume_name    = var.opt_volume_enabled ? hcloud_volume.opt[0].name : ""
+      bootstrap_runner_script     = local.bootstrap_runner_script
     }
   )
   cloud_init_is_valid_yaml = can(yamldecode(local.rendered_cloud_init))
@@ -72,6 +76,21 @@ resource "hcloud_firewall" "clawbot" {
     destination_ips = ["0.0.0.0/0", "::/0"]
     description     = "Allow outbound ICMP for ${var.name}"
   }
+}
+
+resource "hcloud_volume" "opt" {
+  count    = var.opt_volume_enabled ? 1 : 0
+  name     = "${var.name}-opt"
+  size     = var.opt_volume_size_gb
+  location = var.location
+  format   = var.opt_volume_fstype
+}
+
+resource "hcloud_volume_attachment" "opt" {
+  count = var.opt_volume_enabled ? 1 : 0
+
+  volume_id = hcloud_volume.opt[count.index].id
+  server_id = hcloud_server.clawbot.id
 }
 
 resource "hcloud_server" "clawbot" {

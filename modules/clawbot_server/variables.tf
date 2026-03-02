@@ -101,3 +101,26 @@ variable "openclaw_gateway_token" {
   default     = ""
   sensitive   = true
 }
+
+variable "opt_volume_enabled" {
+  type        = bool
+  description = "Whether to attach and mount a persistent /opt data volume."
+  default     = true
+}
+
+variable "opt_volume_size_gb" {
+  type        = number
+  description = "Persistent /opt volume size in GiB."
+  default     = 10
+
+  validation {
+    condition     = var.opt_volume_size_gb > 0
+    error_message = "opt_volume_size_gb must be greater than 0."
+  }
+}
+
+variable "opt_volume_fstype" {
+  type        = string
+  description = "Filesystem type for the persistent /opt volume."
+  default     = "ext4"
+}

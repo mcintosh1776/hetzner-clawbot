@@ -14,6 +14,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Removed
 
+## [0.7.6] - 2026-03-02
+
+### Added
+
+- Added optional persistent `/opt` volume support for OpenClaw stacks with dedicated inputs for enablement, size, and filesystem.
+- Added a dedicated cloud-init mount script (`openclaw-mount-opt-volume`) to attach and mount the Hetzner volume on `/opt` and persist the mount via `/etc/fstab`.
+- Added README guidance for rebuild-only workflows while preserving `/opt`, including boot/service checks and canary file validation.
+
+### Changed
+
+- Wired persistent-volume metadata into bootstrap templating (`id`, `name`, filesystem) so re-attachment survives server taint/rebuild cycles.
+- Improved bootstrap sequencing with explicit waits for:
+  - system boot settle,
+  - SSH listener readiness,
+  - rootless user bus availability,
+  - image build availability,
+  - openclaw service active state.
+- Updated openclaw service enable/restart behavior to avoid transient-generator errors from `systemctl --user enable` with quadlet-generated units.
+- Made token resolution deterministic during bootstrap:
+  - reuse existing `/opt/clawbot/config/.env` token when present,
+  - preserve user-supplied `OPENCLAW_GATEWAY_TOKEN` when provided,
+  - avoid unnecessary token churn across rebuilds.
+
+### Fixed
+
+- Fixed an intermittent race during first boot where rootless bootstrap proceeded before system/runtime stabilization.
+- Fixed gateway token persistence ambiguity by ensuring token source is explicit and `.env` ownership/mode is consistently enforced for `openclaw` user operations.
+- Fixed bootstrap runner re-entry behavior to validate and restart `openclaw.service` when marker exists but service is inactive.
+
+### Removed
+
+- Removed the previous implicit assume-mounted `/opt` behavior in favor of explicit persistent-volume detection and mount validation.
+
 ## [0.7.5] - 2026-03-02
 
 ### Added

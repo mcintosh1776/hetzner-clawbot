@@ -56,6 +56,37 @@ To avoid token mismatch after a rebuild:
 
 If you accidentally rebuild without passing a token and the existing `/opt/clawbot/config/.env` is missing, bootstrap will generate a new one.
 
+## Rebuild only the server while keeping `/opt` persistent
+
+To recycle just the VM and keep `/opt` data on disk:
+
+```bash
+cd live/prod/fsn1/clawbot
+terragrunt init
+terragrunt taint hcloud_server.clawbot
+terragrunt apply
+```
+
+Why this works:
+
+- `/opt` is a separate `hcloud_volume` (`hcloud_volume.opt`) and is not replaced when only `hcloud_server.clawbot` is tainted.
+- Terraform reattaches that same volume via `hcloud_volume_attachment.opt` after the new server is created.
+- Cloud-init mounts the attached volume to `/opt` during boot (`openclaw-mount-opt-volume`), so your prior token/config/logs under `/opt/clawbot` are preserved.
+
+Post-rebuild check:
+
+- `openclaw-ctl status`
+- `openclaw-ctl ps`
+- `sudo -u openclaw cat /opt/clawbot/config/.env`
+- Optionally create and confirm a canary file to verify persistent mount:
+
+  ```bash
+  sudo -u openclaw bash -lc 'touch /opt/clawbot/config/test && echo ok >/opt/clawbot/config/test'
+  ```
+
+  After a server rebuild (`taint` + `apply`), rerun:
+  - `sudo -u openclaw bash -lc 'cat /opt/clawbot/config/test'`
+
 ## Node helper
 
 The bootstrap writes `/usr/local/bin/openclaw-ctl` on the node for common checks:
@@ -65,6 +96,11 @@ The bootstrap writes `/usr/local/bin/openclaw-ctl` on the node for common checks
 - `openclaw-ctl token` (prints `/opt/clawbot/config/.env`)
 - `openclaw-ctl health` (HTTP check against `127.0.0.1:18789`)
 - `openclaw-ctl` is helpful for post-rebuild validation while avoiding manual context setup.
+- Approve the latest pairing request from the latest device:
+
+  ```bash
+  sudo -u openclaw bash -lc 'cd /home/openclaw && podman exec -it openclaw node dist/index.js devices approve --latest'
+  ```
 
 ## Useful paths on the node
 
