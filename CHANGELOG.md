@@ -10,17 +10,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 
- - Added a Terraform precondition guard that validates rendered cloud-init YAML at plan/apply time before server replacement.
- - SSH hardening now enables TCP forwarding explicitly while keeping forwarding controls explicit (`AllowTcpForwarding yes`, `DisableForwarding no`) in both Terraform cloud-init and the standalone bootstrap script.
- - OpenClaw quadlet template now defaults to LAN binding for container UI access (`--bind lan`) and writes `allowedOrigins` in `openclaw.json`:
-   - `http://127.0.0.1:18789`
-   - `http://localhost:18789`
- - Cloud-init openclaw config template now writes valid JSON without escaped quote characters so `openclaw.json` is parseable by the gateway.
-
 ### Fixed
 
 ### Removed
+
+## [0.7.5] - 2026-03-02
+
+### Added
+
+- Added a Terraform precondition guard that validates rendered cloud-init YAML at plan/apply time before server replacement.
+- SSH hardening now enables TCP forwarding explicitly while keeping forwarding controls explicit (`AllowTcpForwarding yes`, `DisableForwarding no`) in both Terraform cloud-init and the standalone bootstrap script.
+
+### Changed
+
+- OpenClaw quadlet template now defaults to LAN binding for container UI access (`--bind lan`) and writes `allowedOrigins` in `openclaw.json`:
+  - `http://127.0.0.1:18789`
+  - `http://localhost:18789`
+- Cloud-init OpenClaw config now writes valid JSON without escaped quote characters so `openclaw.json` is parseable by the gateway.
+- Added explicit runtime ownership/setup checks and stronger guard rails during bootstrap for rootless Podman environments.
+
+### Fixed
+
+- Fixed command-output and context issues in automation that affected diagnostics when checking rootless Podman/user-unit state from remote sessions.
+- Fixed bootstrap and hardening path to keep host key/SSH behavior stable across server replacement cycles.
+
+### Removed
+
 - Removed Docker and docker-compose from cloud-init package set; podman remains the supported container runtime on provisioned nodes.
+
 
 ## [0.7.3] - 2026-03-01
 
