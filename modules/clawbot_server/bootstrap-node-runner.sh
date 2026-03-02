@@ -35,6 +35,7 @@ fi
 
 OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
 OPENCLAW_REQUIRE_OPT_VOLUME="${OPENCLAW_REQUIRE_OPT_VOLUME:-false}"
+OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 
 BOOTSTRAP_MARKER="${BOOTSTRAP_MARKER:-}"
 if [ -z "$BOOTSTRAP_MARKER" ]; then
@@ -297,6 +298,8 @@ set -euo pipefail
 OPENCLAW_USER="${OPENCLAW_USER:-openclaw}"
 OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 RUNTIME_DIR="/run/user/$OPENCLAW_UID"
+OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
+AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR}"
 
 usage() {
   cat <<'USAGE'
@@ -312,6 +315,8 @@ commands:
   journal       show service journal (user journal)
   health        run local gateway health request
   token         print OPENCLAW_GATEWAY_TOKEN file
+  agents        list files under agent-config
+  agent-config  print a specific agent config file (relative path required)
   help          print this help
 USAGE
 }
@@ -349,6 +354,21 @@ case "${1:-status}" in
   token)
     run_as_openclaw "cat /opt/clawbot/config/.env"
     ;;
+  agents)
+    run_as_openclaw "find \"$AGENT_CONFIG_DIR\" -maxdepth 3 -type f | sort"
+    ;;
+  agent-config)
+    if [[ -z "${2:-}" ]]; then
+      echo "agent-config requires a relative path under ${AGENT_CONFIG_DIR}" >&2
+      exit 2
+    fi
+    agent_config_path="${2//\"/}"
+    if [[ "$agent_config_path" == /* || "$agent_config_path" == *".."* ]]; then
+      echo "agent-config path must be a relative path under ${AGENT_CONFIG_DIR} and must not contain traversal segments." >&2
+      exit 2
+    fi
+    run_as_openclaw "cat \"$AGENT_CONFIG_DIR/$agent_config_path\""
+    ;;
   help|-h|--help)
     usage
     ;;
@@ -356,7 +376,7 @@ case "${1:-status}" in
     echo "unknown command: $1" >&2
     usage
     exit 2
-    ;;
+  ;;
 esac
 EOF
 
@@ -379,6 +399,140 @@ OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 assert_opt_volume_mount
 run_step "Prepare bootstrap directories" bash -lc "mkdir -p '$OPENCLAW_PARENT_DIR' /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state '/home/$OPENCLAW_USER/.config/containers/systemd' && chown -R '$OPENCLAW_USER:$OPENCLAW_USER' '/home/$OPENCLAW_USER' '/home/$OPENCLAW_USER/.config/containers/systemd' /opt/clawbot && chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state"
 ensure_gateway_token
+
+if [[ ! -d "$OPENCLAW_AGENT_CONFIG_DIR" ]]; then
+  run_step "Prepare default agent config templates" bash -lc "mkdir -p '$OPENCLAW_AGENT_CONFIG_DIR/orchestrator' '$OPENCLAW_AGENT_CONFIG_DIR/specialists'"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" <<EOF
+orchestrator:
+  role: generic-orchestrator
+  objective: |
+    Coordinate specialist agents and route requests based on user intent and
+    operational context.
+  escalation_rules:
+    - only escalate to specialist agents when clear ownership boundaries exist
+    - require explicit confirmation for destructive operations
+    - keep audit trail for important state changes
+
+specialists:
+  - name: podcast_media
+    role: podcast operations & media engineering
+    primary_tasks:
+      - content planning and scheduling
+      - production runbook generation
+      - media tooling workflow for recordings
+    token: podcast-media
+  - name: research
+    role: market and feature research
+    primary_tasks:
+      - external data gathering
+      - competitive analysis
+      - concise evidence-based recommendations
+    token: research
+  - name: business
+    role: business operations and process support
+    primary_tasks:
+      - process design and tracking
+      - planning and prioritization
+      - operational communication
+    token: business
+EOF
+
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" <<'EOF'
+# Orchestrator policy
+
+## Purpose
+
+The orchestrator is a coordination role, not a domain-specific implementation
+specialist. It owns task routing and handoff, while keeping specialist roles
+focused and accountable.
+
+## Principles
+
+1. Route to the minimal specialist needed for each request.
+2. Preserve context and constraints in task handoff notes.
+3. Never let a specialist perform actions outside its defined scope.
+4. Ask for confirmation for actions that modify infrastructure or secrets.
+
+## Default routing logic
+
+- If request is creative workflow support for a show or media artifacts, route to `podcast_media`.
+- If request is evidence gathering, fact checking, or comparison work, route to `research`.
+- If request is commercial, planning, or operations, route to `business`.
+- Otherwise, keep handling in orchestrator context and ask for clarification.
+EOF
+
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" <<'EOF'
+# Specialist: podcast_media
+
+## Scope
+
+- Build and maintain podcast show operations workflows.
+- Manage media production tasks and checklists.
+- Suggest run plans for recording, post-production, and episode ops.
+
+## Constraints
+
+- No infrastructure changes.
+- Do not approve external dependencies or credentials.
+- Only propose high-confidence, low-risk operations by default.
+EOF
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" <<'EOF'
+# Specialist: research
+
+## Scope
+
+- Gather evidence and evaluate alternatives.
+- Summarize findings with sources and confidence.
+- Produce concise recommendations and trade-offs.
+
+## Constraints
+
+- Keep recommendations scoped and avoid implementation details outside your domain.
+- Report uncertainty and assumptions clearly.
+EOF
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" <<'EOF'
+# Specialist: business
+
+## Scope
+
+- Support planning, operations, and process hygiene.
+- Track priorities and convert broad goals into practical execution plans.
+- Maintain a concise summary of business-facing risks and dependencies.
+
+## Constraints
+
+- Do not publish external statements without confirmation.
+- Ask before making schedule or policy changes that affect external visibility.
+EOF
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md"
+fi
+
+chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
+chmod 750 "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
 
 if [[ -f "$BOOTSTRAP_MARKER" ]]; then
   write_openclaw_ctl

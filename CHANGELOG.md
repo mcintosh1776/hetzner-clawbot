@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- Added default generic orchestrator/specialist configuration scaffolding for OpenClaw:
+  - seeded `/opt/clawbot/config/agent-config/agent-fleet.yaml`
+  - seeded `/opt/clawbot/config/agent-config/orchestrator/policy.md`
+  - seeded specialist files for podcast_media, research, and business under
+    `/opt/clawbot/config/agent-config/specialists`
+- Added `openclaw-ctl` subcommands:
+  - `agents` to list available agent config files
+  - `agent-config <relative-path>` to view a specific config file
+
 ### Changed
 
 ### Fixed

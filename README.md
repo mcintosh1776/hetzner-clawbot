@@ -100,6 +100,35 @@ The bootstrap writes `/usr/local/bin/openclaw-ctl` on the node for common checks
 
   ```bash
   sudo -u openclaw bash -lc 'cd /home/openclaw && podman exec -it openclaw node dist/index.js devices approve --latest'
+
+## Agent configuration layout
+
+OpenClaw has been treated as a generic orchestrator with specialist role files
+stored on the persistent `/opt` volume so the setup survives server replacement:
+
+- `/opt/clawbot/config/agent-config/agent-fleet.yaml`
+- `/opt/clawbot/config/agent-config/orchestrator/policy.md`
+- `/opt/clawbot/config/agent-config/specialists/podcast_media.md`
+- `/opt/clawbot/config/agent-config/specialists/research.md`
+- `/opt/clawbot/config/agent-config/specialists/business.md`
+
+Bootstrap seeds these files on first boot and preserves them on subsequent runs.
+Use this layout as your source of truth for role behavior and routing policy.
+
+Useful check commands:
+
+- `openclaw-ctl agents`  
+  list all seeded files in `/opt/clawbot/config/agent-config`
+- `openclaw-ctl agent-config orchestrator/policy.md`  
+  print orchestrator policy
+- `openclaw-ctl agent-config specialists/research.md`  
+  print research specialist policy
+- `sudo -u openclaw bash -lc 'cat /opt/clawbot/config/agent-config/agent-fleet.yaml'`  
+  view role map directly
+
+You can replace these files with your own routing and role definitions at any time.
+The files are mounted under `/opt`, so they are preserved by the `/opt` rebalance
+workflow (`hcloud_volume.opt` + taint/rebuild on `hcloud_server.clawbot`).
   ```
 
 ## Useful paths on the node
