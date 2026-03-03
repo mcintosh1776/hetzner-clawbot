@@ -158,142 +158,50 @@ write_files:
       [Install]
       WantedBy=default.target
 
-%{ if openclaw_opt_volume_enabled ~}
-  - path: /usr/local/bin/openclaw-mount-opt-volume
+  - path: /usr/local/bin/openclaw-bootstrap-fetch
     owner: root:root
     permissions: '0755'
     content: |
       #!/usr/bin/env bash
       set -euo pipefail
-      log() { echo "[openclaw-mount-opt-volume] $*"; }
-      get_mount_source() {
-        findmnt -n -o SOURCE "$1" 2>/dev/null || true
-      }
 
-      OPT_MOUNT_POINT="/opt"
-      OPT_VOLUME_FSTYPE="${openclaw_opt_volume_fstype}"
-      OPENCLAW_OPT_VOLUME_DEVICE="$${OPENCLAW_OPT_VOLUME_DEVICE:-}"
-      OPENCLAW_OPT_VOLUME_ID="${openclaw_opt_volume_id}"
-      OPENCLAW_OPT_VOLUME_NAME="${openclaw_opt_volume_name}"
-      OPENCLAW_OPT_VOLUME_WAIT_SECONDS="$${OPENCLAW_OPT_VOLUME_WAIT_SECONDS:-180}"
-
-      if mountpoint -q "$OPT_MOUNT_POINT"; then
-        current_source="$(get_mount_source "$OPT_MOUNT_POINT")"
-        if [ -n "$current_source" ] && [[ "$current_source" != /dev/disk/by-id/scsi-0HC_Volume_* && "$current_source" != /dev/mapper/* ]]; then
-          log "ERROR: /opt is already mounted from $current_source; expected a persistent OpenClaw volume."
-          exit 1
-        fi
-        log "/opt already mounted from $current_source; skipping volume mount."
-        exit 0
+      destination="$${1:-/usr/local/bin/openclaw-node-bootstrap-runner}"
+      if [[ -z "$${OPENCLAW_BOOTSTRAP_RUNNER_URL:-}" ]]; then
+        echo "OPENCLAW_BOOTSTRAP_RUNNER_URL is not set." >&2
+        exit 1
       fi
 
-      if [ ! -d "$OPT_MOUNT_POINT" ]; then
-        mkdir -p "$OPT_MOUNT_POINT"
-      fi
-
-      VOLUME_DEVICE=""
-      ATTEMPT_SLEEP=3
-
-      candidates=()
-      if [ -n "$OPENCLAW_OPT_VOLUME_DEVICE" ]; then
-        candidates+=("$OPENCLAW_OPT_VOLUME_DEVICE")
-      fi
-      if [ -n "$OPENCLAW_OPT_VOLUME_ID" ]; then
-        candidates+=("/dev/disk/by-id/scsi-0HC_Volume_$${OPENCLAW_OPT_VOLUME_ID}")
-      fi
-      if [ -n "$OPENCLAW_OPT_VOLUME_NAME" ]; then
-        candidates+=("/dev/disk/by-id/scsi-0HC_Volume_$${OPENCLAW_OPT_VOLUME_NAME}")
-      fi
-      candidates+=("/dev/disk/by-id/scsi-0HC_Volume_*")
-
-      find_opt_volume() {
-        for candidate in $${candidates[*]}; do
-          shopt -s nullglob
-          for resolved in $candidate; do
-            if [ -b "$resolved" ]; then
-              echo "$resolved"
-              return 0
-            fi
-          done
-          shopt -u nullglob
-        done
-        return 1
-      }
-
-      if [ -z "$VOLUME_DEVICE" ] && [ -n "$OPENCLAW_OPT_VOLUME_WAIT_SECONDS" ]; then
-        if ! [[ "$OPENCLAW_OPT_VOLUME_WAIT_SECONDS" =~ ^[0-9]+$ ]]; then
-          OPENCLAW_OPT_VOLUME_WAIT_SECONDS=180
-        fi
-
-        ATTEMPTS=$((OPENCLAW_OPT_VOLUME_WAIT_SECONDS / ATTEMPT_SLEEP))
-
-        for _ in $(seq 1 "$ATTEMPTS"); do
-          if VOLUME_DEVICE="$(find_opt_volume)"; then
-            break
-          fi
-          echo "Waiting for persistent /opt volume to attach (attempt $_/$ATTEMPTS)..."
-          sleep "$ATTEMPT_SLEEP"
-        done
+      if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$${OPENCLAW_BOOTSTRAP_RUNNER_URL}" -o "$$destination"
+      elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$$destination" "$${OPENCLAW_BOOTSTRAP_RUNNER_URL}"
       else
-        VOLUME_DEVICE="$(find_opt_volume || true)"
-      fi
-
-      if [ -z "$VOLUME_DEVICE" ]; then
-        log "ERROR: No detachable data volume was found for /opt."
+        echo "Missing curl/wget for bootstrap fetch." >&2
         exit 1
       fi
-
-      if [ ! -b "$VOLUME_DEVICE" ]; then
-        log "ERROR: Expected a block device for /opt at $VOLUME_DEVICE, got non-block target."
-        exit 1
-      fi
-
-      if ! blkid -o value -s TYPE "$VOLUME_DEVICE" >/dev/null 2>&1; then
-        log "Formatting $VOLUME_DEVICE with $OPT_VOLUME_FSTYPE."
-        mkfs -t "$OPT_VOLUME_FSTYPE" -F "$VOLUME_DEVICE"
-      fi
-
-      VOLUME_UUID="$(blkid -o value -s UUID "$VOLUME_DEVICE" || true)"
-      if [ -z "$VOLUME_UUID" ]; then
-        log "Unable to determine UUID for $VOLUME_DEVICE; mounting without fstab entry."
-        if ! mount "$VOLUME_DEVICE" "$OPT_MOUNT_POINT"; then
-          log "ERROR: Failed to mount $VOLUME_DEVICE on $OPT_MOUNT_POINT."
-          exit 1
-        fi
-        if ! mountpoint -q "$OPT_MOUNT_POINT"; then
-          log "ERROR: mount of $VOLUME_DEVICE on $OPT_MOUNT_POINT did not complete."
-          exit 1
-        fi
-        exit 0
-      fi
-
-      if ! grep -q "UUID=$VOLUME_UUID $OPT_MOUNT_POINT " /etc/fstab; then
-        log "Recording UUID mount for $VOLUME_DEVICE in /etc/fstab."
-        echo "UUID=$VOLUME_UUID $OPT_MOUNT_POINT $OPT_VOLUME_FSTYPE defaults,noatime 0 2" >> /etc/fstab
-      fi
-
-      if ! mount "$OPT_MOUNT_POINT"; then
-        log "ERROR: mount -a by /opt failed."
-        exit 1
-      fi
-      if ! mountpoint -q "$OPT_MOUNT_POINT"; then
-        log "ERROR: /opt is still not mounted after mount operation."
-        exit 1
-      fi
-      log "Mounted persistent /opt volume from $VOLUME_DEVICE."
-
-%{ endif ~}
-
-  - path: /usr/local/bin/openclaw-node-bootstrap-runner
-    owner: root:root
-    permissions: '0755'
-    content: |
-%{ for script_line in split("\n", bootstrap_runner_script) }
-      ${script_line}
-%{ endfor }
+      chmod 0755 "$$destination"
 
 runcmd:
-%{ if openclaw_opt_volume_enabled ~}
-  - OPENCLAW_OPT_VOLUME_WAIT_SECONDS=300 /usr/local/bin/openclaw-mount-opt-volume
-%{ endif ~}
-  - bash -lc "OPENCLAW_REPO_URL='${openclaw_repo_url}' OPENCLAW_IMAGE='localhost/openclaw:local' OPENCLAW_GATEWAY_TOKEN='${openclaw_gateway_token}' OPENCLAW_REQUIRE_OPT_VOLUME='${openclaw_opt_volume_enabled}' /usr/local/bin/openclaw-node-bootstrap-runner"
+  - |
+    OPENCLAW_BOOTSTRAP_RUNNER_URL='${openclaw_bootstrap_runner_url}'
+    if [ -n "$${OPENCLAW_BOOTSTRAP_RUNNER_URL}" ]; then
+      OPENCLAW_BOOTSTRAP_RUNNER_URL="$OPENCLAW_BOOTSTRAP_RUNNER_URL" \
+        /usr/local/bin/openclaw-bootstrap-fetch \
+        || true
+    fi
+
+    OPENCLAW_REPO_URL='${openclaw_repo_url}'
+    OPENCLAW_IMAGE='localhost/openclaw:local'
+    OPENCLAW_GATEWAY_TOKEN='${openclaw_gateway_token}'
+    OPENCLAW_REQUIRE_OPT_VOLUME='${openclaw_opt_volume_enabled}'
+    OPENCLAW_OPT_VOLUME_FSTYPE='${openclaw_opt_volume_fstype}'
+    OPENCLAW_OPT_VOLUME_ID='${openclaw_opt_volume_id}'
+    OPENCLAW_OPT_VOLUME_NAME='${openclaw_opt_volume_name}'
+    OPENCLAW_OPT_VOLUME_WAIT_SECONDS=300
+
+    if [ ! -x /usr/local/bin/openclaw-node-bootstrap-runner ]; then
+      printf '%s' '${openclaw_bootstrap_runner_script}' | base64 -d | gzip -dc > /usr/local/bin/openclaw-node-bootstrap-runner
+      chmod 0755 /usr/local/bin/openclaw-node-bootstrap-runner
+    fi
+
+    /usr/local/bin/openclaw-node-bootstrap-runner

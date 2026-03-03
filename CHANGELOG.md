@@ -7,21 +7,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- _None yet._
 
-- Added default generic orchestrator/specialist configuration scaffolding for OpenClaw:
-  - seeded `/opt/clawbot/config/agent-config/agent-fleet.yaml`
-  - seeded `/opt/clawbot/config/agent-config/orchestrator/policy.md`
-  - seeded specialist files for podcast_media, research, and business under
-    `/opt/clawbot/config/agent-config/specialists`
-- Added `openclaw-ctl` subcommands:
-  - `agents` to list available agent config files
-  - `agent-config <relative-path>` to view a specific config file
+### Changed
+- _None yet._
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.8] - 2026-03-03
+
+### Added
+
+- Added explicit OpenClaw agent scaffolding naming and behavior changes:
+  - `agent-fleet.yaml` now seeds the orchestrator as `bucket-of-bits-orchestrator`
+    with aliases `bob`/`bucket-of-bits`.
+  - Specialist defaults are now `stacks`, `jennifer`, and `steve`.
+  - Added README documentation for the new specialist scope (including media clips,
+    announcements, and on-air participation for Stacks).
+- Added `openclaw-ctl` helper subcommands for agent-config inspection:
+  - `agents` lists files under `/opt/clawbot/config/agent-config`.
+  - `agent-config <relative-path>` prints a selected seed file content.
 
 ### Changed
 
+- Moved OpenClaw bootstrap script handling to a fetch-and-fallback model in cloud-init:
+  - cloud-init now fetches `/usr/local/bin/openclaw-node-bootstrap-runner` from
+    `openclaw_bootstrap_runner_url` when provided.
+  - falls back to embedded compressed runner script (`openclaw_bootstrap_runner_script`).
+  - reduced early reliance on long inline heredocs in cloud-init.
+- Default filesystem for persistent `/opt` volume is now `xfs`.
+- Bootstrapping now passes explicit `/opt` volume metadata and mount settings to the runner:
+  - `OPENCLAW_OPT_VOLUME_FSTYPE`
+  - `OPENCLAW_OPT_VOLUME_ID`
+  - `OPENCLAW_OPT_VOLUME_NAME`
+  - `OPENCLAW_OPT_VOLUME_WAIT_SECONDS`
+
 ### Fixed
 
+- Fixed brittle cloud-init embedding behavior by simplifying bootstrap runner delivery and
+  preserving prior behavior when fetch source is unavailable.
+- Updated README and seeded policy/docs examples to remove stale specialist names.
+
 ### Removed
+
+- Removed previous default specialist naming (`podcast_media`, `research`, `business`)
+  from seeded scaffolding and documentation.
 
 ## [0.7.6] - 2026-03-02
 

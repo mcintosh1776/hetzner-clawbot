@@ -32,4 +32,5 @@ inputs = {
   public_ipv6_enabled = false
   openclaw_gateway_token = get_env("OPENCLAW_GATEWAY_TOKEN", "")
   opt_volume_size_gb = 10
+  opt_volume_fstype = "xfs"
 }

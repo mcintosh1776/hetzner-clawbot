@@ -102,6 +102,12 @@ variable "openclaw_gateway_token" {
   sensitive   = true
 }
 
+variable "openclaw_bootstrap_runner_url" {
+  type        = string
+  description = "URL of the bootstrap runner script downloaded during cloud-init."
+  default     = ""
+}
+
 variable "opt_volume_enabled" {
   type        = bool
   description = "Whether to attach and mount a persistent /opt data volume."
@@ -122,5 +128,5 @@ variable "opt_volume_size_gb" {
 variable "opt_volume_fstype" {
   type        = string
   description = "Filesystem type for the persistent /opt volume."
-  default     = "ext4"
+  default     = "xfs"
 }

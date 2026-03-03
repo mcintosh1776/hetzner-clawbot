@@ -100,6 +100,7 @@ The bootstrap writes `/usr/local/bin/openclaw-ctl` on the node for common checks
 
   ```bash
   sudo -u openclaw bash -lc 'cd /home/openclaw && podman exec -it openclaw node dist/index.js devices approve --latest'
+  ```
 
 ## Agent configuration layout
 
@@ -108,12 +109,52 @@ stored on the persistent `/opt` volume so the setup survives server replacement:
 
 - `/opt/clawbot/config/agent-config/agent-fleet.yaml`
 - `/opt/clawbot/config/agent-config/orchestrator/policy.md`
-- `/opt/clawbot/config/agent-config/specialists/podcast_media.md`
-- `/opt/clawbot/config/agent-config/specialists/research.md`
-- `/opt/clawbot/config/agent-config/specialists/business.md`
+- `/opt/clawbot/config/agent-config/specialists/stacks.md`
+- `/opt/clawbot/config/agent-config/specialists/jennifer.md`
+- `/opt/clawbot/config/agent-config/specialists/steve.md`
 
 Bootstrap seeds these files on first boot and preserves them on subsequent runs.
 Use this layout as your source of truth for role behavior and routing policy.
+
+`agent-fleet.yaml` is the top-level manifest and works as a role map:
+
+```yaml
+orchestrator:
+  role: bucket-of-bits-orchestrator
+
+specialists:
+  - name: stacks
+    role: show production and media operations (announcements, clips, on-air support)
+    token: stacks
+  - name: jennifer
+    role: research and recommendations
+    token: jennifer
+  - name: steve
+    role: engineering implementation
+    token: steve
+```
+
+Seeded specialist intent (for quick reference):
+
+- `stacks`
+  - podcast production and media operations
+  - content planning/scheduling
+  - recording + post-production runbook support
+  - episode announcement/social media posting
+  - short clip selection/pipeline for highlights
+  - support on-air participation with co-host prep
+- `jennifer`
+  - external research and evidence gathering
+  - comparison/evaluation and recommendations
+  - clear assumptions and confidence framing
+- `steve`
+  - implementation design/review guidance
+  - build/test support and troubleshooting hints
+  - automation/tooling suggestions with rollback-friendly scope
+
+You can add/remove specialist files and update `agent-fleet.yaml` at any time.
+The bootstrap copies defaults only if files are missing, so your edits persist
+across rebuilds on the same `/opt` volume.
 
 Useful check commands:
 
@@ -121,15 +162,18 @@ Useful check commands:
   list all seeded files in `/opt/clawbot/config/agent-config`
 - `openclaw-ctl agent-config orchestrator/policy.md`  
   print orchestrator policy
-- `openclaw-ctl agent-config specialists/research.md`  
+- `openclaw-ctl agent-config specialists/jennifer.md`  
   print research specialist policy
+- `openclaw-ctl agent-config specialists/stacks.md`  
+  print current podcast/media specialist policy
+- `openclaw-ctl agent-config specialists/steve.md`  
+  print current coding/capability specialist policy
 - `sudo -u openclaw bash -lc 'cat /opt/clawbot/config/agent-config/agent-fleet.yaml'`  
   view role map directly
 
 You can replace these files with your own routing and role definitions at any time.
 The files are mounted under `/opt`, so they are preserved by the `/opt` rebalance
 workflow (`hcloud_volume.opt` + taint/rebuild on `hcloud_server.clawbot`).
-  ```
 
 ## Useful paths on the node
 

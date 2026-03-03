@@ -8,20 +8,21 @@ terraform {
 }
 
 locals {
-  bootstrap_runner_script = file("${path.module}/bootstrap-node-runner.sh")
+  bootstrap_runner_script = base64gzip(file("${path.module}/bootstrap-node-runner.sh"))
   rendered_cloud_init = trimspace(var.cloud_init) != "" ? var.cloud_init : templatefile(
     "${path.module}/cloud-init.tftpl",
     {
-      users                       = var.bootstrap_users
-      user_ssh_authorized_keys    = var.bootstrap_user_ssh_public_keys
-      enable_root_ssh             = var.enable_root_ssh
-      openclaw_repo_url           = var.openclaw_repo_url
-      openclaw_gateway_token      = var.openclaw_gateway_token
-      openclaw_opt_volume_enabled = var.opt_volume_enabled
-      openclaw_opt_volume_fstype  = var.opt_volume_fstype
-      openclaw_opt_volume_id      = var.opt_volume_enabled ? hcloud_volume.opt[0].id : ""
-      openclaw_opt_volume_name    = var.opt_volume_enabled ? hcloud_volume.opt[0].name : ""
-      bootstrap_runner_script     = local.bootstrap_runner_script
+      users                            = var.bootstrap_users
+      user_ssh_authorized_keys         = var.bootstrap_user_ssh_public_keys
+      enable_root_ssh                  = var.enable_root_ssh
+      openclaw_repo_url                = var.openclaw_repo_url
+      openclaw_gateway_token           = var.openclaw_gateway_token
+      openclaw_opt_volume_enabled      = var.opt_volume_enabled
+      openclaw_opt_volume_fstype       = var.opt_volume_fstype
+      openclaw_opt_volume_id           = var.opt_volume_enabled ? hcloud_volume.opt[0].id : ""
+      openclaw_opt_volume_name         = var.opt_volume_enabled ? hcloud_volume.opt[0].name : ""
+      openclaw_bootstrap_runner_url    = var.openclaw_bootstrap_runner_url
+      openclaw_bootstrap_runner_script = local.bootstrap_runner_script
     }
   )
   cloud_init_is_valid_yaml = can(yamldecode(local.rendered_cloud_init))

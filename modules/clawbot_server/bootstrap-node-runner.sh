@@ -35,6 +35,11 @@ fi
 
 OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
 OPENCLAW_REQUIRE_OPT_VOLUME="${OPENCLAW_REQUIRE_OPT_VOLUME:-false}"
+OPENCLAW_OPT_VOLUME_FSTYPE="${OPENCLAW_OPT_VOLUME_FSTYPE:-xfs}"
+OPENCLAW_OPT_VOLUME_DEVICE="${OPENCLAW_OPT_VOLUME_DEVICE:-}"
+OPENCLAW_OPT_VOLUME_ID="${OPENCLAW_OPT_VOLUME_ID:-}"
+OPENCLAW_OPT_VOLUME_NAME="${OPENCLAW_OPT_VOLUME_NAME:-}"
+OPENCLAW_OPT_VOLUME_WAIT_SECONDS="${OPENCLAW_OPT_VOLUME_WAIT_SECONDS:-180}"
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 
 BOOTSTRAP_MARKER="${BOOTSTRAP_MARKER:-}"
@@ -212,15 +217,127 @@ ensure_gateway_token() {
   log "Resolved gateway token from ${source}. Existing token present: $( [[ -n "$current_token" ]] && echo yes || echo no )"
 }
 
-assert_opt_volume_mount() {
+mount_opt_volume_if_needed() {
   if [[ "$OPENCLAW_REQUIRE_OPT_VOLUME" != "true" ]]; then
     return 0
   fi
 
-  if ! mountpoint -q /opt; then
-    log "Persistent /opt volume is required but /opt is not mounted."
+  local mount_point="/opt"
+  local volume_device=""
+  local attempt_sleep=3
+  local candidates
+  local attempts
+  local attempts_taken=0
+  local i
+  local volume_uuid
+  local volume_fstype
+  local mount_fstype
+
+  if mountpoint -q "$mount_point"; then
+    return 0
+  fi
+
+  mkdir -p "$mount_point"
+
+  candidates=()
+  if [[ -n "$OPENCLAW_OPT_VOLUME_DEVICE" ]]; then
+    candidates+=("$OPENCLAW_OPT_VOLUME_DEVICE")
+  fi
+  if [[ -n "$OPENCLAW_OPT_VOLUME_ID" ]]; then
+    candidates+=("/dev/disk/by-id/scsi-0HC_Volume_${OPENCLAW_OPT_VOLUME_ID}")
+  fi
+  if [[ -n "$OPENCLAW_OPT_VOLUME_NAME" ]]; then
+    candidates+=("/dev/disk/by-id/scsi-0HC_Volume_${OPENCLAW_OPT_VOLUME_NAME}")
+  fi
+  candidates+=("/dev/disk/by-id/scsi-0HC_Volume_*")
+
+  resolve_volume() {
+    local candidate
+    local resolved
+    for candidate in "${candidates[@]}"; do
+      shopt -s nullglob
+      for resolved in $candidate; do
+        if [[ -b "$resolved" ]]; then
+          echo "$resolved"
+          return 0
+        fi
+      done
+      shopt -u nullglob
+    done
+    return 1
+  }
+
+  if ! [[ "$OPENCLAW_OPT_VOLUME_WAIT_SECONDS" =~ ^[0-9]+$ ]]; then
+    OPENCLAW_OPT_VOLUME_WAIT_SECONDS=180
+  fi
+
+  if [[ "$OPENCLAW_OPT_VOLUME_WAIT_SECONDS" -gt 0 ]]; then
+    attempts=$((OPENCLAW_OPT_VOLUME_WAIT_SECONDS / attempt_sleep))
+    if (( attempts < 1 )); then
+      attempts=1
+    fi
+
+    for i in $(seq 1 "$attempts"); do
+      attempts_taken=$i
+      volume_device="$(resolve_volume || true)"
+      if [[ -n "$volume_device" ]]; then
+        break
+      fi
+      log "Waiting for persistent /opt volume to attach (attempt $i/$attempts)"
+      sleep "$attempt_sleep"
+    done
+  else
+    volume_device="$(resolve_volume || true)"
+  fi
+
+  if [[ -z "$volume_device" ]]; then
+    log "Persistent /opt volume not found for openclaw bootstrap."
     return 1
   fi
+
+  if [[ ! -b "$volume_device" ]]; then
+    log "Expected a block device for /opt at $volume_device, got non-block target."
+    return 1
+  fi
+
+  volume_fstype="$(blkid -o value -s TYPE "$volume_device" || true)"
+  if [[ -z "$volume_fstype" ]]; then
+    log "Formatting persistent volume $volume_device with ${OPENCLAW_OPT_VOLUME_FSTYPE}."
+    mkfs -t "$OPENCLAW_OPT_VOLUME_FSTYPE" -F "$volume_device"
+    volume_fstype="$OPENCLAW_OPT_VOLUME_FSTYPE"
+  fi
+
+  mount_fstype="$volume_fstype"
+  if [[ "$mount_fstype" != "$OPENCLAW_OPT_VOLUME_FSTYPE" ]]; then
+    log "Detected filesystem type $mount_fstype on $volume_device; mounting with detected type."
+  fi
+
+  volume_uuid="$(blkid -o value -s UUID "$volume_device" || true)"
+  if [[ -z "$volume_uuid" ]]; then
+    if ! mount "$volume_device" "$mount_point"; then
+      log "Failed to mount $volume_device on $mount_point."
+      return 1
+    fi
+  else
+    if ! grep -q "UUID=$volume_uuid $mount_point " /etc/fstab; then
+      echo "UUID=$volume_uuid $mount_point $mount_fstype defaults,noatime 0 2" >> /etc/fstab
+    fi
+    if ! mount "$mount_point"; then
+      log "mount -a by /opt failed."
+      return 1
+    fi
+  fi
+
+  if ! mountpoint -q "$mount_point"; then
+    log "/opt is still not mounted after mount operation."
+    return 1
+  fi
+
+  log "Mounted persistent /opt volume from $volume_device after ${attempts_taken} attempt(s)."
+}
+
+assert_opt_volume_mount() {
+  mount_opt_volume_if_needed
 }
 
 wait_for_image() {
@@ -405,9 +522,12 @@ if [[ ! -d "$OPENCLAW_AGENT_CONFIG_DIR" ]]; then
 fi
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" ]]; then
-  cat >"$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" <<EOF
+cat >"$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" <<EOF
 orchestrator:
-  role: generic-orchestrator
+  role: bucket-of-bits-orchestrator
+  aliases:
+    - bob
+    - bucket-of-bits
   objective: |
     Coordinate specialist agents and route requests based on user intent and
     operational context.
@@ -417,27 +537,29 @@ orchestrator:
     - keep audit trail for important state changes
 
 specialists:
-  - name: podcast_media
-    role: podcast operations & media engineering
+  - name: stacks
+    role: media operations and podcast production
     primary_tasks:
       - content planning and scheduling
       - production runbook generation
       - media tooling workflow for recordings
-    token: podcast-media
-  - name: research
+      - social and announcement posting for new episodes
+      - generate and prepare short clip assets for distribution
+    token: stacks
+  - name: jennifer
     role: market and feature research
     primary_tasks:
       - external data gathering
       - competitive analysis
       - concise evidence-based recommendations
-    token: research
-  - name: business
-    role: business operations and process support
+    token: jennifer
+  - name: steve
+    role: engineering implementation and platform support
     primary_tasks:
-      - process design and tracking
-      - planning and prioritization
-      - operational communication
-    token: business
+      - code design, review, and refinement
+      - build and test support recommendations
+      - automation and tooling improvements
+    token: steve
 EOF
 
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml"
@@ -463,9 +585,9 @@ focused and accountable.
 
 ## Default routing logic
 
-- If request is creative workflow support for a show or media artifacts, route to `podcast_media`.
-- If request is evidence gathering, fact checking, or comparison work, route to `research`.
-- If request is commercial, planning, or operations, route to `business`.
+- If request is creative workflow support for a show or media artifacts, route to `stacks`.
+- If request is evidence gathering, fact checking, or comparison work, route to `jennifer`.
+- If request is implementation-heavy or systems work, route to `steve`.
 - Otherwise, keep handling in orchestrator context and ask for clarification.
 EOF
 
@@ -473,15 +595,18 @@ EOF
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md"
 fi
 
-if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" ]]; then
-  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" <<'EOF'
-# Specialist: podcast_media
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" <<'EOF'
+# Specialist: stacks
 
 ## Scope
 
 - Build and maintain podcast show operations workflows.
 - Manage media production tasks and checklists.
 - Suggest run plans for recording, post-production, and episode ops.
+- Own media announcement posts and social publishing workflows for new episode launches.
+- Prepare short clip workflows from raw/weekly assets for distribution.
+- Support on-air participation planning by drafting talking points and transitions for co-host sessions.
 
 ## Constraints
 
@@ -489,13 +614,13 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" ]]; then
 - Do not approve external dependencies or credentials.
 - Only propose high-confidence, low-risk operations by default.
 EOF
-  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
-  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md"
 fi
 
-if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" ]]; then
-  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" <<'EOF'
-# Specialist: research
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md" <<'EOF'
+# Specialist: jennifer
 
 ## Scope
 
@@ -508,27 +633,27 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" ]]; then
 - Keep recommendations scoped and avoid implementation details outside your domain.
 - Report uncertainty and assumptions clearly.
 EOF
-  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md"
-  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md"
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md"
 fi
 
-if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" ]]; then
-  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" <<'EOF'
-# Specialist: business
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" <<'EOF'
+# Specialist: steve
 
 ## Scope
 
-- Support planning, operations, and process hygiene.
-- Track priorities and convert broad goals into practical execution plans.
-- Maintain a concise summary of business-facing risks and dependencies.
+- Develop and review practical implementation details.
+- Recommend safe, minimal engineering changes.
+- Keep technical recommendations operational and testable.
 
 ## Constraints
 
-- Do not publish external statements without confirmation.
-- Ask before making schedule or policy changes that affect external visibility.
+- Do not change production systems directly without approval.
+- Keep recommendations scoped to implementation safety and rollbackability.
 EOF
-  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md"
-  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md"
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md"
 fi
 
 chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
