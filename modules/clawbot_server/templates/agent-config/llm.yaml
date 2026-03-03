@@ -1,0 +1,30 @@
+llm:
+  provider: openai_compatible
+  base_url: https://openrouter.ai/api/v1
+
+  defaults:
+    model: moonshotai/kimi-k2.5
+    temperature: 0.3
+    max_output_tokens: 1600
+    timeout_seconds: 60
+
+  per_agent_overrides:
+    orchestrator:
+      max_output_tokens: 900
+      temperature: 0.2
+
+    research:
+      max_output_tokens: 1600
+      temperature: 0.4
+
+    engineering:
+      max_output_tokens: 4500
+      temperature: 0.2
+
+    business:
+      max_output_tokens: 1400
+      temperature: 0.3
+
+    podcast_media:
+      max_output_tokens: 2200
+      temperature: 0.3

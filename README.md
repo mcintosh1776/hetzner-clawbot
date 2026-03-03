@@ -112,8 +112,14 @@ stored on the persistent `/opt` volume so the setup survives server replacement:
 - `/opt/clawbot/config/agent-config/specialists/stacks.md`
 - `/opt/clawbot/config/agent-config/specialists/jennifer.md`
 - `/opt/clawbot/config/agent-config/specialists/steve.md`
+- `/opt/clawbot/config/agent-config/specialists/business.md`
+- `/opt/clawbot/config/runtime/llm.yaml`
+- `/opt/clawbot/config/secrets/llm.env`
+- `/opt/clawbot/config/secrets/telegram.env`
+- `/usr/local/bin/openclaw-ctl`
 
-Bootstrap seeds these files on first boot and preserves them on subsequent runs.
+Bootstrap seeds these files from `modules/clawbot_server/templates/agent-config/*`
+on first boot and preserves them on subsequent runs.
 Use this layout as your source of truth for role behavior and routing policy.
 
 `agent-fleet.yaml` is the top-level manifest and works as a role map:
@@ -174,6 +180,26 @@ Useful check commands:
 You can replace these files with your own routing and role definitions at any time.
 The files are mounted under `/opt`, so they are preserved by the `/opt` rebalance
 workflow (`hcloud_volume.opt` + taint/rebuild on `hcloud_server.clawbot`).
+
+### LLM/runtime config and secrets
+
+- LLM runtime settings are in `/opt/clawbot/config/runtime/llm.yaml`.
+- Secret values for LLM providers are intentionally not committed and are stored in
+  `/opt/clawbot/config/secrets/llm.env` (mode `600`).
+  - `OPENROUTER_API_KEY=sk-...` (example)
+  - optional `OPENAI_API_KEY=...`
+- Telegram routing tokens are intentionally not committed and are stored separately in
+  `/opt/clawbot/config/secrets/telegram.env` (mode `600`):
+  - `TELEGRAM_GROUP_CHAT_ID=...`
+  - `TELEGRAM_BOT_TOKEN_BOB=...`
+  - `TELEGRAM_BOT_TOKEN_STACKS=...`
+  - `TELEGRAM_BOT_TOKEN_JENNIFER=...`
+  - `TELEGRAM_BOT_TOKEN_STEVE=...`
+  - `TELEGRAM_BOT_TOKEN_NUMBER5=...`
+
+The `agent-fleet.yaml` template now also includes a `integrations.telegram` section
+that maps agent roles to token environment variable names, so no API tokens are
+stored in config text.
 
 ## Useful paths on the node
 

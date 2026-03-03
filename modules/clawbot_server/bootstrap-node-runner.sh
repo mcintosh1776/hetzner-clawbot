@@ -41,11 +41,15 @@ OPENCLAW_OPT_VOLUME_ID="${OPENCLAW_OPT_VOLUME_ID:-}"
 OPENCLAW_OPT_VOLUME_NAME="${OPENCLAW_OPT_VOLUME_NAME:-}"
 OPENCLAW_OPT_VOLUME_WAIT_SECONDS="${OPENCLAW_OPT_VOLUME_WAIT_SECONDS:-180}"
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
+OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
+OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
 OPENCLAW_AGENT_FLEET_TEMPLATE_B64="${OPENCLAW_AGENT_FLEET_TEMPLATE_B64:-}"
 OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64="${OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64:-}"
 OPENCLAW_STACKS_TEMPLATE_B64="${OPENCLAW_STACKS_TEMPLATE_B64:-}"
 OPENCLAW_JENNIFER_TEMPLATE_B64="${OPENCLAW_JENNIFER_TEMPLATE_B64:-}"
 OPENCLAW_STEVE_TEMPLATE_B64="${OPENCLAW_STEVE_TEMPLATE_B64:-}"
+OPENCLAW_BUSINESS_TEMPLATE_B64="${OPENCLAW_BUSINESS_TEMPLATE_B64:-}"
+OPENCLAW_LLM_TEMPLATE_B64="${OPENCLAW_LLM_TEMPLATE_B64:-}"
 
 BOOTSTRAP_MARKER="${BOOTSTRAP_MARKER:-}"
 if [ -z "$BOOTSTRAP_MARKER" ]; then
@@ -534,7 +538,8 @@ if ! id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
 fi
 OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 assert_opt_volume_mount
-run_step "Prepare bootstrap directories" bash -lc "mkdir -p '$OPENCLAW_PARENT_DIR' /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state '/home/$OPENCLAW_USER/.config/containers/systemd' && chown -R '$OPENCLAW_USER:$OPENCLAW_USER' '/home/$OPENCLAW_USER' '/home/$OPENCLAW_USER/.config/containers/systemd' /opt/clawbot && chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state"
+run_step "Prepare bootstrap directories" bash -lc "mkdir -p '$OPENCLAW_PARENT_DIR' /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state '/home/$OPENCLAW_USER/.config/containers/systemd' && chown -R '$OPENCLAW_USER:$OPENCLAW_USER' '/home/$OPENCLAW_USER' '/home/$OPENCLAW_USER/.config/containers/systemd' /opt/clawbot && chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state"
+run_step "Prepare bootstrap runtime directory" bash -lc "mkdir -p /opt/clawbot/config/runtime && chown -R '$OPENCLAW_USER:$OPENCLAW_USER' /opt/clawbot/config/runtime && chmod 750 /opt/clawbot/config/runtime"
 ensure_gateway_token
 
 if [[ ! -d "$OPENCLAW_AGENT_CONFIG_DIR" ]]; then
@@ -586,6 +591,27 @@ EOF
 
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" ]]; then
+  if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" "$OPENCLAW_BUSINESS_TEMPLATE_B64"; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" <<'EOF'
+# Specialist: business
+
+## Scope
+
+- Turn ideas into operational process and execution plans.
+- Define owners, milestones, and lightweight operating rhythms.
+- Create practical SOPs and checklists for repeatable work.
+
+## Constraints
+
+- Avoid legal and HR policy commitments.
+- Avoid publishing or external comms without confirmation.
+EOF
+  fi
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md"
 fi
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" ]]; then
@@ -686,6 +712,69 @@ EOF
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md"
 fi
 
+if [[ ! -f "/opt/clawbot/config/runtime/llm.yaml" ]]; then
+  if ! decode_template_to_file "/opt/clawbot/config/runtime/llm.yaml" "$OPENCLAW_LLM_TEMPLATE_B64"; then
+  cat >/opt/clawbot/config/runtime/llm.yaml <<'EOF'
+llm:
+  provider: openai_compatible
+  base_url: https://openrouter.ai/api/v1
+
+  defaults:
+    model: moonshotai/kimi-k2.5
+    temperature: 0.3
+    max_output_tokens: 1600
+    timeout_seconds: 60
+
+  per_agent_overrides:
+    orchestrator:
+      max_output_tokens: 900
+      temperature: 0.2
+
+    research:
+      max_output_tokens: 1600
+      temperature: 0.4
+
+    engineering:
+      max_output_tokens: 4500
+      temperature: 0.2
+
+    business:
+      max_output_tokens: 1400
+      temperature: 0.3
+
+    podcast_media:
+      max_output_tokens: 2200
+      temperature: 0.3
+EOF
+  fi
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" /opt/clawbot/config/runtime/llm.yaml
+  chmod 640 /opt/clawbot/config/runtime/llm.yaml
+fi
+
+if [[ ! -f "$OPENCLAW_LLM_SECRETS_FILE" ]]; then
+  cat >"$OPENCLAW_LLM_SECRETS_FILE" <<'EOF'
+# Populate API credentials here before running gateway config-sensitive workflows.
+# Example:
+OPENROUTER_API_KEY=sk-...
+# OPENAI_API_KEY=...
+EOF
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_LLM_SECRETS_FILE"
+  chmod 600 "$OPENCLAW_LLM_SECRETS_FILE"
+fi
+
+if [[ ! -f "$OPENCLAW_TELEGRAM_SECRETS_FILE" ]]; then
+  cat >"$OPENCLAW_TELEGRAM_SECRETS_FILE" <<'EOF'
+TELEGRAM_GROUP_CHAT_ID=-1001234567890
+TELEGRAM_BOT_TOKEN_BOB=...
+TELEGRAM_BOT_TOKEN_STACKS=...
+TELEGRAM_BOT_TOKEN_JENNIFER=...
+TELEGRAM_BOT_TOKEN_STEVE=...
+TELEGRAM_BOT_TOKEN_NUMBER5=...
+EOF
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_TELEGRAM_SECRETS_FILE"
+  chmod 600 "$OPENCLAW_TELEGRAM_SECRETS_FILE"
+fi
+
 chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
 chmod 750 "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
 
@@ -773,6 +862,8 @@ Environment=OPENCLAW_CONFIG_PATH=/config/openclaw.json
 Environment=OPENCLAW_HOME=/state
 Environment=OPENCLAW_WORKSPACE_DIR=/workspace
 Environment=TERM=xterm-256color
+EnvironmentFile=-/config/secrets/llm.env
+EnvironmentFile=-/config/secrets/telegram.env
 
 PublishPort=127.0.0.1:18789:18789
 PublishPort=127.0.0.1:18790:18790
