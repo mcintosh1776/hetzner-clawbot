@@ -550,7 +550,7 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" ]]; then
   if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" "$OPENCLAW_AGENT_FLEET_TEMPLATE_B64"; then
 cat >"$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" <<'EOF'
 orchestrator:
-  role: bucket-of-bits-orchestrator
+  role: generic-orchestrator
   aliases:
     - bob
     - bucket-of-bits
@@ -586,6 +586,13 @@ specialists:
       - build and test support recommendations
       - automation and tooling improvements
     token: engineering
+  - name: business
+    role: business operations and process support (Number 5)
+    primary_tasks:
+      - process design and tracking
+      - planning and prioritization
+      - operational communication
+    token: business
 EOF
   fi
 
@@ -912,8 +919,8 @@ chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AG
 chmod 750 "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
 
 if [[ -f "$BOOTSTRAP_MARKER" ]]; then
-  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" 2>/dev/null || true
-  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" 2>/dev/null || true
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" 2>/dev/null || true
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" 2>/dev/null || true
   write_openclaw_ctl
   log "openclaw node bootstrap already completed."
   if run_as_openclaw "systemctl --user is-active --quiet openclaw.service"; then
