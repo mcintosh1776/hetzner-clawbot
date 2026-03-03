@@ -587,6 +587,7 @@ specialists:
       - automation and tooling improvements
     token: engineering
   - name: business
+    display_name: Number 5
     role: business operations and process support (Number 5)
     primary_tasks:
       - process design and tracking
