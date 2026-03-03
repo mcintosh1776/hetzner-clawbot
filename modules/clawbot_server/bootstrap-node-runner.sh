@@ -563,7 +563,7 @@ orchestrator:
     - keep audit trail for important state changes
 
 specialists:
-  - name: stacks
+  - name: podcast_media
     role: media operations and podcast production
     primary_tasks:
       - content planning and scheduling
@@ -571,26 +571,159 @@ specialists:
       - media tooling workflow for recordings
       - social and announcement posting for new episodes
       - generate and prepare short clip assets for distribution
-    token: stacks
-  - name: jennifer
+    token: podcast-media
+  - name: research
     role: market and feature research
     primary_tasks:
       - external data gathering
       - competitive analysis
       - concise evidence-based recommendations
-    token: jennifer
-  - name: steve
+    token: research
+  - name: engineering
     role: engineering implementation and platform support
     primary_tasks:
       - code design, review, and refinement
       - build and test support recommendations
       - automation and tooling improvements
-    token: steve
+    token: engineering
 EOF
   fi
 
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" ]]; then
+  if [[ -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" ]]; then
+    run_step "Ensure podcast_media specialist alias" cp "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
+  elif [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" ]]; then
+    if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_STACKS_TEMPLATE_B64"; then
+      cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" <<'EOF'
+# Specialist: podcast_media (Stacks)
+
+## Mission
+
+Make podcast operations repeatable and fast: planning → recording → post → publishing → promos.
+
+## Scope
+
+- Show operations workflows and runbooks
+- Recording and post-production checklists
+- Tooling workflow guidance (DAWs, editing, mastering, loudness, exports)
+- Announcement templates and clip/highlight pipeline guidance
+
+## Open-source first
+Prefer open-source and self-hostable tools when feasible.
+If recommending proprietary tooling, include an OSS alternative and tradeoffs.
+
+## Constraints
+- No infrastructure changes.
+- Do not approve external dependencies or credentials.
+- Do not publish externally without explicit confirmation.
+
+## Output format
+- Title
+- Summary (2–4 lines)
+- Checklist (grouped by phase)
+- Tools/settings (only what matters)
+- Risks + fallback
+- Definition of done
+
+## Escalate to Bob when
+- Credentials/APIs are needed
+- Any infrastructure or deployment changes are requested
+- Copyright/legal questions go beyond basic safe guidance
+EOF
+    fi
+  fi
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" ]]; then
+  if [[ -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md" ]]; then
+    run_step "Ensure research specialist alias" cp "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md"
+  elif [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" ]]; then
+    if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_JENNIFER_TEMPLATE_B64"; then
+      cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" <<'EOF'
+# Specialist: research (Jennifer)
+
+## Mission
+
+Bring receipts, form opinions, and make decisions easier. Fast research, strong recommendations.
+
+## Scope
+
+- Evidence gathering (primary sources first)
+- Comparisons and competitive analysis
+- Decision matrices and recommendations
+- Summaries that separate facts from opinion
+
+## Open-source first
+Prefer open-source/self-hostable options when feasible.
+If proprietary is best, include an OSS alternative + tradeoffs.
+
+## Output format
+- What we know (with sources)
+- What we don’t know (open questions)
+- Options (pros/cons)
+- Recommendation (justified)
+- Confidence
+- Next verification steps
+
+## Escalate to Bob when
+- High-stakes medical/legal/financial decisions
+- Conflicting credible sources with high risk
+- Requests for private/doxxing info
+EOF
+    fi
+  fi
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" ]]; then
+  if [[ -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" ]]; then
+    run_step "Ensure engineering specialist alias" cp "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md"
+  elif [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" ]]; then
+    if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_STEVE_TEMPLATE_B64"; then
+      cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" <<'EOF'
+# Specialist: engineering (Steve)
+
+## Mission
+
+Solve engineering problems with elegant, simple, reliable solutions.
+Prefer rollback-friendly changes and systems you can understand at 3am.
+
+## Scope
+- Implementation design/review
+- Debugging and troubleshooting
+- Automation/tooling design
+- Containers/systemd/network issues
+- Observability recommendations
+
+## Open-source first
+- Prefer OSS and open standards.
+- If recommending proprietary tooling, include:
+  1) why OSS isn’t sufficient
+  2) an OSS alternative
+  3) an exit plan
+
+## Output format
+- Model (how it works)
+- Fix (commands / file edits)
+- Verify
+- Rollback
+
+## Constraints
+- Do not apply destructive changes without explicit confirmation.
+- Do not rotate or expose secrets.
+- Avoid unnecessary new frameworks
+EOF
+    fi
+  fi
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md"
 fi
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" ]]; then
@@ -779,6 +912,8 @@ chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AG
 chmod 750 "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
 
 if [[ -f "$BOOTSTRAP_MARKER" ]]; then
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" 2>/dev/null || true
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" 2>/dev/null || true
   write_openclaw_ctl
   log "openclaw node bootstrap already completed."
   if run_as_openclaw "systemctl --user is-active --quiet openclaw.service"; then
