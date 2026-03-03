@@ -10,7 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Added template plumbing for business and runtime LLM configuration in bootstrap delivery:
+  - `main.tf` now base64-encodes and passes:
+    - `modules/clawbot_server/templates/agent-config/business.md`
+    - `modules/clawbot_server/templates/agent-config/llm.yaml`
+  - `cloud-init.tftpl` now passes both values to `openclaw-node-bootstrap-runner` via
+    `OPENCLAW_BUSINESS_TEMPLATE_B64` and `OPENCLAW_LLM_TEMPLATE_B64`.
+  - Quadlet generation now includes `EnvironmentFile=-/config/secrets/llm.env` in
+    runner output, ensuring LLM runtime credentials are consistently loaded.
 
 ### Fixed
 - _None yet._

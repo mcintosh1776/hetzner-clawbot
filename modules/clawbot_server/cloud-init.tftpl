@@ -144,6 +144,7 @@ write_files:
       Environment=OPENCLAW_HOME=/state
       Environment=OPENCLAW_WORKSPACE_DIR=/workspace
       Environment=TERM=xterm-256color
+      EnvironmentFile=-/config/secrets/llm.env
 
       PublishPort=127.0.0.1:18789:18789
       PublishPort=127.0.0.1:18790:18790
@@ -203,6 +204,8 @@ runcmd:
     OPENCLAW_STACKS_TEMPLATE_B64='${openclaw_stacks_template}'
     OPENCLAW_JENNIFER_TEMPLATE_B64='${openclaw_jennifer_template}'
     OPENCLAW_STEVE_TEMPLATE_B64='${openclaw_steve_template}'
+    OPENCLAW_BUSINESS_TEMPLATE_B64='${openclaw_business_template}'
+    OPENCLAW_LLM_TEMPLATE_B64='${openclaw_llm_template}'
 
     if [ ! -x /usr/local/bin/openclaw-node-bootstrap-runner ]; then
       printf '%s' '${openclaw_bootstrap_runner_script}' | base64 -d | gzip -dc > /usr/local/bin/openclaw-node-bootstrap-runner

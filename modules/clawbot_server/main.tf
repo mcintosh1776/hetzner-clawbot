@@ -23,6 +23,12 @@ locals {
   agent_steve_template_b64 = base64gzip(
     file("${path.module}/templates/agent-config/specialists/steve.md")
   )
+  agent_business_template_b64 = base64gzip(
+    file("${path.module}/templates/agent-config/specialists/business.md")
+  )
+  llm_template_b64 = base64gzip(
+    file("${path.module}/templates/agent-config/llm.yaml")
+  )
   bootstrap_runner_script = base64gzip(file("${path.module}/bootstrap-node-runner.sh"))
   rendered_cloud_init = trimspace(var.cloud_init) != "" ? var.cloud_init : templatefile(
     "${path.module}/cloud-init.tftpl",
@@ -43,6 +49,8 @@ locals {
       openclaw_stacks_template         = local.agent_stacks_template_b64
       openclaw_jennifer_template       = local.agent_jennifer_template_b64
       openclaw_steve_template          = local.agent_steve_template_b64
+      openclaw_business_template       = local.agent_business_template_b64
+      openclaw_llm_template            = local.llm_template_b64
     }
   )
   cloud_init_is_valid_yaml = can(yamldecode(local.rendered_cloud_init))
