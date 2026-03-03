@@ -198,6 +198,11 @@ runcmd:
     OPENCLAW_OPT_VOLUME_ID='${openclaw_opt_volume_id}'
     OPENCLAW_OPT_VOLUME_NAME='${openclaw_opt_volume_name}'
     OPENCLAW_OPT_VOLUME_WAIT_SECONDS=300
+    OPENCLAW_AGENT_FLEET_TEMPLATE_B64='${openclaw_agent_fleet_template}'
+    OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64='${openclaw_orchestrator_policy_template}'
+    OPENCLAW_STACKS_TEMPLATE_B64='${openclaw_stacks_template}'
+    OPENCLAW_JENNIFER_TEMPLATE_B64='${openclaw_jennifer_template}'
+    OPENCLAW_STEVE_TEMPLATE_B64='${openclaw_steve_template}'
 
     if [ ! -x /usr/local/bin/openclaw-node-bootstrap-runner ]; then
       printf '%s' '${openclaw_bootstrap_runner_script}' | base64 -d | gzip -dc > /usr/local/bin/openclaw-node-bootstrap-runner

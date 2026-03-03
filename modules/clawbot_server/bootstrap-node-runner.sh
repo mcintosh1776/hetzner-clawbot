@@ -41,6 +41,11 @@ OPENCLAW_OPT_VOLUME_ID="${OPENCLAW_OPT_VOLUME_ID:-}"
 OPENCLAW_OPT_VOLUME_NAME="${OPENCLAW_OPT_VOLUME_NAME:-}"
 OPENCLAW_OPT_VOLUME_WAIT_SECONDS="${OPENCLAW_OPT_VOLUME_WAIT_SECONDS:-180}"
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
+OPENCLAW_AGENT_FLEET_TEMPLATE_B64="${OPENCLAW_AGENT_FLEET_TEMPLATE_B64:-}"
+OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64="${OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64:-}"
+OPENCLAW_STACKS_TEMPLATE_B64="${OPENCLAW_STACKS_TEMPLATE_B64:-}"
+OPENCLAW_JENNIFER_TEMPLATE_B64="${OPENCLAW_JENNIFER_TEMPLATE_B64:-}"
+OPENCLAW_STEVE_TEMPLATE_B64="${OPENCLAW_STEVE_TEMPLATE_B64:-}"
 
 BOOTSTRAP_MARKER="${BOOTSTRAP_MARKER:-}"
 if [ -z "$BOOTSTRAP_MARKER" ]; then
@@ -407,6 +412,21 @@ run_as_openclaw() {
   sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"
 }
 
+decode_template_to_file() {
+  local target="$1"
+  local template_b64="$2"
+
+  if [[ -z "$template_b64" ]]; then
+    return 1
+  fi
+
+  if printf '%s' "$template_b64" | base64 -d | gzip -dc > "$target"; then
+    return 0
+  fi
+
+  return 1
+}
+
 write_openclaw_ctl() {
   cat >/usr/local/bin/openclaw-ctl <<'EOF'
 #!/usr/bin/env bash
@@ -522,7 +542,8 @@ if [[ ! -d "$OPENCLAW_AGENT_CONFIG_DIR" ]]; then
 fi
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" ]]; then
-cat >"$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" <<EOF
+  if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" "$OPENCLAW_AGENT_FLEET_TEMPLATE_B64"; then
+cat >"$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" <<'EOF'
 orchestrator:
   role: bucket-of-bits-orchestrator
   aliases:
@@ -561,13 +582,15 @@ specialists:
       - automation and tooling improvements
     token: steve
 EOF
+  fi
 
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml"
 fi
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" ]]; then
-  cat >"$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" <<'EOF'
+  if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" "$OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64"; then
+    cat >"$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" <<'EOF'
 # Orchestrator policy
 
 ## Purpose
@@ -590,12 +613,14 @@ focused and accountable.
 - If request is implementation-heavy or systems work, route to `steve`.
 - Otherwise, keep handling in orchestrator context and ask for clarification.
 EOF
+  fi
 
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md"
 fi
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" ]]; then
+  if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" "$OPENCLAW_STACKS_TEMPLATE_B64"; then
   cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" <<'EOF'
 # Specialist: stacks
 
@@ -614,11 +639,13 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" ]]; then
 - Do not approve external dependencies or credentials.
 - Only propose high-confidence, low-risk operations by default.
 EOF
+  fi
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md"
 fi
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md" ]]; then
+  if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md" "$OPENCLAW_JENNIFER_TEMPLATE_B64"; then
   cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md" <<'EOF'
 # Specialist: jennifer
 
@@ -633,11 +660,13 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md" ]]; then
 - Keep recommendations scoped and avoid implementation details outside your domain.
 - Report uncertainty and assumptions clearly.
 EOF
+  fi
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/jennifer.md"
 fi
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" ]]; then
+  if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" "$OPENCLAW_STEVE_TEMPLATE_B64"; then
   cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" <<'EOF'
 # Specialist: steve
 
@@ -652,6 +681,7 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" ]]; then
 - Do not change production systems directly without approval.
 - Keep recommendations scoped to implementation safety and rollbackability.
 EOF
+  fi
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md"
 fi

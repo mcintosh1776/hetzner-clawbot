@@ -1,0 +1,37 @@
+orchestrator:
+  role: bucket-of-bits-orchestrator
+  aliases:
+    - bob
+    - bucket-of-bits
+  objective: |
+    Coordinate specialist agents and route requests based on user intent and
+    operational context.
+  escalation_rules:
+    - only escalate to specialist agents when clear ownership boundaries exist
+    - require explicit confirmation for destructive operations
+    - keep audit trail for important state changes
+
+specialists:
+  - name: stacks
+    role: media operations and podcast production
+    primary_tasks:
+      - content planning and scheduling
+      - production runbook generation
+      - media tooling workflow for recordings
+      - social and announcement posting for new episodes
+      - generate and prepare short clip assets for distribution
+    token: stacks
+  - name: jennifer
+    role: market and feature research
+    primary_tasks:
+      - external data gathering
+      - competitive analysis
+      - concise evidence-based recommendations
+    token: jennifer
+  - name: steve
+    role: engineering implementation and platform support
+    primary_tasks:
+      - code design, review, and refinement
+      - build and test support recommendations
+      - automation and tooling improvements
+    token: steve

@@ -8,6 +8,21 @@ terraform {
 }
 
 locals {
+  agent_fleet_template_b64 = base64gzip(
+    file("${path.module}/templates/agent-config/agent-fleet.yaml")
+  )
+  agent_orchestrator_policy_template_b64 = base64gzip(
+    file("${path.module}/templates/agent-config/orchestrator-policy.md")
+  )
+  agent_stacks_template_b64 = base64gzip(
+    file("${path.module}/templates/agent-config/specialists/stacks.md")
+  )
+  agent_jennifer_template_b64 = base64gzip(
+    file("${path.module}/templates/agent-config/specialists/jennifer.md")
+  )
+  agent_steve_template_b64 = base64gzip(
+    file("${path.module}/templates/agent-config/specialists/steve.md")
+  )
   bootstrap_runner_script = base64gzip(file("${path.module}/bootstrap-node-runner.sh"))
   rendered_cloud_init = trimspace(var.cloud_init) != "" ? var.cloud_init : templatefile(
     "${path.module}/cloud-init.tftpl",
@@ -23,6 +38,11 @@ locals {
       openclaw_opt_volume_name         = var.opt_volume_enabled ? hcloud_volume.opt[0].name : ""
       openclaw_bootstrap_runner_url    = var.openclaw_bootstrap_runner_url
       openclaw_bootstrap_runner_script = local.bootstrap_runner_script
+      openclaw_agent_fleet_template    = local.agent_fleet_template_b64
+      openclaw_orchestrator_policy_template = local.agent_orchestrator_policy_template_b64
+      openclaw_stacks_template         = local.agent_stacks_template_b64
+      openclaw_jennifer_template       = local.agent_jennifer_template_b64
+      openclaw_steve_template          = local.agent_steve_template_b64
     }
   )
   cloud_init_is_valid_yaml = can(yamldecode(local.rendered_cloud_init))
