@@ -34,7 +34,7 @@ if [ -z "$OPENCLAW_IMAGE" ]; then
 fi
 
 OPENCLAW_GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
-OPENCLAW_REQUIRE_OPT_VOLUME="${OPENCLAW_REQUIRE_OPT_VOLUME:-false}"
+OPENCLAW_REQUIRE_OPT_VOLUME="${OPENCLAW_REQUIRE_OPT_VOLUME:-true}"
 OPENCLAW_OPT_VOLUME_FSTYPE="${OPENCLAW_OPT_VOLUME_FSTYPE:-xfs}"
 OPENCLAW_OPT_VOLUME_DEVICE="${OPENCLAW_OPT_VOLUME_DEVICE:-}"
 OPENCLAW_OPT_VOLUME_ID="${OPENCLAW_OPT_VOLUME_ID:-}"
@@ -259,6 +259,12 @@ mount_opt_volume_if_needed() {
     candidates+=("/dev/disk/by-id/scsi-0HC_Volume_${OPENCLAW_OPT_VOLUME_NAME}")
   fi
   candidates+=("/dev/disk/by-id/scsi-0HC_Volume_*")
+  if [[ -b /dev/sdb ]]; then
+    candidates+=("/dev/sdb")
+  fi
+  if [[ -b /dev/vdb ]]; then
+    candidates+=("/dev/vdb")
+  fi
 
   resolve_volume() {
     local candidate

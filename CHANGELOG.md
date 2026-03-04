@@ -18,6 +18,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     `OPENCLAW_BUSINESS_TEMPLATE_B64` and `OPENCLAW_LLM_TEMPLATE_B64`.
   - Quadlet generation now includes `EnvironmentFile=-/config/secrets/llm.env` in
     runner output, ensuring LLM runtime credentials are consistently loaded.
+- Switched bootstrap default behavior to require `/opt` volume mounting:
+  - `OPENCLAW_REQUIRE_OPT_VOLUME` now defaults to `true`.
+  - Added extra `/dev/sdb` and `/dev/vdb` mount candidate checks when resolving the
+    persistent `/opt` volume.
 
 ### Fixed
 - _None yet._
