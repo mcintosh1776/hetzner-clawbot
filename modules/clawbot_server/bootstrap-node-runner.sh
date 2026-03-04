@@ -43,6 +43,7 @@ OPENCLAW_OPT_VOLUME_WAIT_SECONDS="${OPENCLAW_OPT_VOLUME_WAIT_SECONDS:-180}"
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
+OPENCLAW_WEBHOOK_DIR="/opt/clawbot/config/telegram-webhook"
 OPENCLAW_AGENT_FLEET_TEMPLATE_B64="${OPENCLAW_AGENT_FLEET_TEMPLATE_B64:-}"
 OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64="${OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64:-}"
 OPENCLAW_STACKS_TEMPLATE_B64="${OPENCLAW_STACKS_TEMPLATE_B64:-}"
@@ -50,6 +51,10 @@ OPENCLAW_JENNIFER_TEMPLATE_B64="${OPENCLAW_JENNIFER_TEMPLATE_B64:-}"
 OPENCLAW_STEVE_TEMPLATE_B64="${OPENCLAW_STEVE_TEMPLATE_B64:-}"
 OPENCLAW_BUSINESS_TEMPLATE_B64="${OPENCLAW_BUSINESS_TEMPLATE_B64:-}"
 OPENCLAW_LLM_TEMPLATE_B64="${OPENCLAW_LLM_TEMPLATE_B64:-}"
+OPENCLAW_PUBLIC_HOSTNAME="${OPENCLAW_PUBLIC_HOSTNAME:-}"
+OPENCLAW_LETSENCRYPT_EMAIL="${OPENCLAW_LETSENCRYPT_EMAIL:-}"
+OPENCLAW_ENABLE_WEBHOOK_PROXY="${OPENCLAW_ENABLE_WEBHOOK_PROXY:-false}"
+OPENCLAW_WEBHOOK_RECEIVER_PORT="${OPENCLAW_WEBHOOK_RECEIVER_PORT:-9000}"
 
 BOOTSTRAP_MARKER="${BOOTSTRAP_MARKER:-}"
 if [ -z "$BOOTSTRAP_MARKER" ]; then
@@ -390,6 +395,273 @@ wait_for_openclaw_service() {
   run_as_openclaw "systemctl --user status openclaw.service --no-pager || true"
   log "Timed out waiting for openclaw.service to reach active state"
   return 1
+}
+
+validate_webhook_config() {
+  if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$OPENCLAW_PUBLIC_HOSTNAME" || -z "$OPENCLAW_LETSENCRYPT_EMAIL" ]]; then
+    log "openclaw webhook proxy requires OPENCLAW_PUBLIC_HOSTNAME and OPENCLAW_LETSENCRYPT_EMAIL."
+    return 1
+  fi
+
+  if [[ ! "$OPENCLAW_PUBLIC_HOSTNAME" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,}$ ]]; then
+    log "OPENCLAW_PUBLIC_HOSTNAME '$OPENCLAW_PUBLIC_HOSTNAME' does not look like a valid hostname."
+    return 1
+  fi
+
+  if [[ ! "$OPENCLAW_WEBHOOK_RECEIVER_PORT" =~ ^[0-9]+$ ]] || (( OPENCLAW_WEBHOOK_RECEIVER_PORT < 1 || OPENCLAW_WEBHOOK_RECEIVER_PORT > 65535 )); then
+    log "OPENCLAW_WEBHOOK_RECEIVER_PORT '$OPENCLAW_WEBHOOK_RECEIVER_PORT' must be in the range 1-65535."
+    return 1
+  fi
+
+  log "Resolved webhook hostname=${OPENCLAW_PUBLIC_HOSTNAME} receiver_port=${OPENCLAW_WEBHOOK_RECEIVER_PORT}"
+}
+
+ensure_webhook_secret() {
+  local secret_file="$OPENCLAW_TELEGRAM_SECRETS_FILE"
+  local webhook_secret
+
+  if [[ ! -f "$secret_file" ]]; then
+    return 0
+  fi
+
+  if grep -q '^TELEGRAM_WEBHOOK_SECRET=' "$secret_file"; then
+    return 0
+  fi
+
+  if command -v openssl >/dev/null 2>&1; then
+    webhook_secret="$(openssl rand -hex 24)"
+  else
+    webhook_secret="$(head -c 24 /dev/urandom | base64 | tr -d '=' | tr '+/' '-_' )"
+  fi
+
+  {
+    printf "\nTELEGRAM_WEBHOOK_SECRET=%s\n" "$webhook_secret"
+  } >> "$secret_file"
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$secret_file"
+  chmod 600 "$secret_file"
+  log "Added generated TELEGRAM_WEBHOOK_SECRET to ${secret_file}."
+}
+
+render_webhook_app() {
+  cat >"${OPENCLAW_WEBHOOK_DIR}/app.py" <<'PY'
+import os
+from fastapi import FastAPI, Header, HTTPException, Request
+import httpx
+
+app = FastAPI()
+
+BOT_TOKEN_ENV = {
+  "bob": "TELEGRAM_BOT_TOKEN_BOB",
+  "jennifer": "TELEGRAM_BOT_TOKEN_JENNIFER",
+  "steve": "TELEGRAM_BOT_TOKEN_STEVE",
+  "number5": "TELEGRAM_BOT_TOKEN_NUMBER5",
+  "stacks": "TELEGRAM_BOT_TOKEN_STACKS",
+}
+
+TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+
+def bot_token_for(agent: str) -> str | None:
+  token_env = BOT_TOKEN_ENV.get(agent)
+  if not token_env:
+    return None
+  return os.getenv(token_env)
+
+async def send_message(bot_token: str, chat_id: int, text: str, message_thread_id: int | None = None):
+  url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+  payload = {"chat_id": chat_id, "text": text}
+  if message_thread_id is not None:
+    payload["message_thread_id"] = message_thread_id
+  async with httpx.AsyncClient(timeout=10) as client:
+    response = await client.post(url, data=payload)
+    response.raise_for_status()
+    return response.json()
+
+@app.post("/telegram/{agent}")
+async def telegram_webhook(
+  agent: str,
+  request: Request,
+  x_telegram_bot_api_secret_token: str | None = Header(default=None),
+):
+  if TELEGRAM_SECRET and x_telegram_bot_api_secret_token != TELEGRAM_SECRET:
+    raise HTTPException(status_code=401, detail="invalid telegram secret token")
+
+  agent = agent.lower()
+  bot_token = bot_token_for(agent)
+  if not bot_token:
+    raise HTTPException(status_code=404, detail="unknown agent")
+
+  update = await request.json()
+  msg = update.get("message") or update.get("edited_message")
+  if not msg:
+    return {"ok": True}
+
+  chat = msg.get("chat", {})
+  chat_id = chat.get("id")
+  text = msg.get("text", "")
+  thread_id = msg.get("message_thread_id")
+  if not chat_id or not text:
+    return {"ok": True}
+
+  reply = f"[{agent.upper()}] got it: {text}"
+  await send_message(bot_token, chat_id, reply, message_thread_id=thread_id)
+  return {"ok": True}
+PY
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "${OPENCLAW_WEBHOOK_DIR}/app.py"
+  chmod 640 "${OPENCLAW_WEBHOOK_DIR}/app.py"
+}
+
+write_webhook_systemd_unit() {
+  cat >/etc/systemd/system/clawbot-telegram-webhook.service <<EOF
+[Unit]
+Description=Clawbot Telegram webhook relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=$OPENCLAW_USER
+Group=$OPENCLAW_USER
+WorkingDirectory=$OPENCLAW_WEBHOOK_DIR
+EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE
+Environment=OPENCLAW_WEBHOOK_RECEIVER_PORT=$OPENCLAW_WEBHOOK_RECEIVER_PORT
+ExecStart=$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_WEBHOOK_RECEIVER_PORT
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chmod 0644 /etc/systemd/system/clawbot-telegram-webhook.service
+}
+
+configure_webhook_receiver() {
+  if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
+    return 0
+  fi
+
+  if [[ ! -d "$OPENCLAW_WEBHOOK_DIR" ]]; then
+    mkdir -p "$OPENCLAW_WEBHOOK_DIR"
+  fi
+  chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_WEBHOOK_DIR"
+  chmod 750 "$OPENCLAW_WEBHOOK_DIR"
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_WEBHOOK_DIR/.venv" 2>/dev/null || true
+
+  if ! command -v python3 >/dev/null 2>&1; then
+    log "Python not available on node; skipping webhook receiver setup."
+    return 1
+  fi
+
+  if [[ ! -d "$OPENCLAW_WEBHOOK_DIR/.venv" ]]; then
+    run_as_openclaw "python3 -m venv '$OPENCLAW_WEBHOOK_DIR/.venv'"
+  fi
+
+  if [[ ! -x "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip" ]]; then
+    log "Webhook receiver virtualenv missing pip; reinstalling."
+    run_as_openclaw "python3 -m venv '$OPENCLAW_WEBHOOK_DIR/.venv'"
+  fi
+
+  run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip install --upgrade pip >/tmp/openclaw-venv-upgrade.log 2>&1 || true"
+  if ! "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip" show fastapi >/dev/null 2>&1; then
+    run_step "Install webhook python dependencies" bash -lc "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip install fastapi uvicorn httpx >/tmp/openclaw-webhook-requirements.log 2>&1"
+  fi
+  render_webhook_app
+  write_webhook_systemd_unit
+  run_step "Reload systemd for webhook receiver" systemctl daemon-reload
+  run_step "Enable webhook receiver service" systemctl enable --now clawbot-telegram-webhook.service
+}
+
+configure_webhook_proxy_nginx() {
+  if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
+    return 0
+  fi
+
+  cat >/etc/nginx/sites-available/openclaw-webhook.conf <<EOF
+server {
+    listen 80;
+    server_name ${OPENCLAW_PUBLIC_HOSTNAME};
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location /telegram/ {
+        proxy_pass http://127.0.0.1:${OPENCLAW_WEBHOOK_RECEIVER_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        client_max_body_size 4m;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 30s;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:18789;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+EOF
+  chmod 0644 /etc/nginx/sites-available/openclaw-webhook.conf
+  ln -sf /etc/nginx/sites-available/openclaw-webhook.conf /etc/nginx/sites-enabled/openclaw-webhook.conf
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t
+  systemctl reload nginx
+}
+
+configure_webhook_stack() {
+  validate_webhook_config
+  if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
+    log "OPENCLAW_ENABLE_WEBHOOK_PROXY is not true; skipping webhook proxy setup."
+    return 0
+  fi
+
+  ensure_webhook_secret
+  install_webhook_packages
+  configure_webhook_receiver
+  configure_webhook_proxy_nginx
+  provision_webhook_certificate
+}
+
+provision_webhook_certificate() {
+  if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
+    return 0
+  fi
+
+  if command -v certbot >/dev/null 2>&1 && [ -d "/etc/letsencrypt/live/${OPENCLAW_PUBLIC_HOSTNAME}" ]; then
+    log "Certificate already exists for ${OPENCLAW_PUBLIC_HOSTNAME}; skipping cert issuance."
+    return 0
+  fi
+
+  if ! command -v certbot >/dev/null 2>&1; then
+    log "certbot is required for webhook proxy setup."
+    return 1
+  fi
+
+  run_step "Issue webhook TLS certificate" bash -lc \
+    "certbot --nginx -d '${OPENCLAW_PUBLIC_HOSTNAME}' --non-interactive --agree-tos -m '${OPENCLAW_LETSENCRYPT_EMAIL}' --redirect --quiet"
+}
+
+install_webhook_packages() {
+  if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
+    return 0
+  fi
+
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    nginx \
+    certbot \
+    python3-certbot-nginx \
+    python3-venv \
+    python3-pip \
+    python3-setuptools
 }
 
 configure_ufw() {
@@ -999,6 +1271,7 @@ if [[ -f "$BOOTSTRAP_MARKER" ]]; then
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" 2>/dev/null || true
   run_step "Ensure ufw firewall rules" configure_ufw
   write_openclaw_ctl
+  run_step "Configure webhook stack" configure_webhook_stack
   log "openclaw node bootstrap already completed."
   if run_as_openclaw "systemctl --user is-active --quiet openclaw.service"; then
     run_as_openclaw "systemctl --user status openclaw.service --no-pager"
@@ -1114,6 +1387,7 @@ run_step "Restart openclaw service" restart_openclaw_service
 run_step "Wait for openclaw service" wait_for_openclaw_service 60
 run_step "Check openclaw service" run_as_openclaw "systemctl --user status openclaw.service --no-pager"
 run_step "Install openclaw helper" write_openclaw_ctl
+run_step "Configure webhook stack" configure_webhook_stack
 
 touch "$BOOTSTRAP_MARKER"
 log "openclaw node bootstrap complete."

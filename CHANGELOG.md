@@ -10,11 +10,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added rollback-oriented documentation for the webhook rollout and generated-file durability:
   - Added `docs/openclaw-nginx-letsencrypt-plan.md` with staged implementation tasks and validations.
   - Added an explicit "Persisting generated files across rebuilds" section covering which webhook/nginx artifacts must live under `/opt/clawbot` and why.
+- Enabled webhook automation defaults in the production Terragrunt stack (`live/prod/fsn1/clawbot/terragrunt.hcl`) for:
+  - `openclaw_enable_webhook_proxy = true`
+  - `openclaw_public_hostname = "agents.satoshis-plebs.com"`
+  - `openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"`
+- Added bootstrap automation to build the Telegram ingress stack when enabled:
+  - installs `nginx` + `certbot`
+  - renders and runs a local webhook relay at `/opt/clawbot/config/telegram-webhook/app.py`
+  - creates `clawbot-telegram-webhook.service`
+  - writes/reloads Nginx proxy config
+  - requests Let’s Encrypt cert for the configured hostname
 
 ### Changed
 - Updated bootstrap documentation and operational guidance to keep `/opt`-hosted generated artifacts from being silently lost during server rebuilds.
 - Opened inbound HTTP/HTTPS at Hetzner firewall level for webhook and TLS flows:
   - `modules/clawbot_server/main.tf` now adds inbound `80/tcp` and `443/tcp` rules.
+- Added new module inputs and cloud-init variable plumbing for webhook enablement:
+  - `openclaw_public_hostname`
+  - `openclaw_letsencrypt_email`
+  - `openclaw_enable_webhook_proxy`
+  - `openclaw_webhook_receiver_port`
 
 ### Fixed
 - _None yet._

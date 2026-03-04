@@ -206,6 +206,10 @@ runcmd:
     OPENCLAW_STEVE_TEMPLATE_B64='${openclaw_steve_template}'
     OPENCLAW_BUSINESS_TEMPLATE_B64='${openclaw_business_template}'
     OPENCLAW_LLM_TEMPLATE_B64='${openclaw_llm_template}'
+    OPENCLAW_PUBLIC_HOSTNAME='${openclaw_public_hostname}'
+    OPENCLAW_LETSENCRYPT_EMAIL='${openclaw_letsencrypt_email}'
+    OPENCLAW_ENABLE_WEBHOOK_PROXY='${openclaw_enable_webhook_proxy}'
+    OPENCLAW_WEBHOOK_RECEIVER_PORT='${openclaw_webhook_receiver_port}'
 
     if [ ! -x /usr/local/bin/openclaw-node-bootstrap-runner ]; then
       printf '%s' '${openclaw_bootstrap_runner_script}' | base64 -d | gzip -dc > /usr/local/bin/openclaw-node-bootstrap-runner

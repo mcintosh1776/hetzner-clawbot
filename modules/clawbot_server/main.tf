@@ -51,6 +51,10 @@ locals {
       openclaw_steve_template          = local.agent_steve_template_b64
       openclaw_business_template       = local.agent_business_template_b64
       openclaw_llm_template            = local.llm_template_b64
+      openclaw_public_hostname         = var.openclaw_public_hostname
+      openclaw_letsencrypt_email       = var.openclaw_letsencrypt_email
+      openclaw_enable_webhook_proxy    = var.openclaw_enable_webhook_proxy
+      openclaw_webhook_receiver_port   = var.openclaw_webhook_receiver_port
     }
   )
   cloud_init_is_valid_yaml = can(yamldecode(local.rendered_cloud_init))

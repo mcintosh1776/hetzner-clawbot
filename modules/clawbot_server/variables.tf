@@ -108,6 +108,36 @@ variable "openclaw_bootstrap_runner_url" {
   default     = ""
 }
 
+variable "openclaw_public_hostname" {
+  type        = string
+  description = "Public hostname for OpenClaw webhook/Reverse-proxy ingress (for example, agents.example.com)."
+  default     = ""
+}
+
+variable "openclaw_letsencrypt_email" {
+  type        = string
+  description = "Email address used for Let's Encrypt certificate registration."
+  default     = ""
+  sensitive   = true
+}
+
+variable "openclaw_enable_webhook_proxy" {
+  type        = bool
+  description = "Enable Nginx+Let's Encrypt webhook proxy setup in bootstrap."
+  default     = false
+}
+
+variable "openclaw_webhook_receiver_port" {
+  type        = number
+  description = "Local port for the Telegram webhook receiver daemon."
+  default     = 9000
+
+  validation {
+    condition     = var.openclaw_webhook_receiver_port > 0 && var.openclaw_webhook_receiver_port <= 65535
+    error_message = "openclaw_webhook_receiver_port must be in the range 1-65535."
+  }
+}
+
 variable "opt_volume_enabled" {
   type        = bool
   description = "Whether to attach and mount a persistent /opt data volume."

@@ -208,3 +208,54 @@ stored in config text.
 - Env/token: `/opt/clawbot/config/.env`
 - Service: `/home/openclaw/.config/containers/systemd/openclaw.container`
 - User service: `openclaw@` under user `openclaw` (uid 999 by default in the current layout)
+
+## Telegram webhook automation (Nginx + certbot + relay)
+
+`live/prod/fsn1/clawbot/terragrunt.hcl` now enables webhook automation for production with:
+
+- `openclaw_enable_webhook_proxy = true`
+- `openclaw_public_hostname = "agents.satoshis-plebs.com"`
+- `openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"`
+
+When enabled, bootstrap performs these actions on the node:
+
+1. Installs `nginx`, `certbot`, `python3-venv`, `fastapi` dependencies.
+2. Renders a local webhook relay at `/opt/clawbot/config/telegram-webhook/app.py`.
+3. Creates/updates `/etc/systemd/system/clawbot-telegram-webhook.service` and starts it.
+4. Writes `/etc/nginx/sites-available/openclaw-webhook.conf` and enables it.
+5. Requests/renews Let’s Encrypt cert for `agents.satoshis-plebs.com`.
+6. Persists/derives `TELEGRAM_WEBHOOK_SECRET` in `/opt/clawbot/config/secrets/telegram.env`.
+
+To verify after bootstrap:
+
+```bash
+curl -I http://agents.satoshis-plebs.com/
+curl -I https://agents.satoshis-plebs.com/telegram/bob
+systemctl is-active --quiet clawbot-telegram-webhook
+sudo -u openclaw bash -lc 'cat /opt/clawbot/config/telegram-webhook/app.py | head'
+sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secrets/telegram.env'
+```
+
+To wire bot webhooks (example for Bob):
+
+```bash
+set -a
+. /opt/clawbot/config/secrets/telegram.env
+set +a
+
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/setWebhook" \
+  -d "url=https://agents.satoshis-plebs.com/telegram/bob" \
+  -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/getWebhookInfo"
+```
+
+Other bots use `/telegram/jennifer`, `/telegram/steve`, `/telegram/stacks`, `/telegram/number5`.
+
+Persisted artifacts for webhook/ingress are rooted in `/opt/clawbot` when possible:
+
+- `/opt/clawbot/config/telegram-webhook/*`
+- `/opt/clawbot/config/secrets/telegram.env`
+
+If you add or modify webhook-specific code/templates, keep durable state files in `/opt/clawbot`
+so rebuilds via `taint`/`apply` preserve them.

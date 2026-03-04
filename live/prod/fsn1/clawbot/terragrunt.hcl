@@ -33,4 +33,8 @@ inputs = {
   openclaw_gateway_token = get_env("OPENCLAW_GATEWAY_TOKEN", "")
   opt_volume_size_gb = 10
   opt_volume_fstype = "xfs"
+
+  openclaw_enable_webhook_proxy = true
+  openclaw_public_hostname = "agents.satoshis-plebs.com"
+  openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"
 }
