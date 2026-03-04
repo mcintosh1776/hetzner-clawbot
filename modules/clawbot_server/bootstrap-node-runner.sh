@@ -429,6 +429,10 @@ configure_ufw() {
   if ! ufw status | grep -qE '(^|[[:space:]])443/tcp([[:space:]]|$)'; then
     ufw allow 443/tcp
   fi
+
+  if ! ufw status verbose | grep -q "Logging: on (low)"; then
+    ufw logging on
+  fi
 }
 
 enable_openclaw_service() {
