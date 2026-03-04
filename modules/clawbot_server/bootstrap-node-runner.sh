@@ -997,6 +997,7 @@ chmod 750 "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator"
 if [[ -f "$BOOTSTRAP_MARKER" ]]; then
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" 2>/dev/null || true
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" 2>/dev/null || true
+  run_step "Ensure ufw firewall rules" configure_ufw
   write_openclaw_ctl
   log "openclaw node bootstrap already completed."
   if run_as_openclaw "systemctl --user is-active --quiet openclaw.service"; then

@@ -7,10 +7,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- _None yet._
+- Added rollback-oriented documentation for the webhook rollout and generated-file durability:
+  - Added `docs/openclaw-nginx-letsencrypt-plan.md` with staged implementation tasks and validations.
+  - Added an explicit "Persisting generated files across rebuilds" section covering which webhook/nginx artifacts must live under `/opt/clawbot` and why.
 
 ### Changed
-- _None yet._
+- Updated bootstrap documentation and operational guidance to keep `/opt`-hosted generated artifacts from being silently lost during server rebuilds.
 
 ### Fixed
 - _None yet._
