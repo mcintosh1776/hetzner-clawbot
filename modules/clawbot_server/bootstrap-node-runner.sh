@@ -386,6 +386,21 @@ wait_for_openclaw_service() {
   return 1
 }
 
+configure_ufw() {
+  if ! command -v ufw >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ufw
+  fi
+
+  if ! ufw status 2>/dev/null | grep -q "Status: active"; then
+    ufw --force enable
+  fi
+
+  if ! ufw status | grep -qE '(^|[[:space:]])22/tcp([[:space:]]|$)'; then
+    ufw allow 22/tcp
+  fi
+}
+
 enable_openclaw_service() {
   local output
   local rc
@@ -958,6 +973,7 @@ fi
 log "Applying base service settings"
 run_step "Apply sysctl and restart SSH" sysctl --system && systemctl restart ssh
 run_step "Wait for SSH listener" wait_for_sshd 30
+run_step "Configure ufw and allow SSH" configure_ufw
 run_step "Enable auditd" systemctl enable --now auditd
 run_step "Enable fail2ban" systemctl enable --now fail2ban
 
