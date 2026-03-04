@@ -24,7 +24,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     persistent `/opt` volume.
 
 ### Fixed
-- _None yet._
+- Fixed a bootstrap regression where secret env file entries in the generated
+  quadlet used a leading-path syntax (`- /config/...`) that produced malformed
+  container runtime paths such as `.../.config/containers/systemd/-/config/...`.
+  Secrets are now attached as absolute paths only when present.
 
 ### Removed
 - _None yet._

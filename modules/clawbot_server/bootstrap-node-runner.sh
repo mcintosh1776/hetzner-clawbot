@@ -1081,8 +1081,7 @@ Environment=OPENCLAW_CONFIG_PATH=/config/openclaw.json
 Environment=OPENCLAW_HOME=/state
 Environment=OPENCLAW_WORKSPACE_DIR=/workspace
 Environment=TERM=xterm-256color
-EnvironmentFile=-/config/secrets/llm.env
-EnvironmentFile=-/config/secrets/telegram.env
+Environment=OPENCLAW_CONFIG_DIR=/config
 
 PublishPort=127.0.0.1:18789:18789
 PublishPort=127.0.0.1:18790:18790
@@ -1099,6 +1098,14 @@ WantedBy=default.target
 EOF
 chown root:root "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
 chmod 0644 "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
+
+if [[ -f "$OPENCLAW_LLM_SECRETS_FILE" ]]; then
+  echo "EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE" >>"/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
+fi
+
+if [[ -f "$OPENCLAW_TELEGRAM_SECRETS_FILE" ]]; then
+  echo "EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE" >>"/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
+fi
 
 run_step "Reload openclaw user units" run_as_openclaw "systemctl --user daemon-reload"
 run_step "Enable openclaw service" enable_openclaw_service
