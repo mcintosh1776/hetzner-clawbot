@@ -421,7 +421,7 @@ configure_ufw() {
   fi
 
   if ! ufw status | grep -qE '(^|[[:space:]])22/tcp([[:space:]]|$)'; then
-    ufw allow 22/tcp
+    ufw limit 22/tcp
   fi
   if ! ufw status | grep -qE '(^|[[:space:]])80/tcp([[:space:]]|$)'; then
     ufw allow 80/tcp
