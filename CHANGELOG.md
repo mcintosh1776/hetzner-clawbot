@@ -10,7 +10,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- Added template plumbing for business and runtime LLM configuration in bootstrap delivery:
+- _None yet._
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.13] - 2026-03-04
+
+### Added
+- Template plumbing for business and runtime LLM configuration in bootstrap delivery:
   - `main.tf` now base64-encodes and passes:
     - `modules/clawbot_server/templates/agent-config/business.md`
     - `modules/clawbot_server/templates/agent-config/llm.yaml`
@@ -18,16 +29,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
     `OPENCLAW_BUSINESS_TEMPLATE_B64` and `OPENCLAW_LLM_TEMPLATE_B64`.
   - Quadlet generation now includes `EnvironmentFile=-/config/secrets/llm.env` in
     runner output, ensuring LLM runtime credentials are consistently loaded.
-- Switched bootstrap default behavior to require `/opt` volume mounting:
-  - `OPENCLAW_REQUIRE_OPT_VOLUME` now defaults to `true`.
-  - Added extra `/dev/sdb` and `/dev/vdb` mount candidate checks when resolving the
-    persistent `/opt` volume.
+ - UFW bootstrap provisioning now enables HTTP/HTTPS ingress with IPv6 disabled for UFW.
 
 ### Fixed
-- Fixed a bootstrap regression where secret env file entries in the generated
+ - Fixed a bootstrap regression where secret env file entries in the generated
   quadlet used a leading-path syntax (`- /config/...`) that produced malformed
   container runtime paths such as `.../.config/containers/systemd/-/config/...`.
   Secrets are now attached as absolute paths only when present.
+- Improved bootstrap resilience by explicitly requiring `/opt` volume mounting by default
+  (`OPENCLAW_REQUIRE_OPT_VOLUME=true`) and adding extra `/dev/sdb` + `/dev/vdb` candidate
+  checks for persistent volume detection.
+- Added UFW hardening baseline during bootstrap and moved SSH rule to rate-limited
+  `ufw limit 22/tcp` behavior.
 
 ### Removed
 - _None yet._
