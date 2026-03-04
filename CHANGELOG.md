@@ -13,6 +13,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 - Updated bootstrap documentation and operational guidance to keep `/opt`-hosted generated artifacts from being silently lost during server rebuilds.
+- Opened inbound HTTP/HTTPS at Hetzner firewall level for webhook and TLS flows:
+  - `modules/clawbot_server/main.tf` now adds inbound `80/tcp` and `443/tcp` rules.
 
 ### Fixed
 - _None yet._

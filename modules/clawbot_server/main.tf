@@ -92,6 +92,22 @@ resource "hcloud_firewall" "clawbot" {
   }
 
   rule {
+    direction       = "in"
+    protocol        = "tcp"
+    port            = "80"
+    source_ips      = ["0.0.0.0/0", "::/0"]
+    description     = "Allow HTTP ingress for ${var.name}"
+  }
+
+  rule {
+    direction       = "in"
+    protocol        = "tcp"
+    port            = "443"
+    source_ips      = ["0.0.0.0/0", "::/0"]
+    description     = "Allow HTTPS ingress for ${var.name}"
+  }
+
+  rule {
     direction       = "out"
     protocol        = "udp"
     port            = "1-65535"
