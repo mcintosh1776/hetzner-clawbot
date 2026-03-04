@@ -413,6 +413,17 @@ run_as_openclaw() {
   local openclaw_uid
   openclaw_uid="$(id -u "$OPENCLAW_USER")"
 
+  if [[ "$(id -u)" -eq "$openclaw_uid" ]]; then
+    XDG_RUNTIME_DIR="/run/user/$openclaw_uid" HOME="/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"
+    return 0
+  fi
+
+  if command -v runuser >/dev/null 2>&1; then
+    if runuser -u "$OPENCLAW_USER" -- env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"; then
+      return 0
+    fi
+  fi
+
   sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"
 }
 
@@ -464,6 +475,15 @@ USAGE
 
 run_as_openclaw() {
   local cmd="$1"
+  if [[ "$(id -un)" == "$OPENCLAW_USER" ]]; then
+    XDG_RUNTIME_DIR="$RUNTIME_DIR" HOME="/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"
+    return
+  fi
+
+  if command -v runuser >/dev/null 2>&1; then
+    runuser -u "$OPENCLAW_USER" -- env "XDG_RUNTIME_DIR=$RUNTIME_DIR" "HOME=/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd" && return
+  fi
+
   sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=$RUNTIME_DIR" "HOME=/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"
 }
 
