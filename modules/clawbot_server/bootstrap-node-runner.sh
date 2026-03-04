@@ -392,12 +392,25 @@ configure_ufw() {
     DEBIAN_FRONTEND=noninteractive apt-get install -y ufw
   fi
 
+  if grep -q '^IPV6=' /etc/default/ufw; then
+    sed -i 's/^IPV6=.*/IPV6=no/' /etc/default/ufw
+  else
+    echo "IPV6=no" >> /etc/default/ufw
+  fi
+  systemctl reload ufw >/dev/null 2>&1 || true
+
   if ! ufw status 2>/dev/null | grep -q "Status: active"; then
     ufw --force enable
   fi
 
   if ! ufw status | grep -qE '(^|[[:space:]])22/tcp([[:space:]]|$)'; then
     ufw allow 22/tcp
+  fi
+  if ! ufw status | grep -qE '(^|[[:space:]])80/tcp([[:space:]]|$)'; then
+    ufw allow 80/tcp
+  fi
+  if ! ufw status | grep -qE '(^|[[:space:]])443/tcp([[:space:]]|$)'; then
+    ufw allow 443/tcp
   fi
 }
 
