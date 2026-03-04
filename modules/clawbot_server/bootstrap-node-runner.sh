@@ -399,8 +399,25 @@ configure_ufw() {
   fi
   systemctl reload ufw >/dev/null 2>&1 || true
 
+  if ! ufw status 2>/dev/null | grep -q "^Status: active"; then
+    : # skip policy check until enabled
+  else
+    if ! ufw status verbose | grep -q "Default: deny (incoming)"; then
+      ufw default deny incoming
+    fi
+    if ! ufw status verbose | grep -q "Default: allow (outgoing)"; then
+      ufw default allow outgoing
+    fi
+  fi
+
   if ! ufw status 2>/dev/null | grep -q "Status: active"; then
     ufw --force enable
+    if ! ufw status verbose | grep -q "Default: deny (incoming)"; then
+      ufw default deny incoming
+    fi
+    if ! ufw status verbose | grep -q "Default: allow (outgoing)"; then
+      ufw default allow outgoing
+    fi
   fi
 
   if ! ufw status | grep -qE '(^|[[:space:]])22/tcp([[:space:]]|$)'; then
