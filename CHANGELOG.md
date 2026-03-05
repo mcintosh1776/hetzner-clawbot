@@ -7,35 +7,112 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- Added rollback-oriented documentation for the webhook rollout and generated-file durability:
-  - Added `docs/openclaw-nginx-letsencrypt-plan.md` with staged implementation tasks and validations.
-  - Added an explicit "Persisting generated files across rebuilds" section covering which webhook/nginx artifacts must live under `/opt/clawbot` and why.
-- Enabled webhook automation defaults in the production Terragrunt stack (`live/prod/fsn1/clawbot/terragrunt.hcl`) for:
+- _None yet._
+
+### Changed
+- Backfilled historical release notes to ensure every tag from `v0.7.14` to `v0.7.19` has its own changelog section.
+- Added explicit release notes for the per-tag webhook rollout progression.
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.19] - 2026-03-04
+
+### Added
+- Added webhook bootstrap reliability and templating refinements to recover missing runtime dependencies without failing the entire bootstrap.
+- Added webhook cert renewal visibility in bootstrap logs and auto-enables an available certbot timer for recurring renewal.
+
+### Changed
+- Added webhook runner dependency repair logic to force reinstall `fastapi`, `uvicorn`, and `httpx` only when missing or broken.
+- Added certificate provisioning behavior to continue through bootstrap even when certbot is unavailable or TLS issuance fails, with explicit warning logs.
+
+### Fixed
+- Changed `/var/log/openclaw-webhook-certbot.log` to capture certbot command output for post-mortem debugging.
+- Added robust webhook stack dependency checks that now avoid hard-failing on transient environment issues.
+
+### Removed
+- _None yet._
+
+## [0.7.18] - 2026-03-04
+
+### Added
+- Added a Terraform precondition in `modules/clawbot_server/main.tf` to fail fast when rendered `user_data` exceeds Hetzner's 32,768-character `cloud-init` limit.
+- Added plan-time guardrail documentation in `README.md` and rollout plan docs for oversized payload detection before build.
+
+### Changed
+- Clarified webhook rollout checks in docs to include `user_data` size validation as part of pre-flight checks.
+
+### Fixed
+- Prevented one-shot Hetzner API failures from oversized cloud-init payloads during server replacement runs.
+
+### Removed
+- _None yet._
+
+## [0.7.17] - 2026-03-04
+
+### Added
+- Added normalized boolean parsing for webhook enablement to avoid environment value drift in bootstrap logic.
+- Added webhook secret generation for Telegram relay bootstrap when missing and persisted at `/opt/clawbot/config/secrets/telegram.env`.
+- Added explicit bootstrap logging and status checks for nginx/webhook automation progress.
+
+### Changed
+- Updated README post-bootstrap verification to include webhook and Telegram secret checks.
+- Improved webhook stack execution flow to install/reload `nginx` and webhook receiver components in an idempotent manner.
+
+### Fixed
+- Fixed partial bootstrap states by making webhook stack setup safer under already-completed runs.
+
+### Removed
+- _None yet._
+
+## [0.7.16] - 2026-03-03
+
+### Added
+- Enabled webhook proxy automation defaults in production stack inputs:
   - `openclaw_enable_webhook_proxy = true`
   - `openclaw_public_hostname = "agents.satoshis-plebs.com"`
   - `openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"`
-- Added bootstrap automation to build the Telegram ingress stack when enabled:
-  - installs `nginx` + `certbot`
-  - renders and runs a local webhook relay at `/opt/clawbot/config/telegram-webhook/app.py`
-  - creates `clawbot-telegram-webhook.service`
-  - writes/reloads Nginx proxy config
-  - requests Let’s Encrypt cert for the configured hostname
-- Added automated bootstrap steps for webhook ingress hardening once enabled:
-  - `nginx` is installed and service-enabled/reloaded during bootstrap.
-  - Telegram webhook secret is generated once in `/opt/clawbot/config/secrets/telegram.env` when missing.
+- Added module inputs for webhook configuration (`openclaw_public_hostname`, `openclaw_letsencrypt_email`, `openclaw_enable_webhook_proxy`, `openclaw_webhook_receiver_port`).
+- Added `docs` guidance for Telegram webhook rollout and secret/config file persistence assumptions.
 
 ### Changed
-- Updated bootstrap documentation and operational guidance to keep `/opt`-hosted generated artifacts from being silently lost during server rebuilds.
-- Opened inbound HTTP/HTTPS at Hetzner firewall level for webhook and TLS flows:
-  - `modules/clawbot_server/main.tf` now adds inbound `80/tcp` and `443/tcp` rules.
-- Added new module inputs and cloud-init variable plumbing for webhook enablement:
-  - `openclaw_public_hostname`
-  - `openclaw_letsencrypt_email`
-  - `openclaw_enable_webhook_proxy`
-  - `openclaw_webhook_receiver_port`
+- Wired new webhook variables through `main.tf` into rendered cloud-init payloads.
+- Passed Telegram webhook recipient settings through `cloud-init.tftpl` into the bootstrap runner environment.
 
 ### Fixed
-- Added a Terraform plan-time precondition in `modules/clawbot_server/main.tf` to block cloud-init payloads that exceed Hetzner's `user_data` maximum (32,768 chars), preventing one-shot API failures during server creation.
+- Extended bootstrap environment plumbing so webhook config can be reliably surfaced to the runner on server apply/rebuild.
+
+### Removed
+- _None yet._
+
+## [0.7.15] - 2026-03-03
+
+### Added
+- Opened inbound HTTP/HTTPS access in Hetzner firewall policy for webhook/TLS traffic (`80/tcp` and `443/tcp`).
+
+### Changed
+- Adjusted ingress posture to support reverse proxy and certificate issuance without manual firewall editing.
+
+### Fixed
+- Prevented reverse proxy bootstrap from being blocked by missing network port allowances.
+
+### Removed
+- _None yet._
+
+## [0.7.14] - 2026-03-03
+
+### Added
+- Added webhook rollout and rebuild persistence planning documentation in `docs/openclaw-nginx-letsencrypt-plan.md`.
+- Added a rerun safety path to re-apply UFW firewall rules during repeated bootstrap operations.
+
+### Changed
+- Expanded rollout runbook to include explicit persistence and rebuild safety assumptions before proxy automation.
+
+### Fixed
+- Improved bootstrap rerun behavior by ensuring firewall rules are revalidated when bootstrap marker is already present.
 
 ### Removed
 - _None yet._
