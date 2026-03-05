@@ -10,7 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- Backfilled historical release notes to ensure every tag from `v0.7.14` to `v0.7.19` has its own changelog section.
+- _None yet._
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.20] - 2026-03-05
+
+### Added
+- Added explicit changelog entry for the `v0.7.20` release to capture this backfill step.
+
+### Changed
+- Backfilled historical release notes so every tag from `v0.7.14` to `v0.7.19` has its own changelog section.
 - Added explicit release notes for the per-tag webhook rollout progression.
 
 ### Fixed
