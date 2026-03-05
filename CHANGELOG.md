@@ -13,7 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Fixed
-- _None yet._
+- Relay no longer echoes Telegram messages back as plain acknowledgements; incoming bot updates are now forwarded to OpenClaw’s local gateway endpoint for real routing.
 
 ### Removed
 - _None yet._

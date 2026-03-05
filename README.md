@@ -101,7 +101,7 @@ The bootstrap writes `/usr/local/bin/openclaw-ctl` on the node for common checks
 - `openclaw-ctl token` (prints `/opt/clawbot/config/.env`)
 - `openclaw-ctl health` (HTTP check against `127.0.0.1:18789`)
 - `openclaw-ctl` is helpful for post-rebuild validation while avoiding manual context setup.
-- Approve the latest pairing request from the latest device:
+- Approve the latest pairing request from the latest device (also printed during bootstrap):
 
   ```bash
   sudo -u openclaw bash -lc 'cd /home/openclaw && podman exec -it openclaw node dist/index.js devices approve --latest'
@@ -266,8 +266,14 @@ Quick six-item post-bootstrap check list:
 2. `curl -I https://agents.satoshis-plebs.com/telegram/bob`
 3. `systemctl is-active --quiet nginx`
 4. `systemctl is-active --quiet clawbot-telegram-webhook`
-5. `sudo systemctl --machine openclaw@ --user status openclaw.service --no-pager`
-6. `sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secrets/telegram.env'`
+5. `sudo systemctl status --no-pager clawbot-telegram-webhook`
+6. `sudo systemctl --machine openclaw@ --user status openclaw.service --no-pager`
+7. `sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secrets/telegram.env'`
+
+Troubleshooting when bots reply with plain echoes:
+1. Verify relay logs: `journalctl -u clawbot-telegram-webhook -n 100 --no-pager`
+2. Verify OpenClaw receives the forwarded payload by watching gateway logs for Telegram path hits.
+3. Confirm the gateway endpoint is reachable from the host: `curl -s http://127.0.0.1:18789/telegram/bob -o /tmp/gw-echo-test.out -w "%{http_code}\n"`.
 
 Persisted artifacts for webhook/ingress are rooted in `/opt/clawbot` when possible:
 

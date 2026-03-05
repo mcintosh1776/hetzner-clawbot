@@ -244,6 +244,11 @@ ensure_gateway_token() {
   log "Resolved gateway token from ${source}. Existing token present: $( [[ -n "$current_token" ]] && echo yes || echo no )"
 }
 
+log_pairing_command() {
+  log "If a pairing request appears in the gateway UI, approve latest pending device with:"
+  log "  sudo -u ${OPENCLAW_USER} bash -lc 'cd /home/${OPENCLAW_USER} && podman exec -it openclaw node dist/index.js devices approve --latest'"
+}
+
 mount_opt_volume_if_needed() {
   if [[ "$OPENCLAW_REQUIRE_OPT_VOLUME" != "true" ]]; then
     return 0
@@ -471,6 +476,7 @@ render_webhook_app() {
 import os
 from fastapi import FastAPI, Header, HTTPException, Request
 import httpx
+import logging
 
 app = FastAPI()
 
@@ -483,6 +489,9 @@ BOT_TOKEN_ENV = {
 }
 
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("webhook-relay")
 
 def bot_token_for(agent: str) -> str | None:
   token_env = BOT_TOKEN_ENV.get(agent)
@@ -499,6 +508,13 @@ async def send_message(bot_token: str, chat_id: int, text: str, message_thread_i
     response = await client.post(url, data=payload)
     response.raise_for_status()
     return response.json()
+
+async def forward_to_openclaw(agent: str, update: dict):
+  url = f"{OPENCLAW_GATEWAY_URL.rstrip(\"/\")}/telegram/{agent}"
+  async with httpx.AsyncClient(timeout=10) as client:
+    response = await client.post(url, json=update)
+    response.raise_for_status()
+    return response
 
 @app.post("/telegram/{agent}")
 async def telegram_webhook(
@@ -526,8 +542,13 @@ async def telegram_webhook(
   if not chat_id or not text:
     return {"ok": True}
 
-  reply = f"[{agent.upper()}] got it: {text}"
-  await send_message(bot_token, chat_id, reply, message_thread_id=thread_id)
+  try:
+    await forward_to_openclaw(agent, update)
+    return {"ok": True}
+  except Exception as exc:
+    logger.error("Failed to forward telegram update to OpenClaw", exc_info=exc)
+    fallback = "Warning: I received your message, but could not forward it to the controller yet."
+    await send_message(bot_token, chat_id, fallback, message_thread_id=thread_id)
   return {"ok": True}
 PY
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "${OPENCLAW_WEBHOOK_DIR}/app.py"
@@ -546,7 +567,9 @@ User=$OPENCLAW_USER
 Group=$OPENCLAW_USER
 WorkingDirectory=$OPENCLAW_WEBHOOK_DIR
 EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE
+EnvironmentFile=-/opt/clawbot/config/.env
 Environment=OPENCLAW_WEBHOOK_RECEIVER_PORT=$OPENCLAW_WEBHOOK_RECEIVER_PORT
+Environment=OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
 ExecStart=$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_WEBHOOK_RECEIVER_PORT
 Restart=always
 RestartSec=2
@@ -1368,6 +1391,7 @@ if [[ -f "$BOOTSTRAP_MARKER" ]]; then
     wait_for_openclaw_service 60
     run_as_openclaw "systemctl --user status openclaw.service --no-pager"
   fi
+  log_pairing_command
   exit 0
 fi
 
@@ -1475,6 +1499,7 @@ run_step "Wait for openclaw service" wait_for_openclaw_service 60
 run_step "Check openclaw service" run_as_openclaw "systemctl --user status openclaw.service --no-pager"
 run_step "Install openclaw helper" write_openclaw_ctl
 run_step "Configure webhook stack" configure_webhook_stack
+log_pairing_command
 
 touch "$BOOTSTRAP_MARKER"
 log "openclaw node bootstrap complete."
