@@ -20,6 +20,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - creates `clawbot-telegram-webhook.service`
   - writes/reloads Nginx proxy config
   - requests Let’s Encrypt cert for the configured hostname
+- Added automated bootstrap steps for webhook ingress hardening once enabled:
+  - `nginx` is installed and service-enabled/reloaded during bootstrap.
+  - Telegram webhook secret is generated once in `/opt/clawbot/config/secrets/telegram.env` when missing.
 
 ### Changed
 - Updated bootstrap documentation and operational guidance to keep `/opt`-hosted generated artifacts from being silently lost during server rebuilds.

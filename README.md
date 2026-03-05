@@ -226,6 +226,8 @@ When enabled, bootstrap performs these actions on the node:
 5. Requests/renews Let’s Encrypt cert for `agents.satoshis-plebs.com`.
 6. Persists/derives `TELEGRAM_WEBHOOK_SECRET` in `/opt/clawbot/config/secrets/telegram.env`.
 
+This rollout is fully automated from `openclaw-node-bootstrap-runner` for the first six stages. The remaining manual items are Telegram `setWebhook` registration.
+
 To verify after bootstrap:
 
 ```bash
@@ -251,6 +253,14 @@ curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/getWebhookInfo"
 ```
 
 Other bots use `/telegram/jennifer`, `/telegram/steve`, `/telegram/stacks`, `/telegram/number5`.
+
+Quick six-item post-bootstrap check list:
+1. `curl -I http://agents.satoshis-plebs.com/`
+2. `curl -I https://agents.satoshis-plebs.com/telegram/bob`
+3. `systemctl is-active --quiet nginx`
+4. `systemctl is-active --quiet clawbot-telegram-webhook`
+5. `sudo systemctl --machine openclaw@ --user status openclaw.service --no-pager`
+6. `sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secrets/telegram.env'`
 
 Persisted artifacts for webhook/ingress are rooted in `/opt/clawbot` when possible:
 

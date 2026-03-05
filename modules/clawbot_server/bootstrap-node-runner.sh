@@ -8,6 +8,18 @@ if [[ -d /var/log ]]; then
   exec > >(tee -a "$OPENCLAW_BOOTSTRAP_LOG") 2>&1
 fi
 
+normalize_bool() {
+  local value="${1:-false}"
+  case "${value,,}" in
+    1|true|yes|on)
+      echo "true"
+      ;;
+    *)
+      echo "false"
+      ;;
+ esac
+}
+
 OPENCLAW_USER="${OPENCLAW_USER:-}"
 if [ -z "$OPENCLAW_USER" ]; then
   OPENCLAW_USER="openclaw"
@@ -54,6 +66,7 @@ OPENCLAW_LLM_TEMPLATE_B64="${OPENCLAW_LLM_TEMPLATE_B64:-}"
 OPENCLAW_PUBLIC_HOSTNAME="${OPENCLAW_PUBLIC_HOSTNAME:-}"
 OPENCLAW_LETSENCRYPT_EMAIL="${OPENCLAW_LETSENCRYPT_EMAIL:-}"
 OPENCLAW_ENABLE_WEBHOOK_PROXY="${OPENCLAW_ENABLE_WEBHOOK_PROXY:-false}"
+OPENCLAW_ENABLE_WEBHOOK_PROXY="$(normalize_bool "$OPENCLAW_ENABLE_WEBHOOK_PROXY")"
 OPENCLAW_WEBHOOK_RECEIVER_PORT="${OPENCLAW_WEBHOOK_RECEIVER_PORT:-9000}"
 
 BOOTSTRAP_MARKER="${BOOTSTRAP_MARKER:-}"
@@ -425,6 +438,13 @@ ensure_webhook_secret() {
   local webhook_secret
 
   if [[ ! -f "$secret_file" ]]; then
+    webhook_secret="$(openssl rand -hex 24 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)"
+    {
+      printf "TELEGRAM_WEBHOOK_SECRET=%s\n" "$webhook_secret"
+    } > "$secret_file"
+    chown "$OPENCLAW_USER:$OPENCLAW_USER" "$secret_file"
+    chmod 600 "$secret_file"
+    log "Created ${secret_file} with generated TELEGRAM_WEBHOOK_SECRET."
     return 0
   fi
 
@@ -612,11 +632,16 @@ EOF
   chmod 0644 /etc/nginx/sites-available/openclaw-webhook.conf
   ln -sf /etc/nginx/sites-available/openclaw-webhook.conf /etc/nginx/sites-enabled/openclaw-webhook.conf
   rm -f /etc/nginx/sites-enabled/default
-  nginx -t
-  systemctl reload nginx
+  run_step "Enable nginx service" systemctl enable nginx
+  if ! systemctl is-active --quiet nginx; then
+    run_step "Start nginx service" systemctl start nginx
+  fi
+  run_step "Validate nginx config" nginx -t
+  run_step "Reload nginx" systemctl reload nginx
 }
 
 configure_webhook_stack() {
+  log "Webhook proxy enabled=${OPENCLAW_ENABLE_WEBHOOK_PROXY} hostname=${OPENCLAW_PUBLIC_HOSTNAME:-<unset>} letsencrypt_email_set=${OPENCLAW_LETSENCRYPT_EMAIL:+yes}:${OPENCLAW_LETSENCRYPT_EMAIL:-no}"
   validate_webhook_config
   if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
     log "OPENCLAW_ENABLE_WEBHOOK_PROXY is not true; skipping webhook proxy setup."
