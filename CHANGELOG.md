@@ -13,7 +13,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Fixed
-- Relay no longer echoes Telegram messages back as plain acknowledgements; incoming bot updates are now forwarded to OpenClaw’s local gateway endpoint for real routing.
+- _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.21] - 2026-03-05
+
+### Added
+- Added webhook TLS persistence across node rebuilds by backing up and restoring
+  `/etc/letsencrypt/{live,archive,renewal}` under `/opt/clawbot/tls/letsencrypt`.
+
+### Changed
+- Adjusted webhook bootstrap flow to:
+  - restore persisted cert material before configuring nginx/certbot,
+  - retry TLS issuance even when certs already exist,
+  - and persist issued or renewed cert material at bootstrap completion.
+- Updated webhook nginx template generation to enable HTTPS listeners only when cert
+  material is present for the configured hostname.
+
+### Fixed
+- Prevented replacement-node rebuilds from permanently suppressing certbot attempts due to
+  naive "certificate exists" short-circuit logic.
+- Fixed bootstrap TLS handling to keep HTTPS reachable when certs survive a rebuild.
 
 ### Removed
 - _None yet._

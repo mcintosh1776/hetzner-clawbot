@@ -56,6 +56,7 @@ OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agen
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
 OPENCLAW_WEBHOOK_DIR="/opt/clawbot/config/telegram-webhook"
+OPENCLAW_TLS_BACKUP_DIR="/opt/clawbot/tls/letsencrypt"
 OPENCLAW_AGENT_FLEET_TEMPLATE_B64="${OPENCLAW_AGENT_FLEET_TEMPLATE_B64:-}"
 OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64="${OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64:-}"
 OPENCLAW_STACKS_TEMPLATE_B64="${OPENCLAW_STACKS_TEMPLATE_B64:-}"
@@ -476,43 +477,17 @@ render_webhook_app() {
 import os
 from fastapi import FastAPI, Header, HTTPException, Request
 import httpx
-import logging
 
 app = FastAPI()
 
-BOT_TOKEN_ENV = {
-  "bob": "TELEGRAM_BOT_TOKEN_BOB",
-  "jennifer": "TELEGRAM_BOT_TOKEN_JENNIFER",
-  "steve": "TELEGRAM_BOT_TOKEN_STEVE",
-  "number5": "TELEGRAM_BOT_TOKEN_NUMBER5",
-  "stacks": "TELEGRAM_BOT_TOKEN_STACKS",
-}
-
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks"}
 OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("webhook-relay")
-
-def bot_token_for(agent: str) -> str | None:
-  token_env = BOT_TOKEN_ENV.get(agent)
-  if not token_env:
-    return None
-  return os.getenv(token_env)
-
-async def send_message(bot_token: str, chat_id: int, text: str, message_thread_id: int | None = None):
-  url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-  payload = {"chat_id": chat_id, "text": text}
-  if message_thread_id is not None:
-    payload["message_thread_id"] = message_thread_id
-  async with httpx.AsyncClient(timeout=10) as client:
-    response = await client.post(url, data=payload)
-    response.raise_for_status()
-    return response.json()
 
 async def forward_to_openclaw(agent: str, update: dict):
-  url = f"{OPENCLAW_GATEWAY_URL.rstrip(\"/\")}/telegram/{agent}"
+  url = f"{OPENCLAW_GATEWAY_URL.rstrip('/')}/telegram/{agent}"
   async with httpx.AsyncClient(timeout=10) as client:
-    response = await client.post(url, json=update)
+    response = await client.post(url, json=update, headers={"x-openclaw-agent": agent})
     response.raise_for_status()
     return response
 
@@ -526,29 +501,14 @@ async def telegram_webhook(
     raise HTTPException(status_code=401, detail="invalid telegram secret token")
 
   agent = agent.lower()
-  bot_token = bot_token_for(agent)
-  if not bot_token:
+  if agent not in ALLOWED_AGENTS:
     raise HTTPException(status_code=404, detail="unknown agent")
 
   update = await request.json()
-  msg = update.get("message") or update.get("edited_message")
-  if not msg:
+  if not update:
     return {"ok": True}
 
-  chat = msg.get("chat", {})
-  chat_id = chat.get("id")
-  text = msg.get("text", "")
-  thread_id = msg.get("message_thread_id")
-  if not chat_id or not text:
-    return {"ok": True}
-
-  try:
-    await forward_to_openclaw(agent, update)
-    return {"ok": True}
-  except Exception as exc:
-    logger.error("Failed to forward telegram update to OpenClaw", exc_info=exc)
-    fallback = "Warning: I received your message, but could not forward it to the controller yet."
-    await send_message(bot_token, chat_id, fallback, message_thread_id=thread_id)
+  await forward_to_openclaw(agent, update)
   return {"ok": True}
 PY
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "${OPENCLAW_WEBHOOK_DIR}/app.py"
@@ -617,16 +577,45 @@ configure_webhook_receiver() {
   run_step "Enable webhook receiver service" systemctl enable --now clawbot-telegram-webhook.service
 }
 
+restore_webhook_certificates() {
+  [[ -d /etc/letsencrypt/live/"$OPENCLAW_PUBLIC_HOSTNAME" || ! -d "$OPENCLAW_TLS_BACKUP_DIR" ]] && return 0
+  mkdir -p /etc/letsencrypt
+  cp -a "$OPENCLAW_TLS_BACKUP_DIR"/{live,archive,renewal} /etc/letsencrypt/ 2>/dev/null || true
+  chown -R root:root /etc/letsencrypt
+  chmod 700 /etc/letsencrypt /etc/letsencrypt/live /etc/letsencrypt/archive /etc/letsencrypt/renewal 2>/dev/null || true
+}
+
+persist_webhook_certificates() {
+  [[ -d /etc/letsencrypt/live/"$OPENCLAW_PUBLIC_HOSTNAME" ]] || return 0
+  mkdir -p "$OPENCLAW_TLS_BACKUP_DIR"
+  cp -a /etc/letsencrypt/{live,archive,renewal} "$OPENCLAW_TLS_BACKUP_DIR"/ 2>/dev/null || true
+  chown -R root:root "$OPENCLAW_TLS_BACKUP_DIR"
+  chmod -R 700 "$OPENCLAW_TLS_BACKUP_DIR"
+}
+
 configure_webhook_proxy_nginx() {
   if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
     return 0
   fi
 
+  local cert_dir="/etc/letsencrypt/live/${OPENCLAW_PUBLIC_HOSTNAME}"
+
   cat >/etc/nginx/sites-available/openclaw-webhook.conf <<EOF
 server {
     listen 80;
     server_name ${OPENCLAW_PUBLIC_HOSTNAME};
+EOF
 
+  if [[ -f "${cert_dir}/fullchain.pem" && -f "${cert_dir}/privkey.pem" ]]; then
+    cat >>/etc/nginx/sites-available/openclaw-webhook.conf <<EOF
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    ssl_certificate ${cert_dir}/fullchain.pem;
+    ssl_certificate_key ${cert_dir}/privkey.pem;
+EOF
+  fi
+
+  cat >>/etc/nginx/sites-available/openclaw-webhook.conf <<EOF
     location ^~ /.well-known/acme-challenge/ {
         root /var/www/html;
     }
@@ -669,9 +658,11 @@ configure_webhook_stack() {
 
   ensure_webhook_secret
   install_webhook_packages
+  restore_webhook_certificates
   configure_webhook_receiver
   configure_webhook_proxy_nginx
   provision_webhook_certificate
+  persist_webhook_certificates
   ensure_webhook_certificate_renewal
 }
 
@@ -680,9 +671,15 @@ provision_webhook_certificate() {
     return 0
   fi
 
-  if command -v certbot >/dev/null 2>&1 && [ -d "/etc/letsencrypt/live/${OPENCLAW_PUBLIC_HOSTNAME}" ]; then
-    log "Certificate already exists for ${OPENCLAW_PUBLIC_HOSTNAME}; skipping cert issuance."
-    return 0
+  local certbot_log="/var/log/openclaw-webhook-certbot.log"
+
+  if [[ -d "/etc/letsencrypt/live/${OPENCLAW_PUBLIC_HOSTNAME}" ]]; then
+    log "Certificate exists for ${OPENCLAW_PUBLIC_HOSTNAME}; attempting certbot renewal."
+    if certbot renew --non-interactive --quiet --deploy-hook "systemctl reload nginx" >"$certbot_log" 2>&1; then
+      log "Certbot certificate renewal completed for ${OPENCLAW_PUBLIC_HOSTNAME}."
+      return 0
+    fi
+    log "WARN: Certbot renewal did not complete for ${OPENCLAW_PUBLIC_HOSTNAME} (exit=$?). Re-running issuance."
   fi
 
   if ! command -v certbot >/dev/null 2>&1; then
@@ -690,13 +687,12 @@ provision_webhook_certificate() {
     return 0
   fi
 
-  if bash -lc "certbot --nginx -d '${OPENCLAW_PUBLIC_HOSTNAME}' --non-interactive --agree-tos -m '${OPENCLAW_LETSENCRYPT_EMAIL}' --redirect --quiet" >/var/log/openclaw-webhook-certbot.log 2>&1; then
+  if certbot --nginx -d "${OPENCLAW_PUBLIC_HOSTNAME}" --non-interactive --agree-tos -m "${OPENCLAW_LETSENCRYPT_EMAIL}" --redirect --force-renewal --quiet >"$certbot_log" 2>&1; then
     log "Certbot TLS issuance completed for ${OPENCLAW_PUBLIC_HOSTNAME}."
     return 0
   fi
 
-  local certbot_rc=$?
-  log "WARN: certbot TLS issuance failed for ${OPENCLAW_PUBLIC_HOSTNAME} (exit=${certbot_rc}). Continuing without HTTPS."
+  log "WARN: certbot TLS issuance failed for ${OPENCLAW_PUBLIC_HOSTNAME} (exit=$?). Continuing without HTTPS."
   return 0
 }
 
