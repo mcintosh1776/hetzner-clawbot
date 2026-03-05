@@ -575,7 +575,7 @@ configure_webhook_receiver() {
   fi
 
   if [[ ! -d "$OPENCLAW_WEBHOOK_DIR/.venv" ]]; then
-    run_as_openclaw "python3 -m venv '$OPENCLAW_WEBHOOK_DIR/.venv'"
+  run_as_openclaw "python3 -m venv '$OPENCLAW_WEBHOOK_DIR/.venv'"
   fi
 
   if [[ ! -x "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip" ]]; then
@@ -584,8 +584,9 @@ configure_webhook_receiver() {
   fi
 
   run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip install --upgrade pip >/tmp/openclaw-venv-upgrade.log 2>&1 || true"
-  if ! "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip" show fastapi >/dev/null 2>&1; then
-    run_step "Install webhook python dependencies" bash -lc "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip install fastapi uvicorn httpx >/tmp/openclaw-webhook-requirements.log 2>&1"
+
+  if [[ ! -s "$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn" ]] || ! run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/python -c 'from uvicorn.config import Config; from fastapi import FastAPI; import httpx; print(\"deps-ok\")' >/tmp/openclaw-webhook-import-check.log 2>&1"; then
+    run_step "Fix webhook deps" bash -lc "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip install --upgrade --force-reinstall --no-cache-dir fastapi uvicorn httpx >/tmp/openclaw-webhook-requirements.log 2>&1"
   fi
   render_webhook_app
   write_webhook_systemd_unit
@@ -653,6 +654,7 @@ configure_webhook_stack() {
   configure_webhook_receiver
   configure_webhook_proxy_nginx
   provision_webhook_certificate
+  ensure_webhook_certificate_renewal
 }
 
 provision_webhook_certificate() {
@@ -666,12 +668,77 @@ provision_webhook_certificate() {
   fi
 
   if ! command -v certbot >/dev/null 2>&1; then
-    log "certbot is required for webhook proxy setup."
-    return 1
+    log "WARN: certbot is not installed; skipping TLS certificate issuance for ${OPENCLAW_PUBLIC_HOSTNAME}."
+    return 0
   fi
 
-  run_step "Issue webhook TLS certificate" bash -lc \
-    "certbot --nginx -d '${OPENCLAW_PUBLIC_HOSTNAME}' --non-interactive --agree-tos -m '${OPENCLAW_LETSENCRYPT_EMAIL}' --redirect --quiet"
+  if bash -lc "certbot --nginx -d '${OPENCLAW_PUBLIC_HOSTNAME}' --non-interactive --agree-tos -m '${OPENCLAW_LETSENCRYPT_EMAIL}' --redirect --quiet" >/var/log/openclaw-webhook-certbot.log 2>&1; then
+    log "Certbot TLS issuance completed for ${OPENCLAW_PUBLIC_HOSTNAME}."
+    return 0
+  fi
+
+  local certbot_rc=$?
+  log "WARN: certbot TLS issuance failed for ${OPENCLAW_PUBLIC_HOSTNAME} (exit=${certbot_rc}). Continuing without HTTPS."
+  return 0
+}
+
+ensure_webhook_certificate_renewal() {
+  if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
+    return 0
+  fi
+
+  if ! command -v certbot >/dev/null 2>&1; then
+    log "WARN: certbot is not installed; skipping renewal checks for ${OPENCLAW_PUBLIC_HOSTNAME}."
+    return 0
+  fi
+
+  local timer_unit=""
+  local timer_output=""
+
+  if systemctl list-unit-files --type=timer --all 2>/dev/null | grep -q '^certbot\.timer'; then
+    timer_unit="certbot.timer"
+  elif systemctl list-unit-files --type=timer --all 2>/dev/null | grep -q '^snap\.certbot\.renew\.timer'; then
+    timer_unit="snap.certbot.renew.timer"
+  fi
+
+  if [[ -n "$timer_unit" ]]; then
+    if systemctl is-enabled "$timer_unit" >/dev/null 2>&1; then
+      log "OK: Certbot renewal timer is enabled: $timer_unit"
+    else
+      log "WARN: Certbot renewal timer found but not enabled: $timer_unit. Attempting to enable."
+      if systemctl enable --now "$timer_unit" >/dev/null 2>&1; then
+        log "OK: Enabled certbot renewal timer: $timer_unit"
+      else
+        log "WARN: Unable to enable certbot renewal timer: $timer_unit"
+      fi
+    fi
+  else
+    log "WARN: No certbot timer unit found; attempting to enable apt timer if available."
+    if systemctl list-unit-files --type=timer --all 2>/dev/null | grep -q '^certbot\.timer'; then
+      if systemctl enable --now certbot.timer >/dev/null 2>&1; then
+        timer_unit="certbot.timer"
+        log "OK: Enabled fallback certbot.timer"
+      else
+        log "WARN: Failed to enable certbot.timer"
+      fi
+    elif systemctl list-unit-files --type=timer --all 2>/dev/null | grep -q '^snap\.certbot\.renew\.timer'; then
+      if systemctl enable --now snap.certbot.renew.timer >/dev/null 2>&1; then
+        timer_unit="snap.certbot.renew.timer"
+        log "OK: Enabled fallback snap.certbot.renew.timer"
+      else
+        log "WARN: Failed to enable snap.certbot.renew.timer"
+      fi
+    else
+      log "WARN: No certbot renewal timer units are available on this image. Check certbot installation source."
+    fi
+  fi
+
+  timer_output="$(systemctl list-timers --all 2>/dev/null | grep -E 'certbot\.timer|snap\.certbot\.renew\.timer' || true)"
+  if [[ -n "$timer_output" ]]; then
+    log "OK: certbot renewal timer schedule visible:\n$timer_output"
+  else
+    log "WARN: Certbot renewal timer not visible in list-timers output."
+  fi
 }
 
 install_webhook_packages() {

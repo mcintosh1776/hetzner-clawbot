@@ -210,6 +210,23 @@ runcmd:
     OPENCLAW_LETSENCRYPT_EMAIL='${openclaw_letsencrypt_email}'
     OPENCLAW_ENABLE_WEBHOOK_PROXY='${openclaw_enable_webhook_proxy}'
     OPENCLAW_WEBHOOK_RECEIVER_PORT='${openclaw_webhook_receiver_port}'
+    export OPENCLAW_REPO_URL OPENCLAW_IMAGE OPENCLAW_GATEWAY_TOKEN OPENCLAW_REQUIRE_OPT_VOLUME \
+      OPENCLAW_OPT_VOLUME_FSTYPE OPENCLAW_OPT_VOLUME_ID OPENCLAW_OPT_VOLUME_NAME \
+      OPENCLAW_OPT_VOLUME_WAIT_SECONDS OPENCLAW_AGENT_FLEET_TEMPLATE_B64 OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64 \
+      OPENCLAW_STACKS_TEMPLATE_B64 OPENCLAW_JENNIFER_TEMPLATE_B64 OPENCLAW_STEVE_TEMPLATE_B64 \
+      OPENCLAW_BUSINESS_TEMPLATE_B64 OPENCLAW_LLM_TEMPLATE_B64 OPENCLAW_PUBLIC_HOSTNAME \
+      OPENCLAW_LETSENCRYPT_EMAIL OPENCLAW_ENABLE_WEBHOOK_PROXY OPENCLAW_WEBHOOK_RECEIVER_PORT
+
+    if [[ "$${OPENCLAW_ENABLE_WEBHOOK_PROXY}" == "true" ]]; then
+      if [[ -z "$${OPENCLAW_PUBLIC_HOSTNAME}" || -z "$${OPENCLAW_LETSENCRYPT_EMAIL}" ]]; then
+        echo "OPENCLAW_ENABLE_WEBHOOK_PROXY is true, but OPENCLAW_PUBLIC_HOSTNAME and OPENCLAW_LETSENCRYPT_EMAIL are required." >&2
+        exit 1
+      fi
+      if ! printf '%s' "$${OPENCLAW_LETSENCRYPT_EMAIL}" | grep -Eq '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'; then
+        echo "OPENCLAW_LETSENCRYPT_EMAIL does not look valid: $${OPENCLAW_LETSENCRYPT_EMAIL}" >&2
+        exit 1
+      fi
+    fi
 
     if [ ! -x /usr/local/bin/openclaw-node-bootstrap-runner ]; then
       printf '%s' '${openclaw_bootstrap_runner_script}' | base64 -d | gzip -dc > /usr/local/bin/openclaw-node-bootstrap-runner
