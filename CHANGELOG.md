@@ -26,6 +26,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - Backfilled historical release notes so every tag from `v0.7.14` to `v0.7.19` has its own changelog section.
 - Added explicit release notes for the per-tag webhook rollout progression.
+- Hardened public ingress so the webhook domain root no longer proxies to OpenClaw; only `/telegram/*` is exposed for external traffic.
 
 ### Fixed
 - _None yet._

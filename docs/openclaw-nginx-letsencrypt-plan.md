@@ -35,7 +35,7 @@ Use this exact sequence for the next clean rebuild:
      - `openclaw node bootstrap complete.`
 
 5. Run automated post-bootstrap checks in order:
-   - `curl -I http://agents.satoshis-plebs.com/`
+   - `curl -I https://agents.satoshis-plebs.com/` (expect HTTP 404 after root hardening)
    - `curl -I https://agents.satoshis-plebs.com/telegram/bob`
    - `systemctl is-active --quiet nginx`
    - `systemctl is-active --quiet clawbot-telegram-webhook`

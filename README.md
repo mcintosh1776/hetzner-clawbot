@@ -237,7 +237,7 @@ This rollout is fully automated from `openclaw-node-bootstrap-runner` for the fi
 To verify after bootstrap:
 
 ```bash
-curl -I http://agents.satoshis-plebs.com/
+curl -I https://agents.satoshis-plebs.com/
 curl -I https://agents.satoshis-plebs.com/telegram/bob
 systemctl is-active --quiet clawbot-telegram-webhook
 sudo -u openclaw bash -lc 'cat /opt/clawbot/config/telegram-webhook/app.py | head'
@@ -262,7 +262,7 @@ curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/getWebhookInfo"
 Other bots use `/telegram/jennifer`, `/telegram/steve`, `/telegram/stacks`, `/telegram/number5`.
 
 Quick six-item post-bootstrap check list:
-1. `curl -I http://agents.satoshis-plebs.com/`
+1. `curl -I https://agents.satoshis-plebs.com/` (expect HTTP 404, root intentionally not proxied)
 2. `curl -I https://agents.satoshis-plebs.com/telegram/bob`
 3. `systemctl is-active --quiet nginx`
 4. `systemctl is-active --quiet clawbot-telegram-webhook`
