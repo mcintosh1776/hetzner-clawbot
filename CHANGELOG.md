@@ -35,7 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   - `openclaw_webhook_receiver_port`
 
 ### Fixed
-- _None yet._
+- Added a Terraform plan-time precondition in `modules/clawbot_server/main.tf` to block cloud-init payloads that exceed Hetzner's `user_data` maximum (32,768 chars), preventing one-shot API failures during server creation.
 
 ### Removed
 - _None yet._

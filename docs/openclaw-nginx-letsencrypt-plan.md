@@ -5,9 +5,52 @@
 - `https://agents.satoshis-plebs.com`
 - Keep `/opt` persistence and bootstrap idempotency intact.
 - Do each stage in a separate commit/tag/rebuild until it passes.
+- TLS issuance is best-effort: webhook bootstrap continues on certbot failure and logs explicit warnings.
+
+## Concrete rollout sequence (for rebuild-driven execution)
+
+Use this exact sequence for the next clean rebuild:
+
+1. Confirm required inputs and current state
+   - DNS points `agents.satoshis-plebs.com` to the target server IP.
+   - `/opt` is enabled and has persisted data:
+     - `/opt/clawbot/config/secrets/telegram.env` exists.
+     - `/opt/clawbot/config/openclaw.json` exists.
+     - `/opt/clawbot/config/agent-config/` files exist.
+   - Cloud-init contract values are set in stack:
+     - `openclaw_enable_webhook_proxy = true`
+     - `openclaw_public_hostname = "agents.satoshis-plebs.com"`
+     - `openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"`
+
+2. Capture token (optional, for continuity)
+   - `OPENCLAW_GATEWAY_TOKEN="$(sudo -u openclaw awk -F= '/^OPENCLAW_GATEWAY_TOKEN=/{print $2}' /opt/clawbot/config/.env)"`
+   - Export it for apply if you want deterministic continuity.
+
+3. Rebuild server only (preserve volume):
+   - `terragrunt taint hcloud_server.clawbot`
+   - `terragrunt apply`
+
+4. Wait for bootstrap completion and avoid early checks:
+   - SSH in only after `/var/log/openclaw-node-bootstrap.log` ends with:
+     - `openclaw node bootstrap complete.`
+
+5. Run automated post-bootstrap checks in order:
+   - `curl -I http://agents.satoshis-plebs.com/`
+   - `curl -I https://agents.satoshis-plebs.com/telegram/bob`
+   - `systemctl is-active --quiet nginx`
+   - `systemctl is-active --quiet clawbot-telegram-webhook`
+   - `sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secrets/telegram.env'`
+   - `curl -I http://127.0.0.1:18789/`
+
+6. Register Telegram webhooks (manual, one-time per token):
+   - `set -a; . /opt/clawbot/config/secrets/telegram.env; set +a`
+   - `curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/bob" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"`
+   - Repeat for `jennifer`, `steve`, `number5`, `stacks`.
+   - Validate each via `getWebhookInfo`.
 
 ## 0) Pre-flight check (do this now)
 1. Confirm cloud-init + Terragrunt stack still apply cleanly.
+   - Verify `hcl` still renders within Hetzner's `user_data` cap (32,768 chars) before rebuild so oversized payloads fail in plan instead of API apply.
 2. Confirm SSH and bootstrap completion checks are available:
    - `openclaw-ctl status`
    - `openclaw-ctl health`
@@ -76,23 +119,28 @@ Create/regen `/etc/nginx/sites-available/openclaw.conf` and enable it:
 ## 4) Provision Let’s Encrypt certificate
 Run cert issuance in bootstrap after nginx config is active:
 - `certbot --nginx -d agents.satoshis-plebs.com --non-interactive --agree-tos -m <email> --redirect`
+- Bootstrap writes certificate command output to `/var/log/openclaw-webhook-certbot.log`.
+- If certbot fails, bootstrap logs a warning and continues with HTTP.
 
 ### Validation after Stage 4
-- `/etc/letsencrypt/live/agents.satoshis-plebs.com/` exists.
-- `curl -I https://agents.satoshis-plebs.com/` returns `HTTP/2 200` or `HTTP/1.1 200`.
-- `nginx -T` contains SSL block for `agents.satoshis-plebs.com`.
+- `/etc/letsencrypt/live/agents.satoshis-plebs.com/` exists only if cert issuance succeeds.
+- `curl -I https://agents.satoshis-plebs.com/` returns `HTTP/2 200` or `HTTP/1.1 200` only when HTTPS is active.
+- `nginx -T` contains SSL block for `agents.satoshis-plebs.com` when cert issuance succeeded.
+- If TLS was not issued, confirm warning in `/var/log/openclaw-node-bootstrap.log` and validate HTTP path instead:
+  - `grep -i \"WARN\" /var/log/openclaw-node-bootstrap.log | grep -i \"certbot\"`
 
 ### Rollback
 - Leave HTTP backend enabled and keep HTTPS disabled if certbot fails.
 
 ## 5) Renewal hygiene
 Enable renewals:
-- verify `systemctl list-timers --all | grep certbot` includes active timer
-- if not, run `systemctl enable --now snap.certbot.renew.timer` or distro equivalent unit
+- verify `systemctl list-timers --all | grep -E 'certbot.timer|snap.certbot.renew.timer'` includes timer state
+- if timer is present but not enabled, enable it during bootstrap and in follow-up checks
 
 ### Validation after Stage 5
 - Next dry-run:
   - `certbot renew --dry-run`
+- confirm `systemctl list-timers --all | grep -E 'certbot.timer|snap.certbot.renew.timer'` shows a scheduled run.
 
 ### Rollback
 - No destructive rollback needed; renewal is additive.

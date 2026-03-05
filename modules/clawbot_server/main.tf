@@ -33,28 +33,28 @@ locals {
   rendered_cloud_init = trimspace(var.cloud_init) != "" ? var.cloud_init : templatefile(
     "${path.module}/cloud-init.tftpl",
     {
-      users                            = var.bootstrap_users
-      user_ssh_authorized_keys         = var.bootstrap_user_ssh_public_keys
-      enable_root_ssh                  = var.enable_root_ssh
-      openclaw_repo_url                = var.openclaw_repo_url
-      openclaw_gateway_token           = var.openclaw_gateway_token
-      openclaw_opt_volume_enabled      = var.opt_volume_enabled
-      openclaw_opt_volume_fstype       = var.opt_volume_fstype
-      openclaw_opt_volume_id           = var.opt_volume_enabled ? hcloud_volume.opt[0].id : ""
-      openclaw_opt_volume_name         = var.opt_volume_enabled ? hcloud_volume.opt[0].name : ""
-      openclaw_bootstrap_runner_url    = var.openclaw_bootstrap_runner_url
-      openclaw_bootstrap_runner_script = local.bootstrap_runner_script
-      openclaw_agent_fleet_template    = local.agent_fleet_template_b64
+      users                                 = var.bootstrap_users
+      user_ssh_authorized_keys              = var.bootstrap_user_ssh_public_keys
+      enable_root_ssh                       = var.enable_root_ssh
+      openclaw_repo_url                     = var.openclaw_repo_url
+      openclaw_gateway_token                = var.openclaw_gateway_token
+      openclaw_opt_volume_enabled           = var.opt_volume_enabled
+      openclaw_opt_volume_fstype            = var.opt_volume_fstype
+      openclaw_opt_volume_id                = var.opt_volume_enabled ? hcloud_volume.opt[0].id : ""
+      openclaw_opt_volume_name              = var.opt_volume_enabled ? hcloud_volume.opt[0].name : ""
+      openclaw_bootstrap_runner_url         = var.openclaw_bootstrap_runner_url
+      openclaw_bootstrap_runner_script      = local.bootstrap_runner_script
+      openclaw_agent_fleet_template         = local.agent_fleet_template_b64
       openclaw_orchestrator_policy_template = local.agent_orchestrator_policy_template_b64
-      openclaw_stacks_template         = local.agent_stacks_template_b64
-      openclaw_jennifer_template       = local.agent_jennifer_template_b64
-      openclaw_steve_template          = local.agent_steve_template_b64
-      openclaw_business_template       = local.agent_business_template_b64
-      openclaw_llm_template            = local.llm_template_b64
-      openclaw_public_hostname         = var.openclaw_public_hostname
-      openclaw_letsencrypt_email       = var.openclaw_letsencrypt_email
-      openclaw_enable_webhook_proxy    = var.openclaw_enable_webhook_proxy
-      openclaw_webhook_receiver_port   = var.openclaw_webhook_receiver_port
+      openclaw_stacks_template              = local.agent_stacks_template_b64
+      openclaw_jennifer_template            = local.agent_jennifer_template_b64
+      openclaw_steve_template               = local.agent_steve_template_b64
+      openclaw_business_template            = local.agent_business_template_b64
+      openclaw_llm_template                 = local.llm_template_b64
+      openclaw_public_hostname              = var.openclaw_public_hostname
+      openclaw_letsencrypt_email            = var.openclaw_letsencrypt_email
+      openclaw_enable_webhook_proxy         = var.openclaw_enable_webhook_proxy
+      openclaw_webhook_receiver_port        = var.openclaw_webhook_receiver_port
     }
   )
   cloud_init_is_valid_yaml = can(yamldecode(local.rendered_cloud_init))
@@ -96,19 +96,19 @@ resource "hcloud_firewall" "clawbot" {
   }
 
   rule {
-    direction       = "in"
-    protocol        = "tcp"
-    port            = "80"
-    source_ips      = ["0.0.0.0/0", "::/0"]
-    description     = "Allow HTTP ingress for ${var.name}"
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "80"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+    description = "Allow HTTP ingress for ${var.name}"
   }
 
   rule {
-    direction       = "in"
-    protocol        = "tcp"
-    port            = "443"
-    source_ips      = ["0.0.0.0/0", "::/0"]
-    description     = "Allow HTTPS ingress for ${var.name}"
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "443"
+    source_ips  = ["0.0.0.0/0", "::/0"]
+    description = "Allow HTTPS ingress for ${var.name}"
   }
 
   rule {
@@ -165,6 +165,11 @@ resource "hcloud_server" "clawbot" {
   user_data = var.enable_cloud_init ? local.rendered_cloud_init : ""
 
   lifecycle {
+    precondition {
+      condition     = var.enable_cloud_init ? length(local.rendered_cloud_init) <= 32768 : true
+      error_message = "Rendered cloud-init exceeds Hetzner user_data limit (max 32768 chars). Remove optional/custom payload or reduce cloud-init size before applying."
+    }
+
     precondition {
       condition     = local.cloud_init_is_valid_yaml
       error_message = "Rendered cloud-init is not valid YAML. Check modules/clawbot_server/cloud-init.tftpl for formatting issues."

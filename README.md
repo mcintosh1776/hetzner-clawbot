@@ -29,9 +29,14 @@ Notes:
 Before any `terragrunt apply`, the stack now performs a cloud-init validation check in Terraform:
 
 - Terraform renders `modules/clawbot_server/cloud-init.tftpl` and validates it with `yamldecode(...)`.
+- Terraform now also checks that rendered `user_data` is within Hetzner's `user_data` limit (32,768 characters) before API calls.
 - If rendering produces malformed YAML, plan/apply fails with:
 
   - `Rendered cloud-init is not valid YAML. Check modules/clawbot_server/cloud-init.tftpl for formatting issues.`
+
+If the rendered payload becomes too large, the plan fails with:
+
+- `Rendered cloud-init exceeds Hetzner user_data limit (max 32768 chars). Remove optional/custom payload or reduce cloud-init size before applying.`
 
 This protects against partial bootstrap where SSH users/keys are not applied due to broken user-data.
 
@@ -223,8 +228,9 @@ When enabled, bootstrap performs these actions on the node:
 2. Renders a local webhook relay at `/opt/clawbot/config/telegram-webhook/app.py`.
 3. Creates/updates `/etc/systemd/system/clawbot-telegram-webhook.service` and starts it.
 4. Writes `/etc/nginx/sites-available/openclaw-webhook.conf` and enables it.
-5. Requests/renews Let’s Encrypt cert for `agents.satoshis-plebs.com`.
+5. Attempts TLS certificate provisioning with Certbot for `agents.satoshis-plebs.com`.
 6. Persists/derives `TELEGRAM_WEBHOOK_SECRET` in `/opt/clawbot/config/secrets/telegram.env`.
+7. Ensures certbot renewal timer is enabled (`certbot.timer` or `snap.certbot.renew.timer`) and logs timer status.
 
 This rollout is fully automated from `openclaw-node-bootstrap-runner` for the first six stages. The remaining manual items are Telegram `setWebhook` registration.
 
@@ -236,6 +242,7 @@ curl -I https://agents.satoshis-plebs.com/telegram/bob
 systemctl is-active --quiet clawbot-telegram-webhook
 sudo -u openclaw bash -lc 'cat /opt/clawbot/config/telegram-webhook/app.py | head'
 sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secrets/telegram.env'
+sudo -u openclaw bash -lc 'tail -n 120 /var/log/openclaw-webhook-certbot.log'
 ```
 
 To wire bot webhooks (example for Bob):
