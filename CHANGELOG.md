@@ -13,7 +13,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Fixed
+- Bootstrap fallback now reuses a cached runner copied to `/opt/clawbot/bootstrap/openclaw-node-bootstrap-runner.sh` when `OPENCLAW_BOOTSTRAP_RUNNER_URL` fetch fails, preventing transient 404/unreachable fetches from hard-failing replacement-node bootstraps.
+
+### Removed
 - _None yet._
+
+## [0.7.22] - 2026-03-06
+
+### Added
+- _None yet._
+
+### Changed
+- Cloud-init runner bootstrapping now supports a URL-first bootstrap script mode while keeping shell syntax compatible with `/bin/sh`.
+
+### Fixed
+- Fixed cloud-init `runcmd` scripts to avoid `[[ ... ]]` on `sh`, preventing `/bin/sh` parse errors during bootstrap.
+- Made bootstrap runner fetch failures explicit in logs so `curl`/`wget` errors (including HTTP 404) are visible and actionable.
 
 ### Removed
 - _None yet._

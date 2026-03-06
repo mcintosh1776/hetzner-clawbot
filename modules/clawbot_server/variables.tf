@@ -104,7 +104,7 @@ variable "openclaw_gateway_token" {
 
 variable "openclaw_bootstrap_runner_url" {
   type        = string
-  description = "URL of the bootstrap runner script downloaded during cloud-init."
+  description = "Publicly reachable URL of the bootstrap runner script downloaded during cloud-init. The host must be able to access this URL without private authentication."
   default     = ""
 }
 

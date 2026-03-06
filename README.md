@@ -213,6 +213,7 @@ stored in config text.
 - Env/token: `/opt/clawbot/config/.env`
 - Service: `/home/openclaw/.config/containers/systemd/openclaw.container`
 - User service: `openclaw@` under user `openclaw` (uid 999 by default in the current layout)
+- Cached bootstrap runner (for rebuild recovery): `/opt/clawbot/bootstrap/openclaw-node-bootstrap-runner.sh`
 
 ## Telegram webhook automation (Nginx + certbot + relay)
 

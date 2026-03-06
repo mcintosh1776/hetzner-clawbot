@@ -167,7 +167,7 @@ write_files:
       set -euo pipefail
 
       destination="$${1:-/usr/local/bin/openclaw-node-bootstrap-runner}"
-      if [[ -z "$${OPENCLAW_BOOTSTRAP_RUNNER_URL:-}" ]]; then
+      if [ -z "$${OPENCLAW_BOOTSTRAP_RUNNER_URL:-}" ]; then
         echo "OPENCLAW_BOOTSTRAP_RUNNER_URL is not set." >&2
         exit 1
       fi
@@ -185,10 +185,17 @@ write_files:
 runcmd:
   - |
     OPENCLAW_BOOTSTRAP_RUNNER_URL='${openclaw_bootstrap_runner_url}'
+    OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH='/opt/clawbot/bootstrap/openclaw-node-bootstrap-runner.sh'
     if [ -n "$${OPENCLAW_BOOTSTRAP_RUNNER_URL}" ]; then
-      OPENCLAW_BOOTSTRAP_RUNNER_URL="$OPENCLAW_BOOTSTRAP_RUNNER_URL" \
-        /usr/local/bin/openclaw-bootstrap-fetch \
-        || true
+      if ! OPENCLAW_BOOTSTRAP_RUNNER_URL="$OPENCLAW_BOOTSTRAP_RUNNER_URL" \
+        /usr/local/bin/openclaw-bootstrap-fetch; then
+        echo "Failed to fetch bootstrap runner from OPENCLAW_BOOTSTRAP_RUNNER_URL=$OPENCLAW_BOOTSTRAP_RUNNER_URL" >&2
+        if [ -x "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH" ]; then
+          echo "Using cached bootstrap runner from $OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH"
+          cp -p "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH" /usr/local/bin/openclaw-node-bootstrap-runner
+          chmod 0755 /usr/local/bin/openclaw-node-bootstrap-runner
+        fi
+      fi
     fi
 
     OPENCLAW_REPO_URL='${openclaw_repo_url}'
@@ -217,8 +224,8 @@ runcmd:
       OPENCLAW_BUSINESS_TEMPLATE_B64 OPENCLAW_LLM_TEMPLATE_B64 OPENCLAW_PUBLIC_HOSTNAME \
       OPENCLAW_LETSENCRYPT_EMAIL OPENCLAW_ENABLE_WEBHOOK_PROXY OPENCLAW_WEBHOOK_RECEIVER_PORT
 
-    if [[ "$${OPENCLAW_ENABLE_WEBHOOK_PROXY}" == "true" ]]; then
-      if [[ -z "$${OPENCLAW_PUBLIC_HOSTNAME}" || -z "$${OPENCLAW_LETSENCRYPT_EMAIL}" ]]; then
+    if [ "$${OPENCLAW_ENABLE_WEBHOOK_PROXY}" = "true" ]; then
+      if [ -z "$${OPENCLAW_PUBLIC_HOSTNAME}" ] || [ -z "$${OPENCLAW_LETSENCRYPT_EMAIL}" ]; then
         echo "OPENCLAW_ENABLE_WEBHOOK_PROXY is true, but OPENCLAW_PUBLIC_HOSTNAME and OPENCLAW_LETSENCRYPT_EMAIL are required." >&2
         exit 1
       fi
@@ -229,8 +236,19 @@ runcmd:
     fi
 
     if [ ! -x /usr/local/bin/openclaw-node-bootstrap-runner ]; then
+%{ if openclaw_bootstrap_runner_script != "" ~}
       printf '%s' '${openclaw_bootstrap_runner_script}' | base64 -d | gzip -dc > /usr/local/bin/openclaw-node-bootstrap-runner
       chmod 0755 /usr/local/bin/openclaw-node-bootstrap-runner
+%{ else ~}
+      echo "Failed to fetch bootstrap runner from OPENCLAW_BOOTSTRAP_RUNNER_URL, no backup/cached runner exists, and no embedded fallback script was provided." >&2
+      exit 1
+%{ endif ~}
     fi
 
     /usr/local/bin/openclaw-node-bootstrap-runner
+
+    if [ -x /usr/local/bin/openclaw-node-bootstrap-runner ]; then
+      mkdir -p /opt/clawbot/bootstrap
+      cp -p /usr/local/bin/openclaw-node-bootstrap-runner "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH"
+      chmod 0755 "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH"
+    fi
