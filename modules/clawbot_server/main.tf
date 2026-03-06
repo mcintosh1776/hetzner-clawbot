@@ -29,7 +29,7 @@ locals {
   llm_template_b64 = base64gzip(
     file("${path.module}/templates/agent-config/llm.yaml")
   )
-  bootstrap_runner_script = base64gzip(file("${path.module}/bootstrap-node-runner.sh"))
+  bootstrap_runner_script = trimspace(var.openclaw_bootstrap_runner_url) != "" ? "" : base64gzip(file("${path.module}/bootstrap-node-runner.sh"))
   rendered_cloud_init = trimspace(var.cloud_init) != "" ? var.cloud_init : templatefile(
     "${path.module}/cloud-init.tftpl",
     {
