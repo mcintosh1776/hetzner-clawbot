@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 - Bootstrap fallback now reuses a cached runner copied to `/opt/clawbot/bootstrap/openclaw-node-bootstrap-runner.sh` when `OPENCLAW_BOOTSTRAP_RUNNER_URL` fetch fails, preventing transient 404/unreachable fetches from hard-failing replacement-node bootstraps.
+- Improved bootstrap fetch reliability by adding retry loops, timeouts, and explicit download diagnostics in the cloud-init fetch helper.
 
 ### Removed
 - _None yet._
