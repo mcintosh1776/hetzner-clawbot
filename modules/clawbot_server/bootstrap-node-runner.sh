@@ -506,7 +506,10 @@ async def forward_to_openclaw(update: dict, agent: str | None = None):
 
   async with httpx.AsyncClient(timeout=10) as client:
     try:
-      response = await client.post(target_url, json=update)
+      headers = {}
+      if TELEGRAM_SECRET:
+        headers["x-telegram-bot-api-secret-token"] = TELEGRAM_SECRET
+      response = await client.post(target_url, json=update, headers=headers)
       if response.status_code == 404:
         raise HTTPException(status_code=502, detail=f"openclaw webhook route unavailable for {agent}")
       response.raise_for_status()
