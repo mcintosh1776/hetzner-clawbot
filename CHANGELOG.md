@@ -10,6 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added reusable root-owned per-agent secret-provider scaffolding for future agent-specific
   credentials such as Nostr or treasury keys, backed by exec-based OpenClaw secret providers
   instead of shared env files.
+- Added runtime-isolation planning documents for the private-runtime migration, including the
+  internal service contract and runtime inventory/migration order.
 
 ### Changed
 - Reduced shell-string execution in bootstrap helpers and replaced several root-side

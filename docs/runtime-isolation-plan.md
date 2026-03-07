@@ -286,6 +286,7 @@ Definition:
 Working document:
 
 - [runtime-service-contract.md](/home/mcintosh/repos/hetzner-clawbot/docs/runtime-service-contract.md)
+- [runtime-migration-inventory.md](/home/mcintosh/repos/hetzner-clawbot/docs/runtime-migration-inventory.md)
 
 Progress marker:
 
