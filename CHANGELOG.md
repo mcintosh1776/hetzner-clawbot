@@ -10,7 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Reduced the shared `openclaw` container surface by dropping legacy published Telegram
+  listener ports now that all public bot traffic routes through per-bot private runtime
+  containers.
+- Removed the shared OpenClaw Telegram account/webhook execution path and its Telegram secret
+  env injection so the bot execution plane now lives only in the per-bot private runtime
+  containers behind ingress.
 
 ### Fixed
 - _None yet._

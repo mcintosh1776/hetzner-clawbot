@@ -2310,43 +2310,6 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
       }
     ]
   },
-  "bindings": [
-    {
-      "agentId": "orchestrator",
-      "match": {
-        "channel": "telegram",
-        "accountId": "orchestrator"
-      }
-    },
-    {
-      "agentId": "podcast_media",
-      "match": {
-        "channel": "telegram",
-        "accountId": "podcast_media"
-      }
-    },
-    {
-      "agentId": "research",
-      "match": {
-        "channel": "telegram",
-        "accountId": "research"
-      }
-    },
-    {
-      "agentId": "engineering",
-      "match": {
-        "channel": "telegram",
-        "accountId": "engineering"
-      }
-    },
-    {
-      "agentId": "business",
-      "match": {
-        "channel": "telegram",
-        "accountId": "business"
-      }
-    }
-  ],
   "secrets": {
     "providers": {
       "agent_orchestrator_root": {
@@ -2399,59 +2362,6 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
         ],
         "jsonOnly": true
       }
-    }
-  },
-  "channels": {
-    "telegram": {
-      "enabled": true,
-      "dmPolicy": "allowlist",
-      "allowFrom": [
-        "tg:1619231777"
-      ],
-      "defaultAccount": "orchestrator",
-      "accounts": {
-        "orchestrator": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_BOB}",
-          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/bob",
-          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
-          "webhookPath": "/telegram/bob",
-          "webhookHost": "0.0.0.0",
-          "webhookPort": 18890
-        },
-        "podcast_media": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_STACKS}",
-          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/stacks",
-          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
-          "webhookPath": "/telegram/stacks",
-          "webhookHost": "0.0.0.0",
-          "webhookPort": 18891
-        },
-        "research": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_JENNIFER}",
-          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/jennifer",
-          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
-          "webhookPath": "/telegram/jennifer",
-          "webhookHost": "0.0.0.0",
-          "webhookPort": 18892
-        },
-        "engineering": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_STEVE}",
-          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/steve",
-          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
-          "webhookPath": "/telegram/steve",
-          "webhookHost": "0.0.0.0",
-          "webhookPort": 18893
-        },
-        "business": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_NUMBER5}",
-          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/number5",
-          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
-          "webhookPath": "/telegram/number5",
-          "webhookHost": "0.0.0.0",
-          "webhookPort": 18894
-        }
-      }
-    }
   }
 }
 EOF
@@ -2474,11 +2384,6 @@ if [[ -f "$OPENCLAW_LLM_SECRETS_FILE" ]]; then
   openclaw_llm_env_line="EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE"
 fi
 
-openclaw_telegram_env_line=""
-if [[ -f "$OPENCLAW_TELEGRAM_SECRETS_FILE" ]]; then
-  openclaw_telegram_env_line="EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE"
-fi
-
 cat >"/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container" <<EOF
 [Unit]
 Description=OpenClaw gateway (rootless Podman)
@@ -2498,7 +2403,6 @@ Volume=/opt/clawbot/state:/state
 
 EnvironmentFile=/opt/clawbot/config/.env
 $openclaw_llm_env_line
-$openclaw_telegram_env_line
 Environment=OPENCLAW_CONFIG_PATH=/config/openclaw.json
 Environment=OPENCLAW_HOME=/state
 Environment=OPENCLAW_WORKSPACE_DIR=/workspace
@@ -2506,11 +2410,6 @@ Environment=TERM=xterm-256color
 Environment=OPENCLAW_CONFIG_DIR=/config
 
 PublishPort=127.0.0.1:18789:18789
-PublishPort=127.0.0.1:18890:18890
-PublishPort=127.0.0.1:18891:18891
-PublishPort=127.0.0.1:18892:18892
-PublishPort=127.0.0.1:18893:18893
-PublishPort=127.0.0.1:18894:18894
 
 Pull=never
 Exec=node dist/index.js gateway --bind lan --port 18789
