@@ -10,7 +10,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Converted the five same-host private bot runtimes from host-level `systemd` Python services
+  into per-bot Podman containers while keeping the shared ingress contract and ports stable.
 
 ### Fixed
 - _None yet._

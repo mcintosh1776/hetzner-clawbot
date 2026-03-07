@@ -70,6 +70,8 @@ OPENCLAW_STACKS_PROMPT_FILE="$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_medi
 OPENCLAW_PRIVATE_RUNTIME_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_BASE_DIR:-/opt/clawbot/config/private-runtimes}"
 OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT="${OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT:-$OPENCLAW_STACKS_RUNTIME_MODEL}"
 OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
+OPENCLAW_PRIVATE_RUNTIME_IMAGE="${OPENCLAW_PRIVATE_RUNTIME_IMAGE:-localhost/clawbot-private-runtime:local}"
+OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE="${OPENCLAW_PRIVATE_RUNTIME_BASE_DIR}/Containerfile"
 OPENCLAW_TLS_BACKUP_DIR="/opt/clawbot/tls/letsencrypt"
 OPENCLAW_AGENT_FLEET_TEMPLATE_B64="${OPENCLAW_AGENT_FLEET_TEMPLATE_B64:-}"
 OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64="${OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64:-}"
@@ -1026,6 +1028,7 @@ OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/ap
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENCLAW_PRIVATE_RUNTIME_API_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_API_TOKEN", "")
 OUTPUT_POLICY = (
   "Return only the final Telegram reply text. "
   "Do not include titles, checklists, plans, internal notes, logs, or tool instructions."
@@ -1046,6 +1049,9 @@ def load_prompt() -> str:
 
 
 def resolve_internal_api_token() -> str:
+  if OPENCLAW_PRIVATE_RUNTIME_API_TOKEN:
+    return OPENCLAW_PRIVATE_RUNTIME_API_TOKEN
+
   request_payload = json.dumps({"protocolVersion": 1, "ids": ["internal/apiToken"]})
   try:
     completed = subprocess.run(
@@ -1164,15 +1170,43 @@ PY
   chmod 640 "${runtime_dir}/app.py"
 }
 
-install_private_runtime_packages() {
-  local runtime_dir="$1"
-  local runtime_slug="$2"
-  if [[ ! -d "$runtime_dir/.venv" ]]; then
-    run_as_openclaw python3 -m venv "$runtime_dir/.venv"
-  fi
+write_private_runtime_containerfile() {
+  cat >"$OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE" <<'EOF'
+FROM docker.io/library/python:3.12-slim
 
-  run_as_openclaw "$runtime_dir/.venv/bin/pip" install --upgrade pip >"/tmp/openclaw-${runtime_slug}-venv-upgrade.log" 2>&1 || true
-  run_as_openclaw "$runtime_dir/.venv/bin/pip" install fastapi httpx uvicorn >"/tmp/openclaw-${runtime_slug}-deps.log" 2>&1
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+RUN pip install --no-cache-dir fastapi httpx uvicorn
+
+WORKDIR /app
+
+CMD ["sh", "-lc", "exec uvicorn app:app --host ${OPENCLAW_PRIVATE_RUNTIME_HOST:-127.0.0.1} --port ${OPENCLAW_PRIVATE_RUNTIME_PORT}"]
+EOF
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE"
+  chmod 640 "$OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE"
+}
+
+build_private_runtime_image() {
+  write_private_runtime_containerfile
+  run_as_openclaw podman build -t "$OPENCLAW_PRIVATE_RUNTIME_IMAGE" -f "$OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE" "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
+}
+
+read_agent_internal_api_token() {
+  local agent_id="$1"
+  local secret_store="$OPENCLAW_ROOT_SECRETS_DIR/${agent_id}.json"
+  python3 - "$secret_store" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+store = Path(sys.argv[1])
+payload = json.loads(store.read_text(encoding="utf-8"))
+value = (((payload.get("internal") or {}).get("apiToken")) if isinstance(payload, dict) else None)
+if not isinstance(value, str) or not value.strip():
+    raise SystemExit(1)
+print(value)
+PY
 }
 
 write_private_runtime_systemd_unit() {
@@ -1183,6 +1217,9 @@ write_private_runtime_systemd_unit() {
   local runtime_port="$5"
   local runtime_dir="$6"
   local runtime_unit="/etc/systemd/system/$(private_runtime_unit_name "$public_id")"
+  local runtime_container_name="clawbot-${public_id}-runtime"
+  local runtime_token
+  runtime_token="$(read_agent_internal_api_token "$agent_id")"
   cat >"$runtime_unit" <<EOF
 [Unit]
 Description=Clawbot ${display_name} isolated runtime
@@ -1194,17 +1231,25 @@ User=$OPENCLAW_USER
 Group=$OPENCLAW_USER
 WorkingDirectory=$runtime_dir
 EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE
+Environment=HOME=/home/$OPENCLAW_USER
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 Environment=OPENCLAW_AGENT_SECRET_PROVIDER=$OPENCLAW_AGENT_SECRET_PROVIDER
 Environment=OPENCLAW_PRIVATE_RUNTIME_AGENT_ID=$agent_id
 Environment=OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME=$display_name
 Environment=OPENCLAW_PRIVATE_RUNTIME_MODEL=$OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT
 Environment=OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE=$prompt_file
+Environment=OPENCLAW_PRIVATE_RUNTIME_API_TOKEN=$runtime_token
+Environment=OPENCLAW_PRIVATE_RUNTIME_PORT=$runtime_port
+Environment=OPENCLAW_PRIVATE_RUNTIME_HOST=127.0.0.1
 Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 Environment=OPENROUTER_HTTP_REFERER=https://${OPENCLAW_PUBLIC_HOSTNAME:-agents.satoshis-plebs.com}/
 Environment=OPENROUTER_X_TITLE=clawbot-${public_id}-runtime
-ExecStart=$runtime_dir/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $runtime_port
+ExecStartPre=-/usr/bin/podman rm -f $runtime_container_name
+ExecStart=/usr/bin/podman run --rm --name $runtime_container_name --network host -v $runtime_dir:/app:ro -v $OPENCLAW_AGENT_CONFIG_DIR:$OPENCLAW_AGENT_CONFIG_DIR:ro -e OPENROUTER_API_KEY -e OPENROUTER_BASE_URL -e OPENROUTER_HTTP_REFERER -e OPENROUTER_X_TITLE -e OPENCLAW_PRIVATE_RUNTIME_AGENT_ID -e OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME -e OPENCLAW_PRIVATE_RUNTIME_MODEL -e OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE -e OPENCLAW_PRIVATE_RUNTIME_API_TOKEN -e OPENCLAW_PRIVATE_RUNTIME_PORT -e OPENCLAW_PRIVATE_RUNTIME_HOST $OPENCLAW_PRIVATE_RUNTIME_IMAGE
+ExecStop=/usr/bin/podman stop --ignore -t 10 $runtime_container_name
 Restart=always
 RestartSec=2
+KillMode=none
 
 [Install]
 WantedBy=multi-user.target
@@ -1228,6 +1273,7 @@ configure_private_runtimes() {
   mkdir -p "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
   chmod 750 "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
+  build_private_runtime_image
 
   for public_id in "${OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS[@]}"; do
     agent_id="$(private_runtime_agent_id "$public_id")"
@@ -1242,7 +1288,6 @@ configure_private_runtimes() {
     chmod 750 "$runtime_dir"
 
     render_private_runtime_app "$runtime_dir"
-    install_private_runtime_packages "$runtime_dir" "$public_id"
     write_private_runtime_systemd_unit "$public_id" "$agent_id" "$display_name" "$prompt_file" "$runtime_port" "$runtime_dir"
   done
 
