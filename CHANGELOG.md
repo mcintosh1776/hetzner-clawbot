@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   instead of shared env files.
 - Added runtime-isolation planning documents for the private-runtime migration, including the
   internal service contract and runtime inventory/migration order.
+- Added a concrete first-slice build plan for `stacks-runtime` so the first isolated runtime
+  can be implemented without revisiting the target architecture.
 
 ### Changed
 - Reduced shell-string execution in bootstrap helpers and replaced several root-side

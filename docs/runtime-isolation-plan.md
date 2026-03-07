@@ -212,6 +212,8 @@ Deliverables:
 - dedicated config/state/secrets
 - Telegram ingress path still preserved as `/telegram/stacks`
 - private service interface defined
+- working build spec:
+  - [stacks-runtime-build-plan.md](/home/mcintosh/repos/hetzner-clawbot/docs/stacks-runtime-build-plan.md)
 
 Exit criteria:
 
