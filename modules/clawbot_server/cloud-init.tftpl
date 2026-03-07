@@ -166,10 +166,13 @@ write_files:
       #!/usr/bin/env bash
       set -euo pipefail
 
-      destination="$${1:-/usr/local/bin/openclaw-node-bootstrap-runner}"
-      attempts="${OPENCLAW_BOOTSTRAP_FETCH_ATTEMPTS:-6}"
-      timeout="${OPENCLAW_BOOTSTRAP_FETCH_TIMEOUT:-30}"
-      wait_seconds="${OPENCLAW_BOOTSTRAP_FETCH_RETRY_SECONDS:-4}"
+      destination="/usr/local/bin/openclaw-node-bootstrap-runner"
+      if [ "$#" -gt 0 ] && [ -n "$1" ]; then
+        destination="$1"
+      fi
+      attempts="$${OPENCLAW_BOOTSTRAP_FETCH_ATTEMPTS:-6}"
+      timeout="$${OPENCLAW_BOOTSTRAP_FETCH_TIMEOUT:-30}"
+      wait_seconds="$${OPENCLAW_BOOTSTRAP_FETCH_RETRY_SECONDS:-4}"
 
       if [ -z "$${OPENCLAW_BOOTSTRAP_RUNNER_URL:-}" ]; then
         echo "OPENCLAW_BOOTSTRAP_RUNNER_URL is not set." >&2
@@ -177,20 +180,20 @@ write_files:
       fi
 
       log_msg() {
-        printf '[%s] [openclaw-bootstrap-fetch] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$$1"
+        printf '[%s] [openclaw-bootstrap-fetch] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$1"
       }
 
       retry_fetch() {
-        local attempt=1
-        while (( attempt <= attempts )); do
+        attempt=1
+        while [ "$attempt" -le "$attempts" ]; do
           if command -v curl >/dev/null 2>&1; then
-            log_msg "Attempt $$attempt/$attempts: fetching with curl from $${OPENCLAW_BOOTSTRAP_RUNNER_URL}"
-            if curl --retry 2 --max-time "$${timeout}" -fSL "$${OPENCLAW_BOOTSTRAP_RUNNER_URL}" -o "$$destination"; then
+            log_msg "Attempt $attempt/$attempts: fetching with curl from $${OPENCLAW_BOOTSTRAP_RUNNER_URL}"
+            if curl --retry 2 --max-time "$${timeout}" -fSL "$${OPENCLAW_BOOTSTRAP_RUNNER_URL}" -o "$destination"; then
               return 0
             fi
           elif command -v wget >/dev/null 2>&1; then
-            log_msg "Attempt $$attempt/$attempts: fetching with wget from $${OPENCLAW_BOOTSTRAP_RUNNER_URL}"
-            if wget --timeout="$${timeout}" -O "$$destination" "$${OPENCLAW_BOOTSTRAP_RUNNER_URL}"; then
+            log_msg "Attempt $attempt/$attempts: fetching with wget from $${OPENCLAW_BOOTSTRAP_RUNNER_URL}"
+            if wget --timeout="$${timeout}" -O "$destination" "$${OPENCLAW_BOOTSTRAP_RUNNER_URL}"; then
               return 0
             fi
           else
@@ -198,9 +201,9 @@ write_files:
             return 1
           fi
 
-          log_msg "Fetch attempt $$attempt failed."
-          sleep "$$wait_seconds"
-          attempt=$$((attempt + 1))
+          log_msg "Fetch attempt $attempt failed."
+          sleep "$wait_seconds"
+          attempt=$((attempt + 1))
         done
         return 1
       }
@@ -210,12 +213,12 @@ write_files:
         exit 1
       fi
 
-      if [ ! -s "$$destination" ]; then
+      if [ ! -s "$destination" ]; then
         echo "Fetched bootstrap runner file is empty: $${OPENCLAW_BOOTSTRAP_RUNNER_URL}" >&2
         exit 1
       fi
 
-      chmod 0755 "$$destination"
+      chmod 0755 "$destination"
 
 runcmd:
   - |

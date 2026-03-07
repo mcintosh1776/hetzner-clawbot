@@ -99,7 +99,12 @@ run_step() {
 
 wait_for_system_boot() {
   local max_attempts="${1:-180}"
+  local interval_seconds="${2:-10}"
   local attempt=1
+
+  if ! [[ "$interval_seconds" =~ ^[0-9]+$ ]] || (( interval_seconds < 1 )); then
+    interval_seconds=10
+  fi
 
   while (( attempt <= max_attempts )); do
     local boot_state
@@ -115,7 +120,7 @@ wait_for_system_boot() {
     esac
 
     log "Waiting for system boot to settle (attempt $attempt/$max_attempts) state=${boot_state:-unknown}"
-    sleep 2
+    sleep "$interval_seconds"
     ((attempt += 1))
   done
 
@@ -481,35 +486,41 @@ import httpx
 app = FastAPI()
 
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
-ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks"}
-OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
+OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18790")
 
-async def forward_to_openclaw(agent: str, update: dict):
-  url = f"{OPENCLAW_GATEWAY_URL.rstrip('/')}/telegram/{agent}"
+async def forward_to_openclaw(update: dict):
+  url = f"{OPENCLAW_GATEWAY_URL.rstrip('/')}/telegram-webhook"
   async with httpx.AsyncClient(timeout=10) as client:
-    response = await client.post(url, json=update, headers={"x-openclaw-agent": agent})
+    response = await client.post(url, json=update)
     response.raise_for_status()
     return response
 
-@app.post("/telegram/{agent}")
-async def telegram_webhook(
-  agent: str,
+async def handle_telegram_webhook(
   request: Request,
   x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ):
   if TELEGRAM_SECRET and x_telegram_bot_api_secret_token != TELEGRAM_SECRET:
     raise HTTPException(status_code=401, detail="invalid telegram secret token")
 
-  agent = agent.lower()
-  if agent not in ALLOWED_AGENTS:
-    raise HTTPException(status_code=404, detail="unknown agent")
-
   update = await request.json()
   if not update:
     return {"ok": True}
 
-  await forward_to_openclaw(agent, update)
+  await forward_to_openclaw(update)
   return {"ok": True}
+
+
+@app.post("/telegram")
+@app.post("/telegram/{_agent}")
+@app.post("/telegram-webhook")
+async def telegram_webhook(
+  request: Request,
+  x_telegram_bot_api_secret_token: str | None = Header(default=None),
+):
+  return await handle_telegram_webhook(
+    request=request,
+    x_telegram_bot_api_secret_token=x_telegram_bot_api_secret_token,
+  )
 PY
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "${OPENCLAW_WEBHOOK_DIR}/app.py"
   chmod 640 "${OPENCLAW_WEBHOOK_DIR}/app.py"
@@ -529,7 +540,7 @@ WorkingDirectory=$OPENCLAW_WEBHOOK_DIR
 EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE
 EnvironmentFile=-/opt/clawbot/config/.env
 Environment=OPENCLAW_WEBHOOK_RECEIVER_PORT=$OPENCLAW_WEBHOOK_RECEIVER_PORT
-Environment=OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
+Environment=OPENCLAW_GATEWAY_URL=http://127.0.0.1:18790
 ExecStart=$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_WEBHOOK_RECEIVER_PORT
 Restart=always
 RestartSec=2
@@ -600,16 +611,17 @@ configure_webhook_proxy_nginx() {
 
   local cert_dir="/etc/letsencrypt/live/${OPENCLAW_PUBLIC_HOSTNAME}"
 
-  cat >/etc/nginx/sites-available/openclaw-webhook.conf <<EOF
+cat >/etc/nginx/sites-available/openclaw-webhook.conf <<EOF
 server {
-    listen 80;
-    server_name ${OPENCLAW_PUBLIC_HOSTNAME};
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name ${OPENCLAW_PUBLIC_HOSTNAME} _;
 EOF
 
   if [[ -f "${cert_dir}/fullchain.pem" && -f "${cert_dir}/privkey.pem" ]]; then
     cat >>/etc/nginx/sites-available/openclaw-webhook.conf <<EOF
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
     ssl_certificate ${cert_dir}/fullchain.pem;
     ssl_certificate_key ${cert_dir}/privkey.pem;
 EOF
@@ -621,6 +633,18 @@ EOF
     }
 
     location /telegram/ {
+        proxy_pass http://127.0.0.1:${OPENCLAW_WEBHOOK_RECEIVER_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        client_max_body_size 4m;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 30s;
+    }
+
+    location = /telegram-webhook {
         proxy_pass http://127.0.0.1:${OPENCLAW_WEBHOOK_RECEIVER_PORT};
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
@@ -674,12 +698,13 @@ provision_webhook_certificate() {
   local certbot_log="/var/log/openclaw-webhook-certbot.log"
 
   if [[ -d "/etc/letsencrypt/live/${OPENCLAW_PUBLIC_HOSTNAME}" ]]; then
-    log "Certificate exists for ${OPENCLAW_PUBLIC_HOSTNAME}; attempting certbot renewal."
+    log "Certificate exists for ${OPENCLAW_PUBLIC_HOSTNAME}; attempting certbot renewal check."
     if certbot renew --non-interactive --quiet --deploy-hook "systemctl reload nginx" >"$certbot_log" 2>&1; then
-      log "Certbot certificate renewal completed for ${OPENCLAW_PUBLIC_HOSTNAME}."
+      log "Certbot renewal check completed for ${OPENCLAW_PUBLIC_HOSTNAME}."
       return 0
     fi
-    log "WARN: Certbot renewal did not complete for ${OPENCLAW_PUBLIC_HOSTNAME} (exit=$?). Re-running issuance."
+    log "WARN: Certbot renewal check did not complete for ${OPENCLAW_PUBLIC_HOSTNAME} (exit=$?). Continuing with existing certificate and skipping forced re-issuance."
+    return 0
   fi
 
   if ! command -v certbot >/dev/null 2>&1; then
@@ -687,7 +712,7 @@ provision_webhook_certificate() {
     return 0
   fi
 
-  if certbot --nginx -d "${OPENCLAW_PUBLIC_HOSTNAME}" --non-interactive --agree-tos -m "${OPENCLAW_LETSENCRYPT_EMAIL}" --redirect --force-renewal --quiet >"$certbot_log" 2>&1; then
+  if certbot --nginx -d "${OPENCLAW_PUBLIC_HOSTNAME}" --non-interactive --agree-tos -m "${OPENCLAW_LETSENCRYPT_EMAIL}" --redirect --quiet >"$certbot_log" 2>&1; then
     log "Certbot TLS issuance completed for ${OPENCLAW_PUBLIC_HOSTNAME}."
     return 0
   fi
@@ -985,7 +1010,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 mkdir -p /var/lib/clawbot
-run_step "Wait for system boot" wait_for_system_boot 30
+run_step "Wait for system boot" wait_for_system_boot 36 10
 if ! id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
   run_step "Create openclaw user" useradd --system --create-home --home-dir /home/"$OPENCLAW_USER" --shell /usr/sbin/nologin "$OPENCLAW_USER"
 fi
@@ -1415,7 +1440,12 @@ if id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
   run_as_openclaw "podman system migrate"
 fi
 
-cat > /opt/clawbot/config/openclaw.json <<'EOF'
+OPENCLAW_WEBHOOK_CALLBACK_URL="http://127.0.0.1:${OPENCLAW_WEBHOOK_RECEIVER_PORT}/telegram-webhook"
+if [ -n "${OPENCLAW_PUBLIC_HOSTNAME:-}" ]; then
+  OPENCLAW_WEBHOOK_CALLBACK_URL="https://${OPENCLAW_PUBLIC_HOSTNAME}/telegram-webhook"
+fi
+
+cat > /opt/clawbot/config/openclaw.json <<EOF
 {
   "gateway": {
     "mode": "local",
@@ -1424,6 +1454,34 @@ cat > /opt/clawbot/config/openclaw.json <<'EOF'
         "http://127.0.0.1:18789",
         "http://localhost:18789"
       ]
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "dmPolicy": "pairing",
+      "webhookUrl": "${OPENCLAW_WEBHOOK_CALLBACK_URL}",
+      "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
+      "webhookPath": "/telegram-webhook",
+      "webhookHost": "127.0.0.1",
+      "webhookPort": 18790,
+      "accounts": {
+        "orchestrator": {
+          "botToken": "\${TELEGRAM_BOT_TOKEN_BOB}"
+        },
+        "podcast_media": {
+          "botToken": "\${TELEGRAM_BOT_TOKEN_STACKS}"
+        },
+        "research": {
+          "botToken": "\${TELEGRAM_BOT_TOKEN_JENNIFER}"
+        },
+        "engineering": {
+          "botToken": "\${TELEGRAM_BOT_TOKEN_STEVE}"
+        },
+        "business": {
+          "botToken": "\${TELEGRAM_BOT_TOKEN_NUMBER5}"
+        }
+      }
     }
   }
 }

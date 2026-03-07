@@ -254,17 +254,24 @@ set -a
 set +a
 
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/setWebhook" \
-  -d "url=https://agents.satoshis-plebs.com/telegram/bob" \
+  -d "url=https://agents.satoshis-plebs.com/telegram-webhook" \
   -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
 
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/getWebhookInfo"
 ```
 
-Other bots use `/telegram/jennifer`, `/telegram/steve`, `/telegram/stacks`, `/telegram/number5`.
+Other bots use `/telegram-webhook` with the same Relay endpoint URL and each bot secret token remains distinct:
+
+```bash
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_STACKS}/setWebhook" \
+  -d "url=https://agents.satoshis-plebs.com/telegram-webhook" \
+  -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+```
 
 Quick six-item post-bootstrap check list:
 1. `curl -I https://agents.satoshis-plebs.com/` (expect HTTP 404, root intentionally not proxied)
-2. `curl -I https://agents.satoshis-plebs.com/telegram/bob`
+2. `curl -I https://agents.satoshis-plebs.com/telegram-webhook`
+   (Legacy compatibility routes `/telegram/<bot>` are also accepted by the relay while we align old bot setups.)
 3. `systemctl is-active --quiet nginx`
 4. `systemctl is-active --quiet clawbot-telegram-webhook`
 5. `sudo systemctl status --no-pager clawbot-telegram-webhook`
