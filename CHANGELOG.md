@@ -10,15 +10,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- Dashboard-facing OpenClaw agent identities are now rendered explicitly so the control UI
-  shows `Bob`, `Jennifer`, `Steve`, `Stacks`, and `Number 5` instead of only the internal
-  role ids.
-- Quickstart and architecture docs now reflect the current `fsn1` production stack,
-  preserved `/opt` rebuild workflow, Telegram multi-agent routing, and OpenRouter-backed model
-  defaults.
+- _None yet._
 
 ### Fixed
 - _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.24] - 2026-03-07
+
+### Added
+- Added explicit OpenClaw agent display identities so the control UI shows `Bob`,
+  `Jennifer`, `Steve`, `Stacks`, and `Number 5` while preserving the internal
+  role-oriented agent ids.
+- Added `docs/architecture.md` to document the current Hetzner/OpenClaw topology,
+  Telegram ingress path, routing model, OpenRouter default model flow, and cleanup plan.
+
+### Changed
+- Updated quickstart and ingress/TLS documentation to match the current `fsn1`
+  production stack, preserved `/opt` rebuild workflow, Telegram multi-agent routing,
+  and OpenRouter-backed model defaults.
+
+### Fixed
+- Verified on a fresh replacement-node rebuild that dashboard identity metadata is
+  rendered correctly by bootstrap and loaded by OpenClaw.
 
 ### Removed
 - _None yet._
