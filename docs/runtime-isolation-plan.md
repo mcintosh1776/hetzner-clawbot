@@ -302,7 +302,7 @@ Definition:
 
 Progress marker:
 
-- pending
+- in progress
 
 ### M4: Stacks secret migration
 

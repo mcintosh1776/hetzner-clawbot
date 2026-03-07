@@ -61,6 +61,12 @@ OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agen
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
 OPENCLAW_WEBHOOK_DIR="/opt/clawbot/config/telegram-webhook"
+OPENCLAW_STACKS_RUNTIME_DIR="/opt/clawbot/config/stacks-runtime"
+OPENCLAW_STACKS_RUNTIME_PORT="${OPENCLAW_STACKS_RUNTIME_PORT:-18921}"
+OPENCLAW_STACKS_RUNTIME_MODEL="${OPENCLAW_STACKS_RUNTIME_MODEL:-openrouter/auto}"
+OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT="/etc/systemd/system/clawbot-stacks-runtime.service"
+OPENCLAW_STACKS_RUNTIME_AGENT_ID="podcast_media"
+OPENCLAW_STACKS_PROMPT_FILE="$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
 OPENCLAW_TLS_BACKUP_DIR="/opt/clawbot/tls/letsencrypt"
 OPENCLAW_AGENT_FLEET_TEMPLATE_B64="${OPENCLAW_AGENT_FLEET_TEMPLATE_B64:-}"
 OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64="${OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64:-}"
@@ -286,9 +292,34 @@ ensure_agent_secret_stores() {
 
   for agent_id in "${OPENCLAW_AGENT_SECRET_IDS[@]}"; do
     secret_store="$OPENCLAW_ROOT_SECRETS_DIR/${agent_id}.json"
-    if [[ ! -f "$secret_store" ]]; then
-      printf '{}\n' > "$secret_store"
-    fi
+    python3 - "$secret_store" <<'PY'
+import json
+import secrets
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if path.exists():
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        payload = {}
+else:
+    payload = {}
+
+if not isinstance(payload, dict):
+    payload = {}
+
+internal = payload.get("internal")
+if not isinstance(internal, dict):
+    internal = {}
+    payload["internal"] = internal
+
+if not isinstance(internal.get("apiToken"), str) or not internal["apiToken"].strip():
+    internal["apiToken"] = secrets.token_urlsafe(32)
+
+path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
 
     chown root:root "$secret_store"
     chmod 600 "$secret_store"
@@ -308,6 +339,16 @@ def emit(payload, exit_code=0):
     sys.stdout.write(json.dumps(payload))
     sys.stdout.write("\\n")
     raise SystemExit(exit_code)
+
+def lookup_secret(payload, secret_id):
+    if isinstance(payload, dict) and secret_id in payload:
+        return payload.get(secret_id)
+    current = payload
+    for part in secret_id.split("/"):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(part)
+    return current
 
 try:
     request = json.load(sys.stdin)
@@ -335,7 +376,7 @@ values = {}
 errors = {}
 
 for secret_id in request.get("ids", []):
-    value = payload.get(secret_id)
+    value = lookup_secret(payload, secret_id)
     if isinstance(value, str) and value:
         values[secret_id] = value
     else:
@@ -624,6 +665,7 @@ render_webhook_app() {
   cat >"${OPENCLAW_WEBHOOK_DIR}/app.py" <<'PY'
 import json
 import os
+import subprocess
 from fastapi import FastAPI, Header, HTTPException, Request
 import httpx
 
@@ -633,11 +675,123 @@ ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks"}
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 OPENCLAW_WEBHOOK_TARGETS = {
   "bob": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB", "http://127.0.0.1:18890/telegram/bob"),
-  "stacks": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS", "http://127.0.0.1:18891/telegram/stacks"),
+  "stacks": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS", "http://127.0.0.1:18921/v1/inbound/telegram"),
   "jennifer": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER", "http://127.0.0.1:18892/telegram/jennifer"),
   "steve": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE", "http://127.0.0.1:18893/telegram/steve"),
   "number5": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5", "http://127.0.0.1:18894/telegram/number5"),
 }
+OPENCLAW_AGENT_SECRET_PROVIDER = os.getenv("OPENCLAW_AGENT_SECRET_PROVIDER", "/usr/local/bin/openclaw-agent-secret-provider")
+STACKS_SECRET_AGENT_ID = os.getenv("OPENCLAW_STACKS_SECRET_AGENT_ID", "podcast_media")
+TELEGRAM_TOKEN_ENV_BY_AGENT = {
+  "stacks": "TELEGRAM_BOT_TOKEN_STACKS",
+}
+
+
+def resolve_agent_secret(agent_id: str, secret_id: str) -> str:
+  request_payload = json.dumps({"protocolVersion": 1, "ids": [secret_id]})
+  try:
+    completed = subprocess.run(
+      ["sudo", "-n", OPENCLAW_AGENT_SECRET_PROVIDER, agent_id],
+      input=request_payload,
+      text=True,
+      capture_output=True,
+      check=True,
+    )
+  except subprocess.CalledProcessError as exc:
+    detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"failed resolving agent secret for {agent_id}: {detail}") from exc
+
+  try:
+    payload = json.loads(completed.stdout or "{}")
+  except json.JSONDecodeError as exc:
+    raise HTTPException(status_code=502, detail=f"invalid secret response for {agent_id}: {exc}") from exc
+
+  if payload.get("errors"):
+    raise HTTPException(status_code=502, detail=f"agent secret lookup failed for {agent_id}: {payload['errors']}")
+
+  value = payload.get("values", {}).get(secret_id)
+  if not value:
+    raise HTTPException(status_code=502, detail=f"agent secret {secret_id} unavailable for {agent_id}")
+  return value
+
+
+def normalize_inbound_request(agent: str, update: dict) -> dict:
+  message = (
+    update.get("message")
+    or update.get("edited_message")
+    or update.get("channel_post")
+    or update.get("edited_channel_post")
+    or {}
+  )
+  chat = message.get("chat") or {}
+  sender = message.get("from") or {}
+  return {
+    "protocolVersion": 1,
+    "channel": "telegram",
+    "accountId": STACKS_SECRET_AGENT_ID if agent == "stacks" else agent,
+    "event": {
+      "updateId": update.get("update_id"),
+      "messageId": message.get("message_id"),
+      "chat": {
+        "id": chat.get("id"),
+        "type": chat.get("type"),
+      },
+      "sender": {
+        "id": sender.get("id"),
+        "username": sender.get("username"),
+        "firstName": sender.get("first_name"),
+        "lastName": sender.get("last_name"),
+      },
+      "text": message.get("text"),
+      "raw": update,
+    },
+  }
+
+
+async def send_telegram_message(agent: str, action: dict):
+  token_env = TELEGRAM_TOKEN_ENV_BY_AGENT.get(agent)
+  if not token_env:
+    raise HTTPException(status_code=502, detail=f"no Telegram token mapping for runtime agent {agent}")
+
+  bot_token = os.getenv(token_env, "")
+  if not bot_token:
+    raise HTTPException(status_code=502, detail=f"missing Telegram bot token for runtime agent {agent}")
+
+  target = action.get("target") or {}
+  message = action.get("message") or {}
+  chat_id = target.get("chatId")
+  text = message.get("text")
+  if chat_id in (None, "") or not isinstance(text, str) or not text.strip():
+    raise HTTPException(status_code=502, detail=f"incomplete telegram.sendMessage action for {agent}")
+
+  payload = {
+    "chat_id": chat_id,
+    "text": text,
+  }
+  if target.get("replyToMessageId") not in (None, ""):
+    payload["reply_to_message_id"] = target["replyToMessageId"]
+
+  async with httpx.AsyncClient(timeout=15) as client:
+    response = await client.post(
+      f"https://api.telegram.org/bot{bot_token}/sendMessage",
+      json=payload,
+    )
+    response.raise_for_status()
+
+
+async def dispatch_runtime_actions(agent: str, payload: dict):
+  actions = payload.get("actions") or []
+  if not isinstance(actions, list):
+    raise HTTPException(status_code=502, detail=f"runtime returned invalid action list for {agent}")
+
+  for action in actions:
+    if not isinstance(action, dict):
+      continue
+    action_type = action.get("type")
+    if action_type == "telegram.sendMessage":
+      await send_telegram_message(agent, action)
+      continue
+    raise HTTPException(status_code=502, detail=f"unsupported runtime action for {agent}: {action_type}")
 
 async def forward_to_openclaw(update: dict, agent: str | None = None):
   if not agent:
@@ -647,9 +801,17 @@ async def forward_to_openclaw(update: dict, agent: str | None = None):
   if not target_url:
     raise HTTPException(status_code=404, detail="unknown agent")
 
-  async with httpx.AsyncClient(timeout=10) as client:
+  client_timeout = 90 if agent == "stacks" else 10
+  async with httpx.AsyncClient(timeout=client_timeout) as client:
     try:
       headers = {}
+      if agent == "stacks":
+        headers["authorization"] = f"Bearer {resolve_agent_secret(STACKS_SECRET_AGENT_ID, 'internal/apiToken')}"
+        response = await client.post(target_url, json=normalize_inbound_request(agent, update), headers=headers)
+        response.raise_for_status()
+        await dispatch_runtime_actions(agent, response.json() if response.content else {})
+        return response
+
       if TELEGRAM_SECRET:
         headers["x-telegram-bot-api-secret-token"] = TELEGRAM_SECRET
       response = await client.post(target_url, json=update, headers=headers)
@@ -727,6 +889,8 @@ WorkingDirectory=$OPENCLAW_WEBHOOK_DIR
 EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE
 EnvironmentFile=-/opt/clawbot/config/.env
 Environment=OPENCLAW_WEBHOOK_RECEIVER_PORT=$OPENCLAW_WEBHOOK_RECEIVER_PORT
+Environment=OPENCLAW_AGENT_SECRET_PROVIDER=$OPENCLAW_AGENT_SECRET_PROVIDER
+Environment=OPENCLAW_STACKS_SECRET_AGENT_ID=$OPENCLAW_STACKS_RUNTIME_AGENT_ID
 ExecStart=$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_WEBHOOK_RECEIVER_PORT
 Restart=always
 RestartSec=2
@@ -772,6 +936,214 @@ configure_webhook_receiver() {
   write_webhook_systemd_unit
   run_step "Reload systemd for webhook receiver" systemctl daemon-reload
   run_step "Enable webhook receiver service" systemctl enable --now clawbot-telegram-webhook.service
+}
+
+render_stacks_runtime_app() {
+  cat >"${OPENCLAW_STACKS_RUNTIME_DIR}/app.py" <<'PY'
+import json
+import os
+import subprocess
+from pathlib import Path
+
+from fastapi import FastAPI, Header, HTTPException, Request
+import httpx
+
+app = FastAPI()
+
+STACKS_AGENT_ID = os.getenv("OPENCLAW_STACKS_RUNTIME_AGENT_ID", "podcast_media")
+STACKS_MODEL = os.getenv("OPENCLAW_STACKS_RUNTIME_MODEL", "openrouter/auto")
+STACKS_PROMPT_FILE = os.getenv("OPENCLAW_STACKS_PROMPT_FILE", "/opt/clawbot/config/agent-config/specialists/podcast_media.md")
+OPENCLAW_AGENT_SECRET_PROVIDER = os.getenv("OPENCLAW_AGENT_SECRET_PROVIDER", "/usr/local/bin/openclaw-agent-secret-provider")
+OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
+OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-stacks-runtime")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+
+
+def normalize_model_name(model_name: str) -> str:
+  if model_name.startswith("openrouter/"):
+    return model_name.split("/", 1)[1]
+  return model_name
+
+
+def load_prompt() -> str:
+  prompt_path = Path(STACKS_PROMPT_FILE)
+  if not prompt_path.exists():
+    return "You are Stacks, the podcast and media specialist. Reply concisely and helpfully."
+  return prompt_path.read_text(encoding="utf-8")
+
+
+def resolve_internal_api_token() -> str:
+  request_payload = json.dumps({"protocolVersion": 1, "ids": ["internal/apiToken"]})
+  try:
+    completed = subprocess.run(
+      ["sudo", "-n", OPENCLAW_AGENT_SECRET_PROVIDER, STACKS_AGENT_ID],
+      input=request_payload,
+      text=True,
+      capture_output=True,
+      check=True,
+    )
+  except subprocess.CalledProcessError as exc:
+    detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+    raise RuntimeError(f"failed resolving internal token: {detail}") from exc
+
+  payload = json.loads(completed.stdout or "{}")
+  if payload.get("errors"):
+    raise RuntimeError(f"internal token lookup failed: {payload['errors']}")
+
+  value = payload.get("values", {}).get("internal/apiToken")
+  if not value:
+    raise RuntimeError("internal api token missing")
+  return value
+
+
+def build_user_message(payload: dict) -> str:
+  event = payload.get("event") or {}
+  sender = event.get("sender") or {}
+  first_name = sender.get("firstName") or "unknown"
+  username = sender.get("username") or "unknown"
+  text = event.get("text") or ""
+  return (
+    "Telegram message for Stacks.\n"
+    f"Sender: {first_name} (@{username})\n"
+    f"Chat ID: {event.get('chat', {}).get('id')}\n"
+    f"Message text:\n{text}"
+  )
+
+
+async def generate_reply(payload: dict) -> str:
+  if not OPENROUTER_API_KEY:
+    raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY is not configured for stacks runtime")
+
+  messages = [
+    {"role": "system", "content": load_prompt()},
+    {"role": "user", "content": build_user_message(payload)},
+  ]
+
+  async with httpx.AsyncClient(timeout=90) as client:
+    response = await client.post(
+      f"{OPENROUTER_BASE_URL.rstrip('/')}/chat/completions",
+      headers={
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": OPENROUTER_HTTP_REFERER,
+        "X-Title": OPENROUTER_X_TITLE,
+      },
+      json={
+        "model": normalize_model_name(STACKS_MODEL),
+        "messages": messages,
+        "temperature": 0.3,
+      },
+    )
+    response.raise_for_status()
+
+  data = response.json()
+  try:
+    content = data["choices"][0]["message"]["content"]
+  except (KeyError, IndexError, TypeError) as exc:
+    raise HTTPException(status_code=502, detail=f"invalid OpenRouter response: {exc}") from exc
+
+  if isinstance(content, list):
+    return "\n".join(
+      item.get("text", "")
+      for item in content
+      if isinstance(item, dict) and item.get("text")
+    ).strip()
+  return str(content).strip()
+
+
+@app.post("/v1/inbound/telegram")
+async def inbound_telegram(
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  expected_token = resolve_internal_api_token()
+  if authorization != f"Bearer {expected_token}":
+    raise HTTPException(status_code=401, detail="invalid runtime authorization")
+
+  payload = await request.json()
+  event = payload.get("event") or {}
+  chat = event.get("chat") or {}
+  text = event.get("text") or ""
+  if not isinstance(text, str) or not text.strip():
+    return {"ok": True, "actions": []}
+
+  reply_text = await generate_reply(payload)
+  if not reply_text:
+    return {"ok": True, "actions": []}
+
+  return {
+    "ok": True,
+    "actions": [
+      {
+        "type": "telegram.sendMessage",
+        "target": {
+          "chatId": chat.get("id"),
+          "replyToMessageId": event.get("messageId"),
+        },
+        "message": {
+          "text": reply_text,
+        },
+      }
+    ],
+  }
+PY
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "${OPENCLAW_STACKS_RUNTIME_DIR}/app.py"
+  chmod 640 "${OPENCLAW_STACKS_RUNTIME_DIR}/app.py"
+}
+
+install_stacks_runtime_packages() {
+  if [[ ! -d "$OPENCLAW_STACKS_RUNTIME_DIR/.venv" ]]; then
+    run_as_openclaw python3 -m venv "$OPENCLAW_STACKS_RUNTIME_DIR/.venv"
+  fi
+
+  run_as_openclaw "$OPENCLAW_STACKS_RUNTIME_DIR/.venv/bin/pip" install --upgrade pip >/tmp/openclaw-stacks-venv-upgrade.log 2>&1 || true
+  run_as_openclaw "$OPENCLAW_STACKS_RUNTIME_DIR/.venv/bin/pip" install fastapi httpx uvicorn >/tmp/openclaw-stacks-deps.log 2>&1
+}
+
+write_stacks_runtime_systemd_unit() {
+  cat >"$OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT" <<EOF
+[Unit]
+Description=Clawbot Stacks isolated runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=$OPENCLAW_USER
+Group=$OPENCLAW_USER
+WorkingDirectory=$OPENCLAW_STACKS_RUNTIME_DIR
+EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE
+Environment=OPENCLAW_AGENT_SECRET_PROVIDER=$OPENCLAW_AGENT_SECRET_PROVIDER
+Environment=OPENCLAW_STACKS_RUNTIME_AGENT_ID=$OPENCLAW_STACKS_RUNTIME_AGENT_ID
+Environment=OPENCLAW_STACKS_RUNTIME_MODEL=$OPENCLAW_STACKS_RUNTIME_MODEL
+Environment=OPENCLAW_STACKS_PROMPT_FILE=$OPENCLAW_STACKS_PROMPT_FILE
+Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+Environment=OPENROUTER_HTTP_REFERER=https://${OPENCLAW_PUBLIC_HOSTNAME:-agents.satoshis-plebs.com}/
+Environment=OPENROUTER_X_TITLE=clawbot-stacks-runtime
+ExecStart=$OPENCLAW_STACKS_RUNTIME_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_STACKS_RUNTIME_PORT
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chmod 0644 "$OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT"
+}
+
+configure_stacks_runtime() {
+  if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$OPENCLAW_STACKS_RUNTIME_DIR"
+  chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_STACKS_RUNTIME_DIR"
+  chmod 750 "$OPENCLAW_STACKS_RUNTIME_DIR"
+
+  render_stacks_runtime_app
+  install_stacks_runtime_packages
+  write_stacks_runtime_systemd_unit
+  run_step "Reload systemd for stacks runtime" systemctl daemon-reload
+  run_step "Enable stacks runtime service" systemctl enable --now "$(basename "$OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT")"
 }
 
 restore_webhook_certificates() {
@@ -870,6 +1242,7 @@ configure_webhook_stack() {
   install_webhook_packages
   restore_webhook_certificates
   configure_webhook_receiver
+  configure_stacks_runtime
   configure_webhook_proxy_nginx
   provision_webhook_certificate
   persist_webhook_certificates

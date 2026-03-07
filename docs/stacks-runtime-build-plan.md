@@ -40,6 +40,12 @@ Included:
 - outbound Telegram send still handled by ingress
 - Stacks-specific secret resolution path
 
+Implementation status:
+
+- bootstrap wiring is in progress
+- first pass targets same-host private HTTP on `127.0.0.1:18921`
+- ingress remains responsible for outbound Telegram sends
+
 Not included yet:
 
 - Nostr publishing itself
@@ -166,9 +172,14 @@ Provider id:
 
 ### Initial contents
 
-For now:
+Bootstrap now seeds:
 
-- empty JSON object is acceptable
+- `internal/apiToken`
+
+Future operator-managed contents may add:
+
+- `nostr/privateKey`
+- `nostr/publicKey`
 
 Later expected contents:
 

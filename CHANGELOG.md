@@ -14,6 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   internal service contract and runtime inventory/migration order.
 - Added a concrete first-slice build plan for `stacks-runtime` so the first isolated runtime
   can be implemented without revisiting the target architecture.
+- Added first-pass `stacks-runtime` bootstrap wiring: a private runtime service, root-owned
+  internal API token seeding, and ingress routing that forwards `/telegram/stacks` through the
+  documented isolated-runtime contract instead of only the shared OpenClaw webhook path.
 
 ### Changed
 - Reduced shell-string execution in bootstrap helpers and replaced several root-side
