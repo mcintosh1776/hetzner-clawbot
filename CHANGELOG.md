@@ -18,6 +18,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - _None yet._
 
+## [0.7.23] - 2026-03-07
+
+### Added
+- _None yet._
+
+### Changed
+- Bootstrap now renders `agents.defaults.model.primary = "openrouter/auto"` into
+  `openclaw.json` so routed Telegram agents inherit the OpenRouter-backed default model.
+
+### Fixed
+- Fixed routed Telegram agents failing before reply because OpenClaw still defaulted to
+  `anthropic/claude-opus-4-6` despite OpenRouter being configured for the deployment.
+
+### Removed
+- _None yet._
+
 ## [0.7.22] - 2026-03-07
 
 ### Added

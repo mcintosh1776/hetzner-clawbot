@@ -1503,6 +1503,11 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
     "dmScope": "per-account-channel-peer"
   },
   "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openrouter/auto"
+      }
+    },
     "list": [
       {
         "id": "orchestrator",

@@ -205,7 +205,9 @@ workflow (`hcloud_volume.opt` + taint/rebuild on `hcloud_server.clawbot`).
 `agent-fleet.yaml` remains the durable role map for orchestrator and specialists.
 Telegram bot credentials stay in `/opt/clawbot/config/secrets/telegram.env`, and
 bootstrap renders the bot-to-agent account bindings into `/opt/clawbot/config/openclaw.json`
-so API tokens are not stored in the fleet manifest.
+so API tokens are not stored in the fleet manifest. Bootstrap also renders
+`agents.defaults.model.primary = "openrouter/auto"` so routed Telegram agents inherit the
+OpenRouter-backed default model unless you override them later.
 
 ## Useful paths on the node
 
