@@ -283,9 +283,13 @@ Definition:
 - define how isolated runtimes reply
 - define internal auth between services
 
+Working document:
+
+- [runtime-service-contract.md](/home/mcintosh/repos/hetzner-clawbot/docs/runtime-service-contract.md)
+
 Progress marker:
 
-- pending
+- complete
 
 ### M3: Stacks isolation build
 
