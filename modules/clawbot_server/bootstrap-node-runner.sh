@@ -253,6 +253,52 @@ ensure_gateway_token() {
   log "Resolved gateway token from ${source}. Existing token present: $( [[ -n "$current_token" ]] && echo yes || echo no )"
 }
 
+prepare_bootstrap_directories() {
+  mkdir -p \
+    "$OPENCLAW_PARENT_DIR" \
+    /opt/clawbot \
+    /opt/clawbot/config \
+    /opt/clawbot/config/secrets \
+    /opt/clawbot/config/runtime \
+    /opt/clawbot/work \
+    /opt/clawbot/logs \
+    /opt/clawbot/state \
+    "/home/$OPENCLAW_USER/.config/containers/systemd"
+
+  chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "/home/$OPENCLAW_USER" "/home/$OPENCLAW_USER/.config/containers/systemd" /opt/clawbot
+  chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state
+}
+
+prepare_runtime_config_directory() {
+  mkdir -p /opt/clawbot/config/runtime
+  chown -R "$OPENCLAW_USER:$OPENCLAW_USER" /opt/clawbot/config/runtime
+  chmod 750 /opt/clawbot/config/runtime
+}
+
+prepare_default_agent_config_templates() {
+  mkdir -p "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
+}
+
+prepare_rootless_runtime_directory() {
+  mkdir -p "/run/user/$OPENCLAW_UID/containers"
+  chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "/run/user/$OPENCLAW_UID"
+  chmod 700 "/run/user/$OPENCLAW_UID"
+}
+
+ensure_subid_mapping() {
+  local file="$1"
+  local entry="$2"
+
+  if ! grep -q "^${entry}$" "$file"; then
+    echo "$entry" >> "$file"
+  fi
+}
+
+fix_webhook_deps() {
+  run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip" install --upgrade --force-reinstall --no-cache-dir fastapi uvicorn httpx \
+    >/tmp/openclaw-webhook-requirements.log 2>&1
+}
+
 log_pairing_command() {
   log "If a pairing request appears in the gateway UI, approve latest pending device with:"
   log "  sudo -u ${OPENCLAW_USER} bash -lc 'cd /home/${OPENCLAW_USER} && podman exec -it openclaw node dist/index.js devices approve --latest'"
@@ -626,7 +672,7 @@ configure_webhook_receiver() {
   run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip" install --upgrade pip >/tmp/openclaw-venv-upgrade.log 2>&1 || true
 
   if [[ ! -s "$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn" ]] || ! run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/python" -c 'from uvicorn.config import Config; from fastapi import FastAPI; import httpx; print("deps-ok")' >/tmp/openclaw-webhook-import-check.log 2>&1; then
-    run_step "Fix webhook deps" bash -lc "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip install --upgrade --force-reinstall --no-cache-dir fastapi uvicorn httpx >/tmp/openclaw-webhook-requirements.log 2>&1"
+    run_step "Fix webhook deps" fix_webhook_deps
   fi
   render_webhook_app
   write_webhook_systemd_unit
@@ -1138,12 +1184,12 @@ if ! id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
 fi
 OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 assert_opt_volume_mount
-run_step "Prepare bootstrap directories" bash -lc "mkdir -p '$OPENCLAW_PARENT_DIR' /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state '/home/$OPENCLAW_USER/.config/containers/systemd' && chown -R '$OPENCLAW_USER:$OPENCLAW_USER' '/home/$OPENCLAW_USER' '/home/$OPENCLAW_USER/.config/containers/systemd' /opt/clawbot && chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state"
-run_step "Prepare bootstrap runtime directory" bash -lc "mkdir -p /opt/clawbot/config/runtime && chown -R '$OPENCLAW_USER:$OPENCLAW_USER' /opt/clawbot/config/runtime && chmod 750 /opt/clawbot/config/runtime"
+run_step "Prepare bootstrap directories" prepare_bootstrap_directories
+run_step "Prepare bootstrap runtime directory" prepare_runtime_config_directory
 ensure_gateway_token
 
 if [[ ! -d "$OPENCLAW_AGENT_CONFIG_DIR" ]]; then
-  run_step "Prepare default agent config templates" bash -lc "mkdir -p '$OPENCLAW_AGENT_CONFIG_DIR/orchestrator' '$OPENCLAW_AGENT_CONFIG_DIR/specialists'"
+  run_step "Prepare default agent config templates" prepare_default_agent_config_templates
 fi
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" ]]; then
@@ -1549,14 +1595,14 @@ if id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
   loginctl enable-linger "$OPENCLAW_USER" || true
   run_step "Start rootless user service" start_openclaw_user_slice
   run_step "Wait for openclaw user bus" wait_for_user_bus
-  run_step "Prepare runtime directory" bash -lc "mkdir -p '/run/user/$OPENCLAW_UID/containers' && chown -R '$OPENCLAW_USER:$OPENCLAW_USER' '/run/user/$OPENCLAW_UID' && chmod 700 '/run/user/$OPENCLAW_UID'"
+  run_step "Prepare runtime directory" prepare_rootless_runtime_directory
 fi
 
 if ! grep -q '^openclaw:100000:65536$' /etc/subuid; then
-  run_step "Add subuid mapping" bash -lc "echo 'openclaw:100000:65536' >> /etc/subuid"
+  run_step "Add subuid mapping" ensure_subid_mapping /etc/subuid openclaw:100000:65536
 fi
 if ! grep -q '^openclaw:100000:65536$' /etc/subgid; then
-  run_step "Add subgid mapping" bash -lc "echo 'openclaw:100000:65536' >> /etc/subgid"
+  run_step "Add subgid mapping" ensure_subid_mapping /etc/subgid openclaw:100000:65536
 fi
 if id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
   run_as_openclaw podman system migrate

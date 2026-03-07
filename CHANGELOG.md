@@ -10,10 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Reduced shell-string execution in bootstrap helpers and replaced several root-side
+  `bash -lc` wrappers with direct helper functions for directory prep, webhook dependency
+  repair, and subuid/subgid setup.
 
 ### Fixed
-- _None yet._
+- Replaced predictable temporary env rewrite files with `mktemp` in bootstrap scripts.
 
 ### Removed
 - _None yet._
