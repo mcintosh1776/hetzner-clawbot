@@ -962,6 +962,14 @@ private_runtime_unit_name() {
   printf 'clawbot-%s-runtime.service\n' "$1"
 }
 
+private_runtime_container_name() {
+  printf 'clawbot-%s-runtime\n' "$1"
+}
+
+private_runtime_quadlet_path() {
+  printf '/home/%s/.config/containers/systemd/%s.container\n' "$OPENCLAW_USER" "$(private_runtime_container_name "$1")"
+}
+
 private_runtime_agent_id() {
   case "$1" in
     bob) echo "orchestrator" ;;
@@ -1209,52 +1217,52 @@ print(value)
 PY
 }
 
-write_private_runtime_systemd_unit() {
+write_private_runtime_quadlet() {
   local public_id="$1"
   local agent_id="$2"
   local display_name="$3"
   local prompt_file="$4"
   local runtime_port="$5"
   local runtime_dir="$6"
-  local runtime_unit="/etc/systemd/system/$(private_runtime_unit_name "$public_id")"
-  local runtime_container_name="clawbot-${public_id}-runtime"
+  local runtime_quadlet
+  local runtime_container_name
   local runtime_token
+  runtime_quadlet="$(private_runtime_quadlet_path "$public_id")"
+  runtime_container_name="$(private_runtime_container_name "$public_id")"
   runtime_token="$(read_agent_internal_api_token "$agent_id")"
-  cat >"$runtime_unit" <<EOF
+  cat >"$runtime_quadlet" <<EOF
 [Unit]
-Description=Clawbot ${display_name} isolated runtime
-After=network-online.target
-Wants=network-online.target
+Description=Clawbot ${display_name} isolated runtime (rootless Podman)
 
-[Service]
-User=$OPENCLAW_USER
-Group=$OPENCLAW_USER
-WorkingDirectory=$runtime_dir
+[Container]
+Image=$OPENCLAW_PRIVATE_RUNTIME_IMAGE
+ContainerName=$runtime_container_name
+User=$OPENCLAW_UID:$OPENCLAW_UID
+UserNS=keep-id
+Notify=no
+
+Volume=$runtime_dir:/app:ro
+Volume=$OPENCLAW_AGENT_CONFIG_DIR:$OPENCLAW_AGENT_CONFIG_DIR:ro
 EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE
-Environment=HOME=/home/$OPENCLAW_USER
-Environment=XDG_RUNTIME_DIR=/run/user/%U
-Environment=OPENCLAW_AGENT_SECRET_PROVIDER=$OPENCLAW_AGENT_SECRET_PROVIDER
 Environment=OPENCLAW_PRIVATE_RUNTIME_AGENT_ID=$agent_id
 Environment=OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME=$display_name
 Environment=OPENCLAW_PRIVATE_RUNTIME_MODEL=$OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT
 Environment=OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE=$prompt_file
 Environment=OPENCLAW_PRIVATE_RUNTIME_API_TOKEN=$runtime_token
 Environment=OPENCLAW_PRIVATE_RUNTIME_PORT=$runtime_port
-Environment=OPENCLAW_PRIVATE_RUNTIME_HOST=127.0.0.1
+Environment=OPENCLAW_PRIVATE_RUNTIME_HOST=0.0.0.0
 Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 Environment=OPENROUTER_HTTP_REFERER=https://${OPENCLAW_PUBLIC_HOSTNAME:-agents.satoshis-plebs.com}/
 Environment=OPENROUTER_X_TITLE=clawbot-${public_id}-runtime
-ExecStartPre=-/usr/bin/podman rm -f $runtime_container_name
-ExecStart=/usr/bin/podman run --rm --name $runtime_container_name --network host -v $runtime_dir:/app:ro -v $OPENCLAW_AGENT_CONFIG_DIR:$OPENCLAW_AGENT_CONFIG_DIR:ro -e OPENROUTER_API_KEY -e OPENROUTER_BASE_URL -e OPENROUTER_HTTP_REFERER -e OPENROUTER_X_TITLE -e OPENCLAW_PRIVATE_RUNTIME_AGENT_ID -e OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME -e OPENCLAW_PRIVATE_RUNTIME_MODEL -e OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE -e OPENCLAW_PRIVATE_RUNTIME_API_TOKEN -e OPENCLAW_PRIVATE_RUNTIME_PORT -e OPENCLAW_PRIVATE_RUNTIME_HOST $OPENCLAW_PRIVATE_RUNTIME_IMAGE
-ExecStop=/usr/bin/podman stop --ignore -t 10 $runtime_container_name
-Restart=always
-RestartSec=2
-KillMode=none
+
+PublishPort=127.0.0.1:${runtime_port}:${runtime_port}
+Pull=never
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOF
-  chmod 0644 "$runtime_unit"
+  chown root:root "$runtime_quadlet"
+  chmod 0644 "$runtime_quadlet"
 }
 
 configure_private_runtimes() {
@@ -1288,13 +1296,15 @@ configure_private_runtimes() {
     chmod 750 "$runtime_dir"
 
     render_private_runtime_app "$runtime_dir"
-    write_private_runtime_systemd_unit "$public_id" "$agent_id" "$display_name" "$prompt_file" "$runtime_port" "$runtime_dir"
+    write_private_runtime_quadlet "$public_id" "$agent_id" "$display_name" "$prompt_file" "$runtime_port" "$runtime_dir"
   done
 
-  run_step "Reload systemd for private runtimes" systemctl daemon-reload
+  run_step "Reload openclaw user units for private runtimes" run_as_openclaw_from_tmp systemctl --user daemon-reload
 
   for public_id in "${OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS[@]}"; do
-    run_step "Enable ${public_id} runtime service" systemctl enable --now "$(private_runtime_unit_name "$public_id")"
+    runtime_unit="$(private_runtime_unit_name "$public_id")"
+    run_step "Enable ${public_id} runtime service" enable_user_service "$runtime_unit"
+    run_step "Restart ${public_id} runtime service" run_as_openclaw_from_tmp systemctl --user restart "$runtime_unit"
   done
 }
 
@@ -1556,11 +1566,16 @@ configure_ufw() {
 }
 
 enable_openclaw_service() {
+  enable_user_service openclaw.service
+}
+
+enable_user_service() {
+  local service_name="$1"
   local output
   local rc
 
   set +e
-  output="$(run_as_openclaw_from_tmp systemctl --user enable openclaw.service 2>&1)"
+  output="$(run_as_openclaw_from_tmp systemctl --user enable "$service_name" 2>&1)"
   rc=$?
   set -e
 
@@ -1569,7 +1584,7 @@ enable_openclaw_service() {
   fi
 
   if [[ "$output" == *"transient or generated"* ]]; then
-    log "openclaw.service is a generated quadlet unit; enable is not required."
+    log "${service_name} is a generated quadlet unit; enable is not required."
     return 0
   fi
 
