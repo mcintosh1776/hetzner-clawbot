@@ -84,7 +84,20 @@ OPENCLAW_PUBLIC_HOSTNAME="${OPENCLAW_PUBLIC_HOSTNAME:-}"
 OPENCLAW_LETSENCRYPT_EMAIL="${OPENCLAW_LETSENCRYPT_EMAIL:-}"
 OPENCLAW_ENABLE_WEBHOOK_PROXY="${OPENCLAW_ENABLE_WEBHOOK_PROXY:-false}"
 OPENCLAW_ENABLE_WEBHOOK_PROXY="$(normalize_bool "$OPENCLAW_ENABLE_WEBHOOK_PROXY")"
+OPENCLAW_ENABLE_GATEWAY="${OPENCLAW_ENABLE_GATEWAY:-true}"
+OPENCLAW_ENABLE_GATEWAY="$(normalize_bool "$OPENCLAW_ENABLE_GATEWAY")"
 OPENCLAW_WEBHOOK_RECEIVER_PORT="${OPENCLAW_WEBHOOK_RECEIVER_PORT:-9000}"
+OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV="${OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV:-bob,stacks,jennifer,steve,number5}"
+OPENCLAW_PRIVATE_RUNTIME_BIND_HOST="${OPENCLAW_PRIVATE_RUNTIME_BIND_HOST:-127.0.0.1}"
+OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB="${OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB:-}"
+OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS="${OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS:-}"
+OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER="${OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER:-}"
+OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE="${OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE:-}"
+OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5="${OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5:-}"
+IFS=',' read -r -a OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS <<<"$OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV"
+if [[ "${#OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS[@]}" -eq 0 ]]; then
+  OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
+fi
 
 BOOTSTRAP_MARKER="${BOOTSTRAP_MARKER:-}"
 if [ -z "$BOOTSTRAP_MARKER" ]; then
@@ -892,6 +905,18 @@ PY
 }
 
 write_webhook_systemd_unit() {
+  local bob_runtime_url_line=""
+  local stacks_runtime_url_line=""
+  local jennifer_runtime_url_line=""
+  local steve_runtime_url_line=""
+  local number5_runtime_url_line=""
+
+  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB" ]] && bob_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB=$OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB"
+  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS" ]] && stacks_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS=$OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS"
+  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER" ]] && jennifer_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER=$OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER"
+  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE" ]] && steve_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE=$OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE"
+  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5" ]] && number5_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5=$OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5"
+
   cat >/etc/systemd/system/clawbot-telegram-webhook.service <<EOF
 [Unit]
 Description=Clawbot Telegram webhook relay
@@ -907,6 +932,11 @@ EnvironmentFile=-/opt/clawbot/config/.env
 Environment=OPENCLAW_WEBHOOK_RECEIVER_PORT=$OPENCLAW_WEBHOOK_RECEIVER_PORT
 Environment=OPENCLAW_AGENT_SECRET_PROVIDER=$OPENCLAW_AGENT_SECRET_PROVIDER
 Environment=OPENCLAW_STACKS_SECRET_AGENT_ID=$OPENCLAW_STACKS_RUNTIME_AGENT_ID
+$bob_runtime_url_line
+$stacks_runtime_url_line
+$jennifer_runtime_url_line
+$steve_runtime_url_line
+$number5_runtime_url_line
 ExecStart=$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_WEBHOOK_RECEIVER_PORT
 Restart=always
 RestartSec=2
@@ -1255,7 +1285,7 @@ Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 Environment=OPENROUTER_HTTP_REFERER=https://${OPENCLAW_PUBLIC_HOSTNAME:-agents.satoshis-plebs.com}/
 Environment=OPENROUTER_X_TITLE=clawbot-${public_id}-runtime
 
-PublishPort=127.0.0.1:${runtime_port}:${runtime_port}
+PublishPort=${OPENCLAW_PRIVATE_RUNTIME_BIND_HOST}:${runtime_port}:${runtime_port}
 Pull=never
 
 [Install]
@@ -1266,7 +1296,7 @@ EOF
 }
 
 configure_private_runtimes() {
-  if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
+  if [[ "${#OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS[@]}" -eq 0 ]]; then
     return 0
   fi
 
@@ -1394,17 +1424,17 @@ EOF
 
 configure_webhook_stack() {
   log "Webhook proxy enabled=${OPENCLAW_ENABLE_WEBHOOK_PROXY} hostname=${OPENCLAW_PUBLIC_HOSTNAME:-<unset>} letsencrypt_email_set=${OPENCLAW_LETSENCRYPT_EMAIL:+yes}:${OPENCLAW_LETSENCRYPT_EMAIL:-no}"
-  validate_webhook_config
+  configure_private_runtimes
   if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
     log "OPENCLAW_ENABLE_WEBHOOK_PROXY is not true; skipping webhook proxy setup."
     return 0
   fi
 
+  validate_webhook_config
   ensure_webhook_secret
   install_webhook_packages
   restore_webhook_certificates
   configure_webhook_receiver
-  configure_private_runtimes
   configure_webhook_proxy_nginx
   provision_webhook_certificate
   persist_webhook_certificates
@@ -2251,6 +2281,7 @@ if [ -n "${OPENCLAW_PUBLIC_HOSTNAME:-}" ]; then
   OPENCLAW_WEBHOOK_PUBLIC_BASE_URL="https://${OPENCLAW_PUBLIC_HOSTNAME}"
 fi
 
+if [[ "$OPENCLAW_ENABLE_GATEWAY" == "true" ]]; then
 cat > /opt/clawbot/config/openclaw.json <<EOF
 {
   "gateway": {
@@ -2368,23 +2399,23 @@ EOF
 chown "$OPENCLAW_USER:$OPENCLAW_USER" /opt/clawbot/config/openclaw.json
 chmod 600 /opt/clawbot/config/openclaw.json
 
-if [[ -n "$OPENCLAW_REPO_URL" && ! -d "$OPENCLAW_DIR/.git" ]]; then
-  run_step "Clone openclaw repository" git -C "$OPENCLAW_PARENT_DIR" clone --depth 1 --branch "$OPENCLAW_BRANCH" "$OPENCLAW_REPO_URL" "$(basename "$OPENCLAW_DIR")"
-fi
-if [[ -d "$OPENCLAW_DIR" ]]; then
-  run_step "Prepare repo ownership" chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_DIR"
-  if [[ -f "$OPENCLAW_DIR/Dockerfile" ]]; then
-    run_step "Build podman image as openclaw" build_openclaw_image_as_openclaw "$OPENCLAW_IMAGE" "$OPENCLAW_DIR"
-    run_step "Wait for openclaw image" wait_for_image "$OPENCLAW_IMAGE" 60
+  if [[ -n "$OPENCLAW_REPO_URL" && ! -d "$OPENCLAW_DIR/.git" ]]; then
+    run_step "Clone openclaw repository" git -C "$OPENCLAW_PARENT_DIR" clone --depth 1 --branch "$OPENCLAW_BRANCH" "$OPENCLAW_REPO_URL" "$(basename "$OPENCLAW_DIR")"
   fi
-fi
+  if [[ -d "$OPENCLAW_DIR" ]]; then
+    run_step "Prepare repo ownership" chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_DIR"
+    if [[ -f "$OPENCLAW_DIR/Dockerfile" ]]; then
+      run_step "Build podman image as openclaw" build_openclaw_image_as_openclaw "$OPENCLAW_IMAGE" "$OPENCLAW_DIR"
+      run_step "Wait for openclaw image" wait_for_image "$OPENCLAW_IMAGE" 60
+    fi
+  fi
 
-openclaw_llm_env_line=""
-if [[ -f "$OPENCLAW_LLM_SECRETS_FILE" ]]; then
-  openclaw_llm_env_line="EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE"
-fi
+  openclaw_llm_env_line=""
+  if [[ -f "$OPENCLAW_LLM_SECRETS_FILE" ]]; then
+    openclaw_llm_env_line="EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE"
+  fi
 
-cat >"/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container" <<EOF
+  cat >"/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container" <<EOF
 [Unit]
 Description=OpenClaw gateway (rootless Podman)
 
@@ -2421,15 +2452,18 @@ Restart=on-failure
 [Install]
 WantedBy=default.target
 EOF
-chown root:root "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
-chmod 0644 "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
+  chown root:root "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
+  chmod 0644 "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
 
-run_step "Reload openclaw user units" run_as_openclaw_from_tmp systemctl --user daemon-reload
-run_step "Enable openclaw service" enable_openclaw_service
-run_step "Restart openclaw service" restart_openclaw_service
-run_step "Wait for openclaw service" wait_for_openclaw_service 60
-run_step "Check openclaw service" run_as_openclaw_from_tmp systemctl --user status openclaw.service --no-pager
-run_step "Install openclaw helper" write_openclaw_ctl
+  run_step "Reload openclaw user units" run_as_openclaw_from_tmp systemctl --user daemon-reload
+  run_step "Enable openclaw service" enable_openclaw_service
+  run_step "Restart openclaw service" restart_openclaw_service
+  run_step "Wait for openclaw service" wait_for_openclaw_service 60
+  run_step "Check openclaw service" run_as_openclaw_from_tmp systemctl --user status openclaw.service --no-pager
+  run_step "Install openclaw helper" write_openclaw_ctl
+else
+  log "OPENCLAW_ENABLE_GATEWAY is not true; skipping shared OpenClaw gateway bootstrap on this host."
+fi
 run_step "Configure webhook stack" configure_webhook_stack
 log_pairing_command
 

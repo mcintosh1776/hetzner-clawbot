@@ -12,21 +12,14 @@ dependency "runtime_network" {
   config_path = "../runtime-network"
 }
 
-dependency "stacks_runtime" {
-  config_path = "../stacks-runtime"
-}
-
-dependency "steve_runtime" {
-  config_path = "../steve-runtime"
-}
-
 inputs = {
   env      = local.env_name
   name     = "${local.service_name}-${local.env_name}-1"
   location = local.region_name
 
+  role        = "runtime"
   server_type = "cpx22"
-  ssh_keys   = ["bmurphy@Keiths-MacBook-Air.local"]
+  ssh_keys    = ["bmurphy@Keiths-MacBook-Air.local"]
   ssh_public_keys = {
     "clawbot-admin-gondor" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFgGwNzO+PNhcrPnzEXFBZPLbHY++pfVUfGHnqB2ss8z clawbot-admin@gondor"
     "clawbot-recovery-mcintosh" = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFBKNOUcblDEYF2d7DKO63Kwzq5QWIQUCGh5fwcybFAt mcintosh@gondor"
@@ -38,25 +31,21 @@ inputs = {
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFBKNOUcblDEYF2d7DKO63Kwzq5QWIQUCGh5fwcybFAt mcintosh@gondor"
     ]
   }
-  enable_root_ssh    = true
+  enable_root_ssh = true
 
   public_ipv4_enabled = true
   public_ipv6_enabled = false
   private_network_id  = dependency.runtime_network.outputs.network_id
-  private_network_ip  = "10.42.1.10"
+  private_network_ip  = "10.42.1.21"
+  private_runtime_ingress_cidrs = [dependency.runtime_network.outputs.subnet_ip_range]
+  private_runtime_ingress_ports = [18921]
   opt_volume_size_gb = 10
   opt_volume_fstype = "xfs"
 
-  openclaw_enable_webhook_proxy = true
-  openclaw_enable_gateway = true
-  openclaw_public_hostname = "agents.satoshis-plebs.com"
-  openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"
-  openclaw_private_runtime_public_ids = ["bob", "jennifer", "number5"]
-  openclaw_private_runtime_bind_host = "127.0.0.1"
-  openclaw_remote_runtime_urls = {
-    stacks = "http://${dependency.stacks_runtime.outputs.private_ipv4_address}:18921/v1/inbound/telegram"
-    steve  = "http://${dependency.steve_runtime.outputs.private_ipv4_address}:18923/v1/inbound/telegram"
-  }
-  openclaw_bootstrap_runner_url = "https://raw.githubusercontent.com/mcintosh1776/hetzner-clawbot/main/modules/clawbot_server/bootstrap-node-runner.sh"
+  openclaw_enable_webhook_proxy    = false
+  openclaw_enable_gateway          = false
+  openclaw_private_runtime_public_ids = ["stacks"]
+  openclaw_private_runtime_bind_host  = "0.0.0.0"
+  openclaw_bootstrap_runner_url    = "https://raw.githubusercontent.com/mcintosh1776/hetzner-clawbot/main/modules/clawbot_server/bootstrap-node-runner.sh"
   openclaw_bootstrap_runner_sha256 = "a11db012db5b02d4cef9fb053c86ad0a29e9b3e598d98a8c43ee8427dc550243"
 }

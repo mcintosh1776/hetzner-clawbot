@@ -55,7 +55,15 @@ locals {
       openclaw_public_hostname              = var.openclaw_public_hostname
       openclaw_letsencrypt_email            = var.openclaw_letsencrypt_email
       openclaw_enable_webhook_proxy         = var.openclaw_enable_webhook_proxy
+      openclaw_enable_gateway               = var.openclaw_enable_gateway
       openclaw_webhook_receiver_port        = var.openclaw_webhook_receiver_port
+      openclaw_private_runtime_public_ids_csv = join(",", var.openclaw_private_runtime_public_ids)
+      openclaw_private_runtime_bind_host      = var.openclaw_private_runtime_bind_host
+      openclaw_remote_runtime_url_bob         = lookup(var.openclaw_remote_runtime_urls, "bob", "")
+      openclaw_remote_runtime_url_stacks      = lookup(var.openclaw_remote_runtime_urls, "stacks", "")
+      openclaw_remote_runtime_url_jennifer    = lookup(var.openclaw_remote_runtime_urls, "jennifer", "")
+      openclaw_remote_runtime_url_steve       = lookup(var.openclaw_remote_runtime_urls, "steve", "")
+      openclaw_remote_runtime_url_number5     = lookup(var.openclaw_remote_runtime_urls, "number5", "")
     }
   )
   cloud_init_is_valid_yaml = can(yamldecode(local.rendered_cloud_init))
@@ -96,20 +104,30 @@ resource "hcloud_firewall" "clawbot" {
     description     = "Allow outbound TCP for ${var.name}"
   }
 
-  rule {
-    direction   = "in"
-    protocol    = "tcp"
-    port        = "80"
-    source_ips  = ["0.0.0.0/0", "::/0"]
-    description = "Allow HTTP ingress for ${var.name}"
+  dynamic "rule" {
+    for_each = var.openclaw_enable_webhook_proxy ? toset(["80", "443"]) : toset([])
+    iterator = ingress_port
+
+    content {
+      direction   = "in"
+      protocol    = "tcp"
+      port        = ingress_port.value
+      source_ips  = ["0.0.0.0/0", "::/0"]
+      description = "Allow ingress port ${ingress_port.value} for ${var.name}"
+    }
   }
 
-  rule {
-    direction   = "in"
-    protocol    = "tcp"
-    port        = "443"
-    source_ips  = ["0.0.0.0/0", "::/0"]
-    description = "Allow HTTPS ingress for ${var.name}"
+  dynamic "rule" {
+    for_each = length(var.private_runtime_ingress_cidrs) > 0 ? toset([for port in var.private_runtime_ingress_ports : tostring(port)]) : toset([])
+    iterator = runtime_port
+
+    content {
+      direction   = "in"
+      protocol    = "tcp"
+      port        = runtime_port.value
+      source_ips  = var.private_runtime_ingress_cidrs
+      description = "Allow private runtime port ${runtime_port.value} for ${var.name}"
+    }
   }
 
   rule {
@@ -176,4 +194,12 @@ resource "hcloud_server" "clawbot" {
       error_message = "Rendered cloud-init is not valid YAML. Check modules/clawbot_server/cloud-init.tftpl for formatting issues."
     }
   }
+}
+
+resource "hcloud_server_network" "private" {
+  count = var.private_network_id != "" ? 1 : 0
+
+  server_id  = hcloud_server.clawbot.id
+  network_id = var.private_network_id
+  ip         = var.private_network_ip != "" ? var.private_network_ip : null
 }
