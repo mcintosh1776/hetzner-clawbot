@@ -153,7 +153,7 @@ wait_for_user_bus() {
   local attempt=1
 
   while (( attempt <= max_attempts )); do
-    if [ -S "/run/user/$OPENCLAW_UID/bus" ] && run_as_openclaw "systemctl --user is-active --quiet default.target"; then
+    if [ -S "/run/user/$OPENCLAW_UID/bus" ] && run_as_openclaw_from_tmp systemctl --user is-active --quiet default.target; then
       return 0
     fi
 
@@ -175,7 +175,7 @@ start_openclaw_user_slice() {
       return 0
     fi
 
-    run_as_openclaw "systemctl --user is-active --quiet default.target" >/dev/null 2>&1 || true
+    run_as_openclaw_from_tmp systemctl --user is-active --quiet default.target >/dev/null 2>&1 || true
     if systemctl start "user@$OPENCLAW_UID.service" >/dev/null 2>&1; then
       return 0
     fi
@@ -194,7 +194,7 @@ restart_openclaw_service() {
   local attempt=1
 
   while (( attempt <= max_attempts )); do
-    if run_as_openclaw "systemctl --user restart openclaw.service"; then
+    if run_as_openclaw_from_tmp systemctl --user restart openclaw.service; then
       return 0
     fi
 
@@ -393,7 +393,7 @@ wait_for_image() {
   local attempt=1
 
   while (( attempt <= max_attempts )); do
-    if run_as_openclaw "podman image inspect \"$image\" >/dev/null 2>&1"; then
+    if run_as_openclaw podman image inspect "$image" >/dev/null 2>&1; then
       return 0
     fi
 
@@ -411,7 +411,7 @@ wait_for_openclaw_service() {
   local attempt=1
 
   while (( attempt <= max_attempts )); do
-    if run_as_openclaw "systemctl --user is-active --quiet openclaw.service"; then
+    if run_as_openclaw_from_tmp systemctl --user is-active --quiet openclaw.service; then
       return 0
     fi
 
@@ -419,7 +419,7 @@ wait_for_openclaw_service() {
     ((attempt += 1))
   done
 
-  run_as_openclaw "systemctl --user status openclaw.service --no-pager || true"
+  run_as_openclaw_from_tmp systemctl --user status openclaw.service --no-pager || true
   log "Timed out waiting for openclaw.service to reach active state"
   return 1
 }
@@ -615,17 +615,17 @@ configure_webhook_receiver() {
   fi
 
   if [[ ! -d "$OPENCLAW_WEBHOOK_DIR/.venv" ]]; then
-  run_as_openclaw "python3 -m venv '$OPENCLAW_WEBHOOK_DIR/.venv'"
+    run_as_openclaw python3 -m venv "$OPENCLAW_WEBHOOK_DIR/.venv"
   fi
 
   if [[ ! -x "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip" ]]; then
     log "Webhook receiver virtualenv missing pip; reinstalling."
-    run_as_openclaw "python3 -m venv '$OPENCLAW_WEBHOOK_DIR/.venv'"
+    run_as_openclaw python3 -m venv "$OPENCLAW_WEBHOOK_DIR/.venv"
   fi
 
-  run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip install --upgrade pip >/tmp/openclaw-venv-upgrade.log 2>&1 || true"
+  run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip" install --upgrade pip >/tmp/openclaw-venv-upgrade.log 2>&1 || true
 
-  if [[ ! -s "$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn" ]] || ! run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/python -c 'from uvicorn.config import Config; from fastapi import FastAPI; import httpx; print(\"deps-ok\")' >/tmp/openclaw-webhook-import-check.log 2>&1"; then
+  if [[ ! -s "$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn" ]] || ! run_as_openclaw "$OPENCLAW_WEBHOOK_DIR/.venv/bin/python" -c 'from uvicorn.config import Config; from fastapi import FastAPI; import httpx; print("deps-ok")' >/tmp/openclaw-webhook-import-check.log 2>&1; then
     run_step "Fix webhook deps" bash -lc "$OPENCLAW_WEBHOOK_DIR/.venv/bin/pip install --upgrade --force-reinstall --no-cache-dir fastapi uvicorn httpx >/tmp/openclaw-webhook-requirements.log 2>&1"
   fi
   render_webhook_app
@@ -895,7 +895,7 @@ enable_openclaw_service() {
   local rc
 
   set +e
-  output="$(run_as_openclaw "systemctl --user enable openclaw.service 2>&1")"
+  output="$(run_as_openclaw_from_tmp systemctl --user enable openclaw.service 2>&1)"
   rc=$?
   set -e
 
@@ -913,22 +913,70 @@ enable_openclaw_service() {
 }
 
 run_as_openclaw() {
-  local cmd="$1"
   local openclaw_uid
   openclaw_uid="$(id -u "$OPENCLAW_USER")"
 
   if [[ "$(id -u)" -eq "$openclaw_uid" ]]; then
-    XDG_RUNTIME_DIR="/run/user/$openclaw_uid" HOME="/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"
+    XDG_RUNTIME_DIR="/run/user/$openclaw_uid" HOME="/home/$OPENCLAW_USER" "$@"
     return 0
   fi
 
-  if command -v runuser >/dev/null 2>&1; then
-    if runuser -u "$OPENCLAW_USER" -- env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"; then
+  if command -v runuser >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
+    if runuser -u "$OPENCLAW_USER" -- env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" "$@"; then
       return 0
     fi
   fi
 
-  sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"
+  sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" "$@"
+}
+
+run_as_openclaw_from_tmp() {
+  local openclaw_uid
+  openclaw_uid="$(id -u "$OPENCLAW_USER")"
+
+  if [[ "$(id -u)" -eq "$openclaw_uid" ]]; then
+    (
+      cd /tmp
+      XDG_RUNTIME_DIR="/run/user/$openclaw_uid" HOME="/home/$OPENCLAW_USER" "$@"
+    )
+    return 0
+  fi
+
+  if command -v runuser >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
+    if runuser -u "$OPENCLAW_USER" -- env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" \
+      sh -c 'cd /tmp && exec "$@"' sh "$@"; then
+      return 0
+    fi
+  fi
+
+  sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" \
+    sh -c 'cd /tmp && exec "$@"' sh "$@"
+}
+
+run_as_openclaw_in_dir() {
+  local target_dir="$1"
+  shift
+
+  local openclaw_uid
+  openclaw_uid="$(id -u "$OPENCLAW_USER")"
+
+  if [[ "$(id -u)" -eq "$openclaw_uid" ]]; then
+    (
+      cd "$target_dir"
+      XDG_RUNTIME_DIR="/run/user/$openclaw_uid" HOME="/home/$OPENCLAW_USER" "$@"
+    )
+    return 0
+  fi
+
+  if command -v runuser >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
+    if runuser -u "$OPENCLAW_USER" -- env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" \
+      sh -c 'cd "$1" && shift && exec "$@"' sh "$target_dir" "$@"; then
+      return 0
+    fi
+  fi
+
+  sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=/run/user/$openclaw_uid" "HOME=/home/$OPENCLAW_USER" \
+    sh -c 'cd "$1" && shift && exec "$@"' sh "$target_dir" "$@"
 }
 
 decode_template_to_file() {
@@ -978,49 +1026,66 @@ USAGE
 }
 
 run_as_openclaw() {
-  local cmd="$1"
   if [[ "$(id -un)" == "$OPENCLAW_USER" ]]; then
-    XDG_RUNTIME_DIR="$RUNTIME_DIR" HOME="/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"
+    XDG_RUNTIME_DIR="$RUNTIME_DIR" HOME="/home/$OPENCLAW_USER" "$@"
     return
   fi
 
-  if command -v runuser >/dev/null 2>&1; then
-    runuser -u "$OPENCLAW_USER" -- env "XDG_RUNTIME_DIR=$RUNTIME_DIR" "HOME=/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd" && return
+  if command -v runuser >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
+    runuser -u "$OPENCLAW_USER" -- env "XDG_RUNTIME_DIR=$RUNTIME_DIR" "HOME=/home/$OPENCLAW_USER" "$@" && return
   fi
 
-  sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=$RUNTIME_DIR" "HOME=/home/$OPENCLAW_USER" bash -lc "cd /tmp && $cmd"
+  sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=$RUNTIME_DIR" "HOME=/home/$OPENCLAW_USER" "$@"
+}
+
+run_as_openclaw_from_tmp() {
+  if [[ "$(id -un)" == "$OPENCLAW_USER" ]]; then
+    (
+      cd /tmp
+      XDG_RUNTIME_DIR="$RUNTIME_DIR" HOME="/home/$OPENCLAW_USER" "$@"
+    )
+    return
+  fi
+
+  if command -v runuser >/dev/null 2>&1 && [[ "$(id -u)" -eq 0 ]]; then
+    runuser -u "$OPENCLAW_USER" -- env "XDG_RUNTIME_DIR=$RUNTIME_DIR" "HOME=/home/$OPENCLAW_USER" \
+      sh -c 'cd /tmp && exec "$@"' sh "$@" && return
+  fi
+
+  sudo -u "$OPENCLAW_USER" -H env "XDG_RUNTIME_DIR=$RUNTIME_DIR" "HOME=/home/$OPENCLAW_USER" \
+    sh -c 'cd /tmp && exec "$@"' sh "$@"
 }
 
 case "${1:-status}" in
   status)
-    run_as_openclaw "systemctl --user status openclaw.service --no-pager"
+    run_as_openclaw_from_tmp systemctl --user status openclaw.service --no-pager
     ;;
   ps)
-    run_as_openclaw "podman ps -a"
+    run_as_openclaw podman ps -a
     ;;
   restart)
-    run_as_openclaw "systemctl --user restart openclaw.service"
+    run_as_openclaw_from_tmp systemctl --user restart openclaw.service
     ;;
   start)
-    run_as_openclaw "systemctl --user start openclaw.service"
+    run_as_openclaw_from_tmp systemctl --user start openclaw.service
     ;;
   stop)
-    run_as_openclaw "systemctl --user stop openclaw.service"
+    run_as_openclaw_from_tmp systemctl --user stop openclaw.service
     ;;
   logs)
-    run_as_openclaw "podman logs openclaw"
+    run_as_openclaw podman logs openclaw
     ;;
   journal)
-    run_as_openclaw "journalctl --user -u openclaw.service --no-pager"
+    run_as_openclaw_from_tmp journalctl --user -u openclaw.service --no-pager
     ;;
   health)
-    run_as_openclaw "curl -s -I http://127.0.0.1:18789/ | head"
+    run_as_openclaw curl -s -I http://127.0.0.1:18789/
     ;;
   token)
-    run_as_openclaw "cat /opt/clawbot/config/.env"
+    run_as_openclaw cat /opt/clawbot/config/.env
     ;;
   agents)
-    run_as_openclaw "find \"$AGENT_CONFIG_DIR\" -maxdepth 3 -type f | sort"
+    run_as_openclaw find "$AGENT_CONFIG_DIR" -maxdepth 3 -type f | sort
     ;;
   agent-config)
     if [[ -z "${2:-}" ]]; then
@@ -1032,7 +1097,7 @@ case "${1:-status}" in
       echo "agent-config path must be a relative path under ${AGENT_CONFIG_DIR} and must not contain traversal segments." >&2
       exit 2
     fi
-    run_as_openclaw "cat \"$AGENT_CONFIG_DIR/$agent_config_path\""
+    run_as_openclaw cat "$AGENT_CONFIG_DIR/$agent_config_path"
     ;;
   help|-h|--help)
     usage
@@ -1048,6 +1113,17 @@ EOF
   sed -i '1{$s/^\xEF\xBB\xBF//; /^$/d;}' /usr/local/bin/openclaw-ctl
 
   chmod 0755 /usr/local/bin/openclaw-ctl
+}
+
+build_openclaw_image_as_openclaw() {
+  local image="$1"
+  local repo_dir="$2"
+
+  if run_as_openclaw podman image inspect "$image" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  run_as_openclaw_in_dir "$repo_dir" podman build -t "$image" -f Dockerfile .
 }
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -1450,13 +1526,13 @@ if [[ -f "$BOOTSTRAP_MARKER" ]]; then
   write_openclaw_ctl
   run_step "Configure webhook stack" configure_webhook_stack
   log "openclaw node bootstrap already completed."
-  if run_as_openclaw "systemctl --user is-active --quiet openclaw.service"; then
-    run_as_openclaw "systemctl --user status openclaw.service --no-pager"
+  if run_as_openclaw_from_tmp systemctl --user is-active --quiet openclaw.service; then
+    run_as_openclaw_from_tmp systemctl --user status openclaw.service --no-pager
   else
     log "openclaw service not active; attempting to restart as part of idempotent check."
     restart_openclaw_service
     wait_for_openclaw_service 60
-    run_as_openclaw "systemctl --user status openclaw.service --no-pager"
+    run_as_openclaw_from_tmp systemctl --user status openclaw.service --no-pager
   fi
   log_pairing_command
   exit 0
@@ -1483,7 +1559,7 @@ if ! grep -q '^openclaw:100000:65536$' /etc/subgid; then
   run_step "Add subgid mapping" bash -lc "echo 'openclaw:100000:65536' >> /etc/subgid"
 fi
 if id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
-  run_as_openclaw "podman system migrate"
+  run_as_openclaw podman system migrate
 fi
 
 OPENCLAW_WEBHOOK_PUBLIC_BASE_URL="http://127.0.0.1:${OPENCLAW_WEBHOOK_RECEIVER_PORT}"
@@ -1650,7 +1726,7 @@ fi
 if [[ -d "$OPENCLAW_DIR" ]]; then
   run_step "Prepare repo ownership" chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_DIR"
   if [[ -f "$OPENCLAW_DIR/Dockerfile" ]]; then
-    run_step "Build podman image as openclaw" run_as_openclaw "if podman image inspect \"$OPENCLAW_IMAGE\" >/dev/null 2>&1; then exit 0; fi; cd \"$OPENCLAW_DIR\" && podman build -t \"$OPENCLAW_IMAGE\" -f Dockerfile ."
+    run_step "Build podman image as openclaw" build_openclaw_image_as_openclaw "$OPENCLAW_IMAGE" "$OPENCLAW_DIR"
     run_step "Wait for openclaw image" wait_for_image "$OPENCLAW_IMAGE" 60
   fi
 fi
@@ -1711,11 +1787,11 @@ EOF
 chown root:root "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
 chmod 0644 "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
 
-run_step "Reload openclaw user units" run_as_openclaw "systemctl --user daemon-reload"
+run_step "Reload openclaw user units" run_as_openclaw_from_tmp systemctl --user daemon-reload
 run_step "Enable openclaw service" enable_openclaw_service
 run_step "Restart openclaw service" restart_openclaw_service
 run_step "Wait for openclaw service" wait_for_openclaw_service 60
-run_step "Check openclaw service" run_as_openclaw "systemctl --user status openclaw.service --no-pager"
+run_step "Check openclaw service" run_as_openclaw_from_tmp systemctl --user status openclaw.service --no-pager
 run_step "Install openclaw helper" write_openclaw_ctl
 run_step "Configure webhook stack" configure_webhook_stack
 log_pairing_command

@@ -20,8 +20,14 @@ log() {
 }
 
 run_as_openclaw() {
-  local cmd=$1
-  sudo -u "${OPENCLAW_USER}" -H env XDG_RUNTIME_DIR="/run/user/${OPENCLAW_UID}" bash -lc "${cmd}"
+  sudo -u "${OPENCLAW_USER}" -H env XDG_RUNTIME_DIR="/run/user/${OPENCLAW_UID}" HOME="/home/${OPENCLAW_USER}" "$@"
+}
+
+run_as_openclaw_in_dir() {
+  local target_dir="$1"
+  shift
+  sudo -u "${OPENCLAW_USER}" -H env XDG_RUNTIME_DIR="/run/user/${OPENCLAW_UID}" HOME="/home/${OPENCLAW_USER}" \
+    sh -c 'cd "$1" && shift && exec "$@"' sh "$target_dir" "$@"
 }
 
 install_system_packages() {
@@ -178,7 +184,7 @@ bootstrap_openclaw() {
   if ! grep -q '^openclaw:100000:65536$' /etc/subgid; then
     echo "openclaw:100000:65536" >> /etc/subgid
   fi
-  run_as_openclaw "podman system migrate"
+  run_as_openclaw podman system migrate
 
   cat > /opt/clawbot/config/openclaw.json <<'EOF'
 {
@@ -259,7 +265,9 @@ EOF
     if [[ -d /srv/openclaw ]]; then
       chown -R "${OPENCLAW_USER}:${OPENCLAW_USER}" /srv/openclaw
       if [[ -f /srv/openclaw/Dockerfile ]]; then
-        run_as_openclaw "podman image inspect ${OPENCLAW_IMAGE} >/dev/null 2>&1 || cd /srv/openclaw && podman build -t ${OPENCLAW_IMAGE} -f Dockerfile ."
+        if ! run_as_openclaw podman image inspect "${OPENCLAW_IMAGE}" >/dev/null 2>&1; then
+          run_as_openclaw_in_dir /srv/openclaw podman build -t "${OPENCLAW_IMAGE}" -f Dockerfile .
+        fi
       fi
     fi
   fi
@@ -272,8 +280,8 @@ finalize_services() {
 }
 
 verify() {
-  run_as_openclaw "podman ps -a"
-  run_as_openclaw "podman logs --tail 20 openclaw || true"
+  run_as_openclaw podman ps -a
+  run_as_openclaw podman logs --tail 20 openclaw || true
 }
 
 main() {
