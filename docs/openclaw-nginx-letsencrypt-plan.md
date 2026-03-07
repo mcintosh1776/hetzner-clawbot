@@ -1,202 +1,184 @@
-# OpenClaw Reverse Proxy + TLS Rollout TODO
+# OpenClaw Reverse Proxy + TLS Implementation Notes
 
-## Scope
-- Use webhooks path through Nginx + HTTPS at:
-- `https://agents.satoshis-plebs.com`
-- Keep `/opt` persistence and bootstrap idempotency intact.
-- Do each stage in a separate commit/tag/rebuild until it passes.
-- TLS issuance is best-effort: webhook bootstrap continues on certbot failure and logs explicit warnings.
+This document is no longer a staged rollout TODO. The nginx/certbot/Telegram webhook
+stack described here has been implemented and is now part of the normal bootstrap flow.
 
-## Concrete rollout sequence (for rebuild-driven execution)
+## Current production shape
 
-Use this exact sequence for the next clean rebuild:
+Production stack:
 
-1. Confirm required inputs and current state
-   - DNS points `agents.satoshis-plebs.com` to the target server IP.
-   - `/opt` is enabled and has persisted data:
-     - `/opt/clawbot/config/secrets/telegram.env` exists.
-     - `/opt/clawbot/config/openclaw.json` exists.
-     - `/opt/clawbot/config/agent-config/` files exist.
-   - Cloud-init contract values are set in stack:
-     - `openclaw_enable_webhook_proxy = true`
-     - `openclaw_public_hostname = "agents.satoshis-plebs.com"`
-     - `openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"`
+- `live/prod/fsn1/clawbot`
 
-2. Capture token (optional, for continuity)
-   - `OPENCLAW_GATEWAY_TOKEN="$(sudo -u openclaw awk -F= '/^OPENCLAW_GATEWAY_TOKEN=/{print $2}' /opt/clawbot/config/.env)"`
-   - Export it for apply if you want deterministic continuity.
+Bootstrap now provisions:
 
-3. Rebuild server only (preserve volume):
-   - `terragrunt taint hcloud_server.clawbot`
-   - `terragrunt apply`
+- OpenClaw gateway on `127.0.0.1:18789`
+- local Telegram relay on `127.0.0.1:9000`
+- per-bot OpenClaw Telegram webhook listeners on:
+  - `127.0.0.1:18890`
+  - `127.0.0.1:18891`
+  - `127.0.0.1:18892`
+  - `127.0.0.1:18893`
+  - `127.0.0.1:18894`
+- `nginx` on `80/443`
+- `certbot` with persisted Let’s Encrypt material under `/opt/clawbot/tls/letsencrypt`
 
-4. Wait for bootstrap completion and avoid early checks:
-   - SSH in only after `/var/log/openclaw-node-bootstrap.log` ends with:
-     - `openclaw node bootstrap complete.`
+Public ingress contract:
 
-5. Run automated post-bootstrap checks in order:
-   - `curl -I https://agents.satoshis-plebs.com/` (expect HTTP 404 after root hardening)
-   - `curl -I https://agents.satoshis-plebs.com/telegram/bob`
-   - `systemctl is-active --quiet nginx`
-   - `systemctl is-active --quiet clawbot-telegram-webhook`
-   - `sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secrets/telegram.env'`
-   - `curl -I http://127.0.0.1:18789/`
+- `https://agents.satoshis-plebs.com/` returns `404`
+- only `/telegram/<bot>` is intended for external webhook traffic
 
-6. Register Telegram webhooks (manual, one-time per token):
-   - `set -a; . /opt/clawbot/config/secrets/telegram.env; set +a`
-   - `curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/bob" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"`
-   - Repeat for `jennifer`, `steve`, `number5`, `stacks`.
-   - Validate each via `getWebhookInfo`.
+Supported Telegram webhook paths:
 
-## 0) Pre-flight check (do this now)
-1. Confirm cloud-init + Terragrunt stack still apply cleanly.
-   - Verify `hcl` still renders within Hetzner's `user_data` cap (32,768 chars) before rebuild so oversized payloads fail in plan instead of API apply.
-2. Confirm SSH and bootstrap completion checks are available:
-   - `openclaw-ctl status`
-   - `openclaw-ctl health`
-3. Confirm `/opt/clawbot/config` contains:
-   - `agent-config` files
-   - `runtime/llm.yaml`
-   - `secrets/llm.env`
-   - `secrets/telegram.env`
-4. Confirm DNS A record:
-   - `agents.satoshis-plebs.com -> <public_ipv4>`
+- `/telegram/bob`
+- `/telegram/jennifer`
+- `/telegram/steve`
+- `/telegram/stacks`
+- `/telegram/number5`
 
-## 1) Add bootstrap contract (code-only, no runtime side effects)
-Update bootstrap inputs and defaults so proxy config is explicit:
+## Bootstrap contract
 
-- Add env vars in `modules/clawbot_server/bootstrap-node-runner.sh`:
-  - `OPENCLAW_PUBLIC_HOSTNAME`
-  - `OPENCLAW_LETSENCRYPT_EMAIL`
-  - `OPENCLAW_ENABLE_WEBHOOK_PROXY` (default `false`)
-- Add cloud-init pass-through in `modules/clawbot_server/main.tf` / `cloud-init.tftpl`
-  so the runner sees those values.
-- Add a strict pre-check function:
-  - If `OPENCLAW_ENABLE_WEBHOOK_PROXY=true` and hostname/email missing: fail fast with a clear message.
-  - If hostname format invalid: fail fast.
+The stack passes these production inputs into bootstrap:
 
-### Validation after Stage 1
-- Rebuild + wait for bootstrap finish.
-- Confirm log contains:
-  - `Resolved OPENCLAW_PUBLIC_HOSTNAME=agents.satoshis-plebs.com` (or selected value)
-  - no early contract failures.
+- `openclaw_enable_webhook_proxy = true`
+- `openclaw_public_hostname = "agents.satoshis-plebs.com"`
+- `openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"`
+- `openclaw_bootstrap_runner_url = "https://raw.githubusercontent.com/mcintosh1776/hetzner-clawbot/main/modules/clawbot_server/bootstrap-node-runner.sh"`
 
-### Rollback
-- Set `OPENCLAW_ENABLE_WEBHOOK_PROXY=false` for next run.
+Bootstrap also renders:
 
-## 2) Install packages
-Implement an idempotent install step:
-- `apt-get update`
-- `apt-get install -y nginx certbot python3-certbot-nginx`
+- explicit Telegram account-to-agent bindings
+- `session.dmScope = "per-account-channel-peer"`
+- Telegram DM allowlist gating for the trusted owner
+- `agents.defaults.model.primary = "openrouter/auto"`
 
-### Validation after Stage 2
-- `command -v nginx`
-- `command -v certbot`
-- `nginx -t` returns 0.
+## Rebuild workflow
 
-### Rollback
-- Keep package install function gated by flag, so proxy can be disabled.
+The standard rebuild flow is to replace the server while preserving the `/opt` volume:
 
-## 3) Write nginx site config
-Create/regen `/etc/nginx/sites-available/openclaw.conf` and enable it:
+```bash
+cd live/prod/fsn1/clawbot
+terragrunt apply -auto-approve -replace='hcloud_server.clawbot'
+```
 
-- Proxy to local OpenClaw on `127.0.0.1:18789`
-- Keep only required paths:
-  - `/.well-known/acme-challenge/` direct passthrough
-  - `/` and `/telegram/` proxy to OpenClaw
-- Add short timeout and conservative headers.
-- Ensure symlink: `/etc/nginx/sites-enabled/openclaw.conf`
-- Remove default vhost if it conflicts.
+This replaces:
 
-### Validation after Stage 3
-- `nginx -t`
-- `systemctl reload nginx`
-- `curl -sSf http://agents.satoshis-plebs.com/` returns HTTP (200/301) once DNS resolves.
+- `hcloud_server.clawbot`
+- `hcloud_volume_attachment.opt[0]`
 
-### Rollback
-- Remove symlink and disable site, then reload nginx.
+It does not destroy the `/opt` volume itself.
 
-## 4) Provision Let’s Encrypt certificate
-Run cert issuance in bootstrap after nginx config is active:
-- `certbot --nginx -d agents.satoshis-plebs.com --non-interactive --agree-tos -m <email> --redirect`
-- Bootstrap writes certificate command output to `/var/log/openclaw-webhook-certbot.log`.
-- If certbot fails, bootstrap logs a warning and continues with HTTP.
+## Bootstrap completion rule
 
-### Validation after Stage 4
-- `/etc/letsencrypt/live/agents.satoshis-plebs.com/` exists only if cert issuance succeeds.
-- `curl -I https://agents.satoshis-plebs.com/` returns `HTTP/2 200` or `HTTP/1.1 200` only when HTTPS is active.
-- `nginx -T` contains SSL block for `agents.satoshis-plebs.com` when cert issuance succeeded.
-- If TLS was not issued, confirm warning in `/var/log/openclaw-node-bootstrap.log` and validate HTTP path instead:
-  - `grep -i \"WARN\" /var/log/openclaw-node-bootstrap.log | grep -i \"certbot\"`
+Do not test a rebuilt node until cloud-init is fully complete.
 
-### Rollback
-- Leave HTTP backend enabled and keep HTTPS disabled if certbot fails.
+Check:
 
-## 5) Renewal hygiene
-Enable renewals:
-- verify `systemctl list-timers --all | grep -E 'certbot.timer|snap.certbot.renew.timer'` includes timer state
-- if timer is present but not enabled, enable it during bootstrap and in follow-up checks
+```bash
+tail -n 40 /var/log/cloud-init-output.log
+```
 
-### Validation after Stage 5
-- Next dry-run:
-  - `certbot renew --dry-run`
-- confirm `systemctl list-timers --all | grep -E 'certbot.timer|snap.certbot.renew.timer'` shows a scheduled run.
+Wait for both:
 
-### Rollback
-- No destructive rollback needed; renewal is additive.
+- `openclaw node bootstrap complete.`
+- `Cloud-init ... finished`
 
-## 6) Telegram webhook configuration (post-bootstrap)
-Register bot webhooks after service is healthy:
-- For each bot token (`BOB/Stacks/Jennifer/Steve/Number5`) run:
-  - `curl -s "https://api.telegram.org/bot<TOKEN>/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/<agent_slug>"`
-- Confirm each:
-  - `curl -s "https://api.telegram.org/bot<TOKEN>/getWebhookInfo"`
+## Verification checklist
 
-### Validation after Stage 6
-- Telegram update can arrive to local endpoint through HTTPS proxy.
-- Outbound responses return successful `sendMessage` behavior.
+Run on the node:
 
-### Rollback
-- `setWebhook` to empty string for each token to disable:
-  - `curl -s "https://api.telegram.org/bot<TOKEN>/setWebhook" -d "url="`
+```bash
+systemctl is-active nginx clawbot-telegram-webhook
+sudo -u openclaw bash -lc 'env HOME=/home/openclaw XDG_RUNTIME_DIR=/run/user/999 systemctl --user is-active openclaw.service'
+sudo ss -ltn | grep -E '127.0.0.1:(18789|18890|18891|18892|18893|18894|9000)|:80 |:443 '
+curl -I https://agents.satoshis-plebs.com/
+curl -I https://agents.satoshis-plebs.com/telegram/bob
+curl -I https://agents.satoshis-plebs.com/telegram/jennifer
+curl -I https://agents.satoshis-plebs.com/telegram/stacks
+sudo -u openclaw bash -lc 'cd /home/openclaw && podman exec openclaw node dist/index.js agents list --bindings --json'
+sudo -u openclaw bash -lc 'cd /home/openclaw && podman exec openclaw node dist/index.js models status --json'
+```
 
-## 7) Final verification checklist (do this before marking done)
-1. Wait for bootstrap completion:
-   - `openclaw node bootstrap complete.` in `/var/log/openclaw-node-bootstrap.log`
-2. Service health:
-   - `openclaw-ctl status`
-   - `openclaw-ctl health`
-3. Local gateway:
-   - `curl -s -I http://127.0.0.1:18789/ | head`
-4. Public HTTPS:
-   - `curl -s -I https://agents.satoshis-plebs.com/telegram/` should not show connection reset.
-5. Firewall posture:
-   - `ufw status verbose` includes `22/tcp`, `80/tcp`, `443/tcp`.
+Expected:
 
-## Persisting generated files across rebuilds (required contract)
+- all three services are `active`
+- `/` returns `404`
+- each `/telegram/<bot>` returns `405`
+- `agents list --bindings --json` shows five explicit Telegram account bindings
+- `models status --json` shows:
+  - `defaultModel: "openrouter/auto"`
+  - no `missingProvidersInUse`
 
-Before adding any new generated artifact (Nginx snippets, webhook receiver files, scripts, cert helper files), confirm it is rooted under `/opt/clawbot` or another explicitly preserved mount.
+## Telegram webhook registration
 
-Current contract for this project:
-- `/opt/clawbot` and `/var/lib/clawbot` are the only host-side durable locations for rebuild-safe data.
-- Anything under `/srv/openclaw` is ephemeral unless explicitly copied back into `/opt/clawbot`.
-- `/opt/clawbot/config/secrets/{llm.env,telegram.env}` is durable but intentionally human-managed; bootstrap never rotates these files.
-- `openclaw-ctl` only reads generated/service artifacts from `/opt/clawbot/...` paths.
+Webhook registration is still a Bot API step. On the node:
 
-For this rollout, place durable webhook/nginx runtime files as:
-- `/opt/clawbot/config/telegram-webhook/` for local app code/config if you add a local relay
-- `/opt/clawbot/config/secrets/` for new webhook secrets
-- `/opt/clawbot/config/runtime/` for routing/env metadata variants
-- `/opt/clawbot/config/webhook/` for helper manifests (if added)
+```bash
+sudo bash -lc '
+set -a
+. /opt/clawbot/config/secrets/telegram.env
+set +a
 
-If a required file lands outside `/opt` and is not in `/etc` by design, it should be expected to be ephemeral and must be re-created on each rebuild.
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/bob" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_JENNIFER}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/jennifer" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_STEVE}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/steve" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_STACKS}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/stacks" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_NUMBER5}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/number5" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+'
+```
 
-## One change per stage rule
-- Do not merge or commit multiple stages together.
-- For each stage:
-  - edit one stage,
-  - commit/tag,
-  - taint+apply server,
-  - wait for bootstrap completion,
-  - run the stage validation,
-  - move on only if green.
+Then inspect:
+
+```bash
+sudo bash -lc '
+set -a
+. /opt/clawbot/config/secrets/telegram.env
+set +a
+for name in BOB JENNIFER STEVE STACKS NUMBER5; do
+  eval token=\${TELEGRAM_BOT_TOKEN_${name}}
+  echo "== ${name} =="
+  curl -s "https://api.telegram.org/bot${token}/getWebhookInfo"
+  echo
+done
+'
+```
+
+Steady state:
+
+- `pending_update_count: 0`
+- no fresh `502 Bad Gateway`
+- no fresh `Connection refused`
+
+## Durable file contract
+
+Durable rebuild-safe data belongs under `/opt/clawbot`.
+
+Relevant persisted paths:
+
+- `/opt/clawbot/config/openclaw.json`
+- `/opt/clawbot/config/runtime/llm.yaml`
+- `/opt/clawbot/config/secrets/llm.env`
+- `/opt/clawbot/config/secrets/telegram.env`
+- `/opt/clawbot/config/telegram-webhook/`
+- `/opt/clawbot/tls/letsencrypt/`
+- `/opt/clawbot/bootstrap/openclaw-node-bootstrap-runner.sh`
+- `/opt/clawbot/state/`
+- `/opt/clawbot/work/`
+
+Anything only under `/srv/openclaw` should be treated as rebuild-ephemeral unless bootstrap
+recreates it.
+
+## Notes on old assumptions
+
+The following older assumptions are no longer correct:
+
+- the live stack is not `us-east`; it is `fsn1`
+- the recommended rebuild flow is not `terragrunt taint`; it is `terragrunt apply -replace=...`
+- bootstrap completion should be checked in `/var/log/cloud-init-output.log`
+- webhook traffic is not proxied from `/`; root intentionally returns `404`
+- Telegram listeners no longer use `18790-18794`
+- the deployment no longer relies on Telegram DM pairing for the owner path

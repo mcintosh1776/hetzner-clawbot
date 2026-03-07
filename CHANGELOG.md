@@ -10,7 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Dashboard-facing OpenClaw agent identities are now rendered explicitly so the control UI
+  shows `Bob`, `Jennifer`, `Steve`, `Stacks`, and `Number 5` instead of only the internal
+  role ids.
+- Quickstart and architecture docs now reflect the current `fsn1` production stack,
+  preserved `/opt` rebuild workflow, Telegram multi-agent routing, and OpenRouter-backed model
+  defaults.
 
 ### Fixed
 - _None yet._

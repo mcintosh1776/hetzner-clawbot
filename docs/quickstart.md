@@ -3,107 +3,173 @@
 ## Prerequisites
 
 - Install `terragrunt`
-- Export Hetzner token in your shell:
+- Export your Hetzner token:
   - `export HCLOUD_TOKEN=<token>`
+- Export a gateway token before provisioning:
+  - `export OPENCLAW_GATEWAY_TOKEN=<token>`
 
-## One-time bootstrap script (non-Terraform, fresh Ubuntu 24.04 node)
+## Production stack
+
+The live stack in this repo is:
+
+- `live/prod/fsn1/clawbot`
+
+It provisions:
+
+- a Hetzner `cpx22` Ubuntu node
+- a persistent `/opt` volume
+- OpenClaw in rootless Podman
+- `nginx` + `certbot` for Telegram webhook ingress
+- per-bot Telegram webhook listeners
+- OpenRouter-backed default model selection
+
+## Provision or update production
 
 ```bash
-export OPENCLAW_REPO_URL=https://github.com/<your-openclaw-fork-or-upstream>.git
-export ADMIN_PUBLIC_KEY='ssh-ed25519 ...'
+cd live/prod/fsn1/clawbot
+terragrunt init
+terragrunt plan
+terragrunt apply
+```
+
+## Wait for bootstrap to finish
+
+Do not test the node until cloud-init is fully done.
+
+On the node:
+
+```bash
+tail -n 40 /var/log/cloud-init-output.log
+```
+
+Wait for both lines:
+
+- `openclaw node bootstrap complete.`
+- `Cloud-init ... finished`
+
+In practice, replacement-node bootstrap usually takes about 6-12 minutes.
+
+## Post-bootstrap verification
+
+Run on the node:
+
+```bash
+systemctl is-active nginx clawbot-telegram-webhook
+sudo -u openclaw bash -lc 'env HOME=/home/openclaw XDG_RUNTIME_DIR=/run/user/999 systemctl --user is-active openclaw.service'
+sudo ss -ltn | grep -E '127.0.0.1:(18789|18890|18891|18892|18893|18894|9000)|:80 |:443 '
+curl -I https://agents.satoshis-plebs.com/
+curl -I https://agents.satoshis-plebs.com/telegram/bob
+curl -I https://agents.satoshis-plebs.com/telegram/jennifer
+curl -I https://agents.satoshis-plebs.com/telegram/stacks
+sudo -u openclaw bash -lc 'cd /home/openclaw && podman exec openclaw node dist/index.js status'
+sudo -u openclaw bash -lc 'cd /home/openclaw && podman exec openclaw node dist/index.js agents list --bindings --json'
+sudo -u openclaw bash -lc 'cd /home/openclaw && podman exec openclaw node dist/index.js models status --json'
+```
+
+Expected:
+
+- `nginx`, `clawbot-telegram-webhook`, and `openclaw.service` are all `active`
+- `https://agents.satoshis-plebs.com/` returns `404`
+- each `/telegram/<bot>` endpoint returns `405`
+- `agents list --bindings --json` shows 5 Telegram-bound agents
+- the dashboard shows the public bot names (`Bob`, `Jennifer`, `Steve`, `Stacks`, `Number 5`)
+  while internal routing still uses the role-oriented ids (`orchestrator`, `research`, `engineering`,
+  `podcast_media`, `business`)
+- `models status --json` shows:
+  - `defaultModel: "openrouter/auto"`
+  - no `missingProvidersInUse`
+
+## Control UI access
+
+Tunnel the local gateway port:
+
+```bash
+ssh -N -L 18789:127.0.0.1:18789 mcintosh@<server-ip-or-host-alias>
+```
+
+Then open:
+
+- `http://localhost:18789/`
+
+## Telegram webhook registration
+
+Bootstrap configures the relay, nginx, TLS, and per-bot listener ports.
+You still need to register Telegram webhooks with Bot API.
+
+On the node:
+
+```bash
+sudo bash -lc '
+set -a
+. /opt/clawbot/config/secrets/telegram.env
+set +a
+
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/bob" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_JENNIFER}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/jennifer" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_STEVE}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/steve" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_STACKS}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/stacks" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_NUMBER5}/setWebhook" -d "url=https://agents.satoshis-plebs.com/telegram/number5" -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
+echo
+'
+```
+
+Check status:
+
+```bash
+sudo bash -lc '
+set -a
+. /opt/clawbot/config/secrets/telegram.env
+set +a
+for name in BOB JENNIFER STEVE STACKS NUMBER5; do
+  eval token=\${TELEGRAM_BOT_TOKEN_${name}}
+  echo "== ${name} =="
+  curl -s "https://api.telegram.org/bot${token}/getWebhookInfo"
+  echo
+done
+'
+```
+
+Expected steady state:
+
+- `pending_update_count: 0`
+- no fresh `502 Bad Gateway`
+- no fresh `Connection refused`
+
+## Rebuild production safely
+
+The normal rebuild workflow is to replace the main server and keep the `/opt` volume.
+That preserves durable config, Telegram secrets, TLS material, and runtime state.
+
+From `live/prod/fsn1/clawbot`:
+
+```bash
+terragrunt apply -auto-approve -replace='hcloud_server.clawbot'
+```
+
+Notes:
+
+- This replaces `hcloud_server.clawbot`
+- It detaches and reattaches the `/opt` volume
+- It does not destroy the `/opt` volume itself
+- Always wait for bootstrap completion before testing the rebuilt node
+
+## One-off host bootstrap script
+
+There is still a non-Terraform host bootstrap helper:
+
+```bash
 sudo bash scripts/bootstrap-clawbot-node.sh
 ```
 
-Optional overrides:
+That is useful for manual fresh-Ubuntu experiments, but the production workflow in this repo
+is the `terragrunt` stack above.
 
-- `OPENCLAW_USER` (default `openclaw`)
-- `OPENCLAW_DIR` (default `/srv/openclaw`)
-- `OPENCLAW_BRANCH` (default `main`)
-- `OPENCLAW_IMAGE` (default `localhost/openclaw:local`)
-- `ENABLE_ROOT_SSH=yes` (default `no`)
-
-The script applies hardening, creates `/opt/clawbot/{config,work,logs}`, writes
-`/home/openclaw/.config/containers/systemd/openclaw.container`, and starts the service.
-
-## Provision (prod)
-
-```bash
-cd live/prod/us-east/clawbot
-terragrunt init
-terragrunt plan
-terragrunt apply
-terragrunt output
-terragrunt destroy
-```
-
-## One-time OpenClaw Podman setup on the host
-
-After first provision (or any reprovision), run:
-
-```bash
-sudo openclaw-podman-setup
-```
-
-This creates `/opt/clawbot/config/openclaw.json`, `/opt/clawbot/config/.env` and writes
-`/home/openclaw/.config/containers/systemd/openclaw.container` for rootless Podman.
-
-Enable the user service:
-
-```bash
-sudo systemctl --machine openclaw@ --user daemon-reload
-sudo systemctl --machine openclaw@ --user restart openclaw.service
-sudo systemctl --machine openclaw@ --user status openclaw.service
-```
-
-Then onboard once:
-
-```bash
-sudo -u openclaw /home/openclaw/run-openclaw-podman.sh launch setup
-```
-
-Start the gateway afterward (if not using the quadlet service):
-
-```bash
-sudo -u openclaw /home/openclaw/run-openclaw-podman.sh launch
-```
-
-Optional debug (no auto cleanup):
-
-```bash
-sudo -u openclaw podman run --name=openclaw-debug --replace --userns keep-id \
-  -v /opt/clawbot/config:/config -v /opt/clawbot/work:/workspace \
-  --env OPENCLAW_CONFIG_DIR=/config --env OPENCLAW_WORKSPACE_DIR=/workspace \
-  --env-file /opt/clawbot/config/.env --publish 18789:18789 --publish 18790:18790 \
-  openclaw:local node dist/index.js gateway --bind lan --port 18789
-```
-
-Optional local-only bind for hardened access:
-
-```bash
-sudo -u openclaw podman run --replace --userns keep-id \
-  -v /opt/clawbot/config:/config -v /opt/clawbot/work:/workspace \
-  --env OPENCLAW_CONFIG_DIR=/config --env OPENCLAW_WORKSPACE_DIR=/workspace \
-  --env-file /opt/clawbot/config/.env --publish 127.0.0.1:18789:18789 \
-  --publish 127.0.0.1:18790:18790 openclaw:local node dist/index.js gateway --bind loopback --port 18789
-```
-
-## Provision (stage)
-
-```bash
-cd live/stage/us-east/clawbot
-terragrunt init
-terragrunt plan
-terragrunt apply
-terragrunt destroy
-```
-
-## Validation/formatting commands (repo-wide)
+## Repo-wide formatting
 
 ```bash
 terraform fmt -recursive
 ```
-
-## Notes
-
-- Remote backend is not configured by default; state is local unless configured in Terragrunt.
-- Firewall policy is least-privilege by default (`firewall_ssh_cidrs = []` means SSH is not publicly reachable until allowlist is set).

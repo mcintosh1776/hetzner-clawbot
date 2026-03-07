@@ -1512,23 +1512,38 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
       {
         "id": "orchestrator",
         "default": true,
-        "workspace": "/state/.openclaw/workspace-orchestrator"
+        "workspace": "/state/.openclaw/workspace-orchestrator",
+        "identity": {
+          "name": "Bob"
+        }
       },
       {
         "id": "podcast_media",
-        "workspace": "/state/.openclaw/workspace-podcast_media"
+        "workspace": "/state/.openclaw/workspace-podcast_media",
+        "identity": {
+          "name": "Stacks"
+        }
       },
       {
         "id": "research",
-        "workspace": "/state/.openclaw/workspace-research"
+        "workspace": "/state/.openclaw/workspace-research",
+        "identity": {
+          "name": "Jennifer"
+        }
       },
       {
         "id": "engineering",
-        "workspace": "/state/.openclaw/workspace-engineering"
+        "workspace": "/state/.openclaw/workspace-engineering",
+        "identity": {
+          "name": "Steve"
+        }
       },
       {
         "id": "business",
-        "workspace": "/state/.openclaw/workspace-business"
+        "workspace": "/state/.openclaw/workspace-business",
+        "identity": {
+          "name": "Number 5"
+        }
       }
     ]
   },
