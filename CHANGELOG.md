@@ -13,23 +13,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Fixed
-- Bootstrap fallback now reuses a cached runner copied to `/opt/clawbot/bootstrap/openclaw-node-bootstrap-runner.sh` when `OPENCLAW_BOOTSTRAP_RUNNER_URL` fetch fails, preventing transient 404/unreachable fetches from hard-failing replacement-node bootstraps.
-- Improved bootstrap fetch reliability by adding retry loops, timeouts, and explicit download diagnostics in the cloud-init fetch helper.
+- _None yet._
 
 ### Removed
 - _None yet._
 
-## [0.7.22] - 2026-03-06
+## [0.7.22] - 2026-03-07
 
 ### Added
 - _None yet._
 
 ### Changed
 - Cloud-init runner bootstrapping now supports a URL-first bootstrap script mode while keeping shell syntax compatible with `/bin/sh`.
+- Telegram webhook bootstrap now renders explicit OpenClaw agent bindings for the
+  `orchestrator`, `podcast_media`, `research`, `engineering`, and `business` accounts.
+- Telegram DM handling now uses per-account session scoping and an explicit owner allowlist.
+- Internal Telegram webhook listeners now use the dedicated `18890-18894` port block to avoid
+  collisions with other OpenClaw listeners.
 
 ### Fixed
 - Fixed cloud-init `runcmd` scripts to avoid `[[ ... ]]` on `sh`, preventing `/bin/sh` parse errors during bootstrap.
 - Made bootstrap runner fetch failures explicit in logs so `curl`/`wget` errors (including HTTP 404) are visible and actionable.
+- Bootstrap fallback now reuses a cached runner copied to `/opt/clawbot/bootstrap/openclaw-node-bootstrap-runner.sh` when `OPENCLAW_BOOTSTRAP_RUNNER_URL` fetch fails, preventing transient 404/unreachable fetches from hard-failing replacement-node bootstraps.
+- Improved bootstrap fetch reliability by adding retry loops, timeouts, and explicit download diagnostics in the cloud-init fetch helper.
+- Forwarded the Telegram webhook secret through the local relay so OpenClaw accepts proxied webhook traffic.
+- Fixed Telegram webhook listener conflicts by moving bot listeners off ports already used by OpenClaw internals.
+- Fixed Telegram account routing so bot webhooks no longer collapse into the single default `main` agent.
 
 ### Removed
 - _None yet._

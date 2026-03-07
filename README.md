@@ -202,9 +202,10 @@ workflow (`hcloud_volume.opt` + taint/rebuild on `hcloud_server.clawbot`).
   - `TELEGRAM_BOT_TOKEN_STEVE=...`
   - `TELEGRAM_BOT_TOKEN_NUMBER5=...`
 
-The `agent-fleet.yaml` template now also includes a `integrations.telegram` section
-that maps agent roles to token environment variable names, so no API tokens are
-stored in config text.
+`agent-fleet.yaml` remains the durable role map for orchestrator and specialists.
+Telegram bot credentials stay in `/opt/clawbot/config/secrets/telegram.env`, and
+bootstrap renders the bot-to-agent account bindings into `/opt/clawbot/config/openclaw.json`
+so API tokens are not stored in the fleet manifest.
 
 ## Useful paths on the node
 
@@ -231,7 +232,9 @@ When enabled, bootstrap performs these actions on the node:
 4. Writes `/etc/nginx/sites-available/openclaw-webhook.conf` and enables it.
 5. Attempts TLS certificate provisioning with Certbot for `agents.satoshis-plebs.com`.
 6. Persists/derives `TELEGRAM_WEBHOOK_SECRET` in `/opt/clawbot/config/secrets/telegram.env`.
-7. Ensures certbot renewal timer is enabled (`certbot.timer` or `snap.certbot.renew.timer`) and logs timer status.
+7. Renders explicit OpenClaw Telegram account bindings so `bob`, `jennifer`, `steve`,
+   `stacks`, and `number5` route to their dedicated agents.
+8. Ensures certbot renewal timer is enabled (`certbot.timer` or `snap.certbot.renew.timer`) and logs timer status.
 
 This rollout is fully automated from `openclaw-node-bootstrap-runner`. The remaining manual item is Telegram `setWebhook` registration.
 

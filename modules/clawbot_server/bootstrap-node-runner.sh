@@ -1502,6 +1502,68 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
   "session": {
     "dmScope": "per-account-channel-peer"
   },
+  "agents": {
+    "list": [
+      {
+        "id": "orchestrator",
+        "default": true,
+        "workspace": "/state/.openclaw/workspace-orchestrator"
+      },
+      {
+        "id": "podcast_media",
+        "workspace": "/state/.openclaw/workspace-podcast_media"
+      },
+      {
+        "id": "research",
+        "workspace": "/state/.openclaw/workspace-research"
+      },
+      {
+        "id": "engineering",
+        "workspace": "/state/.openclaw/workspace-engineering"
+      },
+      {
+        "id": "business",
+        "workspace": "/state/.openclaw/workspace-business"
+      }
+    ]
+  },
+  "bindings": [
+    {
+      "agentId": "orchestrator",
+      "match": {
+        "channel": "telegram",
+        "accountId": "orchestrator"
+      }
+    },
+    {
+      "agentId": "podcast_media",
+      "match": {
+        "channel": "telegram",
+        "accountId": "podcast_media"
+      }
+    },
+    {
+      "agentId": "research",
+      "match": {
+        "channel": "telegram",
+        "accountId": "research"
+      }
+    },
+    {
+      "agentId": "engineering",
+      "match": {
+        "channel": "telegram",
+        "accountId": "engineering"
+      }
+    },
+    {
+      "agentId": "business",
+      "match": {
+        "channel": "telegram",
+        "accountId": "business"
+      }
+    }
+  ],
   "channels": {
     "telegram": {
       "enabled": true,
