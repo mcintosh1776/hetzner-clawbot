@@ -67,6 +67,9 @@ OPENCLAW_STACKS_RUNTIME_MODEL="${OPENCLAW_STACKS_RUNTIME_MODEL:-openrouter/auto}
 OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT="/etc/systemd/system/clawbot-stacks-runtime.service"
 OPENCLAW_STACKS_RUNTIME_AGENT_ID="podcast_media"
 OPENCLAW_STACKS_PROMPT_FILE="$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
+OPENCLAW_PRIVATE_RUNTIME_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_BASE_DIR:-/opt/clawbot/config/private-runtimes}"
+OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT="${OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT:-$OPENCLAW_STACKS_RUNTIME_MODEL}"
+OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
 OPENCLAW_TLS_BACKUP_DIR="/opt/clawbot/tls/letsencrypt"
 OPENCLAW_AGENT_FLEET_TEMPLATE_B64="${OPENCLAW_AGENT_FLEET_TEMPLATE_B64:-}"
 OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64="${OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64:-}"
@@ -674,15 +677,25 @@ app = FastAPI()
 ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks"}
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 OPENCLAW_WEBHOOK_TARGETS = {
-  "bob": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB", "http://127.0.0.1:18890/telegram/bob"),
+  "bob": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB", "http://127.0.0.1:18920/v1/inbound/telegram"),
   "stacks": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS", "http://127.0.0.1:18921/v1/inbound/telegram"),
-  "jennifer": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER", "http://127.0.0.1:18892/telegram/jennifer"),
-  "steve": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE", "http://127.0.0.1:18893/telegram/steve"),
-  "number5": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5", "http://127.0.0.1:18894/telegram/number5"),
+  "jennifer": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER", "http://127.0.0.1:18922/v1/inbound/telegram"),
+  "steve": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE", "http://127.0.0.1:18923/v1/inbound/telegram"),
+  "number5": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5", "http://127.0.0.1:18924/v1/inbound/telegram"),
 }
 OPENCLAW_AGENT_SECRET_PROVIDER = os.getenv("OPENCLAW_AGENT_SECRET_PROVIDER", "/usr/local/bin/openclaw-agent-secret-provider")
-STACKS_SECRET_AGENT_ID = os.getenv("OPENCLAW_STACKS_SECRET_AGENT_ID", "podcast_media")
+RUNTIME_AGENT_BY_PUBLIC_AGENT = {
+  "bob": "orchestrator",
+  "stacks": "podcast_media",
+  "jennifer": "research",
+  "steve": "engineering",
+  "number5": "business",
+}
 TELEGRAM_TOKEN_ENV_BY_AGENT = {
+  "bob": "TELEGRAM_BOT_TOKEN_BOB",
+  "jennifer": "TELEGRAM_BOT_TOKEN_JENNIFER",
+  "steve": "TELEGRAM_BOT_TOKEN_STEVE",
+  "number5": "TELEGRAM_BOT_TOKEN_NUMBER5",
   "stacks": "TELEGRAM_BOT_TOKEN_STACKS",
 }
 
@@ -728,7 +741,7 @@ def normalize_inbound_request(agent: str, update: dict) -> dict:
   return {
     "protocolVersion": 1,
     "channel": "telegram",
-    "accountId": STACKS_SECRET_AGENT_ID if agent == "stacks" else agent,
+    "accountId": RUNTIME_AGENT_BY_PUBLIC_AGENT.get(agent, agent),
     "event": {
       "updateId": update.get("update_id"),
       "messageId": message.get("message_id"),
@@ -801,12 +814,13 @@ async def forward_to_openclaw(update: dict, agent: str | None = None):
   if not target_url:
     raise HTTPException(status_code=404, detail="unknown agent")
 
-  client_timeout = 90 if agent == "stacks" else 10
+  client_timeout = 90 if agent in RUNTIME_AGENT_BY_PUBLIC_AGENT else 10
   async with httpx.AsyncClient(timeout=client_timeout) as client:
     try:
       headers = {}
-      if agent == "stacks":
-        headers["authorization"] = f"Bearer {resolve_agent_secret(STACKS_SECRET_AGENT_ID, 'internal/apiToken')}"
+      runtime_agent_id = RUNTIME_AGENT_BY_PUBLIC_AGENT.get(agent)
+      if runtime_agent_id:
+        headers["authorization"] = f"Bearer {resolve_agent_secret(runtime_agent_id, 'internal/apiToken')}"
         response = await client.post(target_url, json=normalize_inbound_request(agent, update), headers=headers)
         response.raise_for_status()
         await dispatch_runtime_actions(agent, response.json() if response.content else {})
@@ -938,8 +952,61 @@ configure_webhook_receiver() {
   run_step "Enable webhook receiver service" systemctl enable --now clawbot-telegram-webhook.service
 }
 
-render_stacks_runtime_app() {
-  cat >"${OPENCLAW_STACKS_RUNTIME_DIR}/app.py" <<'PY'
+private_runtime_dir() {
+  printf '%s/%s\n' "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR" "$1"
+}
+
+private_runtime_unit_name() {
+  printf 'clawbot-%s-runtime.service\n' "$1"
+}
+
+private_runtime_agent_id() {
+  case "$1" in
+    bob) echo "orchestrator" ;;
+    stacks) echo "podcast_media" ;;
+    jennifer) echo "research" ;;
+    steve) echo "engineering" ;;
+    number5) echo "business" ;;
+    *) return 1 ;;
+  esac
+}
+
+private_runtime_display_name() {
+  case "$1" in
+    bob) echo "Bob" ;;
+    stacks) echo "Stacks" ;;
+    jennifer) echo "Jennifer" ;;
+    steve) echo "Steve" ;;
+    number5) echo "Number 5" ;;
+    *) return 1 ;;
+  esac
+}
+
+private_runtime_prompt_file() {
+  case "$1" in
+    bob) echo "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" ;;
+    stacks) echo "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" ;;
+    jennifer) echo "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" ;;
+    steve) echo "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" ;;
+    number5) echo "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" ;;
+    *) return 1 ;;
+  esac
+}
+
+private_runtime_port() {
+  case "$1" in
+    bob) echo "18920" ;;
+    stacks) echo "18921" ;;
+    jennifer) echo "18922" ;;
+    steve) echo "18923" ;;
+    number5) echo "18924" ;;
+    *) return 1 ;;
+  esac
+}
+
+render_private_runtime_app() {
+  local runtime_dir="$1"
+  cat >"${runtime_dir}/app.py" <<'PY'
 import json
 import os
 import subprocess
@@ -950,14 +1017,19 @@ import httpx
 
 app = FastAPI()
 
-STACKS_AGENT_ID = os.getenv("OPENCLAW_STACKS_RUNTIME_AGENT_ID", "podcast_media")
-STACKS_MODEL = os.getenv("OPENCLAW_STACKS_RUNTIME_MODEL", "openrouter/auto")
-STACKS_PROMPT_FILE = os.getenv("OPENCLAW_STACKS_PROMPT_FILE", "/opt/clawbot/config/agent-config/specialists/podcast_media.md")
+RUNTIME_AGENT_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_AGENT_ID", "podcast_media")
+RUNTIME_DISPLAY_NAME = os.getenv("OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME", "Stacks")
+RUNTIME_MODEL = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MODEL", "openrouter/auto")
+RUNTIME_PROMPT_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE", "/opt/clawbot/config/agent-config/specialists/podcast_media.md")
 OPENCLAW_AGENT_SECRET_PROVIDER = os.getenv("OPENCLAW_AGENT_SECRET_PROVIDER", "/usr/local/bin/openclaw-agent-secret-provider")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
-OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-stacks-runtime")
+OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OUTPUT_POLICY = (
+  "Return only the final Telegram reply text. "
+  "Do not include titles, checklists, plans, internal notes, logs, or tool instructions."
+)
 
 
 def normalize_model_name(model_name: str) -> str:
@@ -967,9 +1039,9 @@ def normalize_model_name(model_name: str) -> str:
 
 
 def load_prompt() -> str:
-  prompt_path = Path(STACKS_PROMPT_FILE)
+  prompt_path = Path(RUNTIME_PROMPT_FILE)
   if not prompt_path.exists():
-    return "You are Stacks, the podcast and media specialist. Reply concisely and helpfully."
+    return f"You are {RUNTIME_DISPLAY_NAME}. Reply concisely and helpfully."
   return prompt_path.read_text(encoding="utf-8")
 
 
@@ -977,7 +1049,7 @@ def resolve_internal_api_token() -> str:
   request_payload = json.dumps({"protocolVersion": 1, "ids": ["internal/apiToken"]})
   try:
     completed = subprocess.run(
-      ["sudo", "-n", OPENCLAW_AGENT_SECRET_PROVIDER, STACKS_AGENT_ID],
+      ["sudo", "-n", OPENCLAW_AGENT_SECRET_PROVIDER, RUNTIME_AGENT_ID],
       input=request_payload,
       text=True,
       capture_output=True,
@@ -1004,7 +1076,7 @@ def build_user_message(payload: dict) -> str:
   username = sender.get("username") or "unknown"
   text = event.get("text") or ""
   return (
-    "Telegram message for Stacks.\n"
+    f"Telegram message for {RUNTIME_DISPLAY_NAME}.\n"
     f"Sender: {first_name} (@{username})\n"
     f"Chat ID: {event.get('chat', {}).get('id')}\n"
     f"Message text:\n{text}"
@@ -1013,10 +1085,10 @@ def build_user_message(payload: dict) -> str:
 
 async def generate_reply(payload: dict) -> str:
   if not OPENROUTER_API_KEY:
-    raise HTTPException(status_code=500, detail="OPENROUTER_API_KEY is not configured for stacks runtime")
+    raise HTTPException(status_code=500, detail=f"OPENROUTER_API_KEY is not configured for {RUNTIME_DISPLAY_NAME} runtime")
 
   messages = [
-    {"role": "system", "content": load_prompt()},
+    {"role": "system", "content": f"{load_prompt()}\n\n{OUTPUT_POLICY}"},
     {"role": "user", "content": build_user_message(payload)},
   ]
 
@@ -1030,7 +1102,7 @@ async def generate_reply(payload: dict) -> str:
         "X-Title": OPENROUTER_X_TITLE,
       },
       json={
-        "model": normalize_model_name(STACKS_MODEL),
+        "model": normalize_model_name(RUNTIME_MODEL),
         "messages": messages,
         "temperature": 0.3,
       },
@@ -1088,62 +1160,97 @@ async def inbound_telegram(
     ],
   }
 PY
-  chown "$OPENCLAW_USER:$OPENCLAW_USER" "${OPENCLAW_STACKS_RUNTIME_DIR}/app.py"
-  chmod 640 "${OPENCLAW_STACKS_RUNTIME_DIR}/app.py"
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "${runtime_dir}/app.py"
+  chmod 640 "${runtime_dir}/app.py"
 }
 
-install_stacks_runtime_packages() {
-  if [[ ! -d "$OPENCLAW_STACKS_RUNTIME_DIR/.venv" ]]; then
-    run_as_openclaw python3 -m venv "$OPENCLAW_STACKS_RUNTIME_DIR/.venv"
+install_private_runtime_packages() {
+  local runtime_dir="$1"
+  local runtime_slug="$2"
+  if [[ ! -d "$runtime_dir/.venv" ]]; then
+    run_as_openclaw python3 -m venv "$runtime_dir/.venv"
   fi
 
-  run_as_openclaw "$OPENCLAW_STACKS_RUNTIME_DIR/.venv/bin/pip" install --upgrade pip >/tmp/openclaw-stacks-venv-upgrade.log 2>&1 || true
-  run_as_openclaw "$OPENCLAW_STACKS_RUNTIME_DIR/.venv/bin/pip" install fastapi httpx uvicorn >/tmp/openclaw-stacks-deps.log 2>&1
+  run_as_openclaw "$runtime_dir/.venv/bin/pip" install --upgrade pip >"/tmp/openclaw-${runtime_slug}-venv-upgrade.log" 2>&1 || true
+  run_as_openclaw "$runtime_dir/.venv/bin/pip" install fastapi httpx uvicorn >"/tmp/openclaw-${runtime_slug}-deps.log" 2>&1
 }
 
-write_stacks_runtime_systemd_unit() {
-  cat >"$OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT" <<EOF
+write_private_runtime_systemd_unit() {
+  local public_id="$1"
+  local agent_id="$2"
+  local display_name="$3"
+  local prompt_file="$4"
+  local runtime_port="$5"
+  local runtime_dir="$6"
+  local runtime_unit="/etc/systemd/system/$(private_runtime_unit_name "$public_id")"
+  cat >"$runtime_unit" <<EOF
 [Unit]
-Description=Clawbot Stacks isolated runtime
+Description=Clawbot ${display_name} isolated runtime
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 User=$OPENCLAW_USER
 Group=$OPENCLAW_USER
-WorkingDirectory=$OPENCLAW_STACKS_RUNTIME_DIR
+WorkingDirectory=$runtime_dir
 EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE
 Environment=OPENCLAW_AGENT_SECRET_PROVIDER=$OPENCLAW_AGENT_SECRET_PROVIDER
-Environment=OPENCLAW_STACKS_RUNTIME_AGENT_ID=$OPENCLAW_STACKS_RUNTIME_AGENT_ID
-Environment=OPENCLAW_STACKS_RUNTIME_MODEL=$OPENCLAW_STACKS_RUNTIME_MODEL
-Environment=OPENCLAW_STACKS_PROMPT_FILE=$OPENCLAW_STACKS_PROMPT_FILE
+Environment=OPENCLAW_PRIVATE_RUNTIME_AGENT_ID=$agent_id
+Environment=OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME=$display_name
+Environment=OPENCLAW_PRIVATE_RUNTIME_MODEL=$OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT
+Environment=OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE=$prompt_file
 Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 Environment=OPENROUTER_HTTP_REFERER=https://${OPENCLAW_PUBLIC_HOSTNAME:-agents.satoshis-plebs.com}/
-Environment=OPENROUTER_X_TITLE=clawbot-stacks-runtime
-ExecStart=$OPENCLAW_STACKS_RUNTIME_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_STACKS_RUNTIME_PORT
+Environment=OPENROUTER_X_TITLE=clawbot-${public_id}-runtime
+ExecStart=$runtime_dir/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $runtime_port
 Restart=always
 RestartSec=2
 
 [Install]
 WantedBy=multi-user.target
 EOF
-  chmod 0644 "$OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT"
+  chmod 0644 "$runtime_unit"
 }
 
-configure_stacks_runtime() {
+configure_private_runtimes() {
   if [[ "$OPENCLAW_ENABLE_WEBHOOK_PROXY" != "true" ]]; then
     return 0
   fi
 
-  mkdir -p "$OPENCLAW_STACKS_RUNTIME_DIR"
-  chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_STACKS_RUNTIME_DIR"
-  chmod 750 "$OPENCLAW_STACKS_RUNTIME_DIR"
+  local public_id
+  local agent_id
+  local display_name
+  local prompt_file
+  local runtime_port
+  local runtime_dir
+  local runtime_unit
 
-  render_stacks_runtime_app
-  install_stacks_runtime_packages
-  write_stacks_runtime_systemd_unit
-  run_step "Reload systemd for stacks runtime" systemctl daemon-reload
-  run_step "Enable stacks runtime service" systemctl enable --now "$(basename "$OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT")"
+  mkdir -p "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
+  chmod 750 "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
+
+  for public_id in "${OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS[@]}"; do
+    agent_id="$(private_runtime_agent_id "$public_id")"
+    display_name="$(private_runtime_display_name "$public_id")"
+    prompt_file="$(private_runtime_prompt_file "$public_id")"
+    runtime_port="$(private_runtime_port "$public_id")"
+    runtime_dir="$(private_runtime_dir "$public_id")"
+    runtime_unit="$(private_runtime_unit_name "$public_id")"
+
+    mkdir -p "$runtime_dir"
+    chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$runtime_dir"
+    chmod 750 "$runtime_dir"
+
+    render_private_runtime_app "$runtime_dir"
+    install_private_runtime_packages "$runtime_dir" "$public_id"
+    write_private_runtime_systemd_unit "$public_id" "$agent_id" "$display_name" "$prompt_file" "$runtime_port" "$runtime_dir"
+  done
+
+  run_step "Reload systemd for private runtimes" systemctl daemon-reload
+
+  for public_id in "${OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS[@]}"; do
+    run_step "Enable ${public_id} runtime service" systemctl enable --now "$(private_runtime_unit_name "$public_id")"
+  done
 }
 
 restore_webhook_certificates() {
@@ -1242,7 +1349,7 @@ configure_webhook_stack() {
   install_webhook_packages
   restore_webhook_certificates
   configure_webhook_receiver
-  configure_stacks_runtime
+  configure_private_runtimes
   configure_webhook_proxy_nginx
   provision_webhook_certificate
   persist_webhook_certificates

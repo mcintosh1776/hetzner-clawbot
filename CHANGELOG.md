@@ -17,6 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Added first-pass `stacks-runtime` bootstrap wiring: a private runtime service, root-owned
   internal API token seeding, and ingress routing that forwards `/telegram/stacks` through the
   documented isolated-runtime contract instead of only the shared OpenClaw webhook path.
+- Expanded the isolated-runtime bootstrap slice so all current Telegram bot identities can run as
+  private same-host runtimes behind the shared ingress layer, using per-agent bearer tokens and
+  direct OpenRouter calls instead of shared in-process routing.
 
 ### Changed
 - Reduced shell-string execution in bootstrap helpers and replaced several root-side

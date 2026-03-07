@@ -11,6 +11,10 @@ This document defines the first implementation slice for `M3`:
 This is intentionally the first isolated runtime because it is the clearest
 high-risk bot boundary currently on the roadmap.
 
+This document now also serves as the template for moving the rest of the
+current Telegram bot fleet onto the same private-runtime contract on the same
+host before any host-level split.
+
 Related documents:
 
 - [runtime-isolation-plan.md](/home/mcintosh/repos/hetzner-clawbot/docs/runtime-isolation-plan.md)
@@ -52,6 +56,7 @@ Not included yet:
 - separate host deployment
 - queue/event bus
 - Bob-to-Stacks delegation from another runtime
+- richer response shaping beyond the minimal "final reply text only" guardrail
 
 ## Runtime identity
 

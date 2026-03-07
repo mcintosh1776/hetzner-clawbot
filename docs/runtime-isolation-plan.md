@@ -298,7 +298,9 @@ Progress marker:
 
 Definition:
 
-- provision and run isolated `Stacks` runtime
+- provision and run the first isolated private runtimes behind shared ingress,
+  with `Stacks` as the first vertical slice and the rest of the current bot fleet
+  following the same contract
 
 Progress marker:
 
