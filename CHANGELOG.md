@@ -7,6 +7,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- _None yet._
+
+### Changed
+- _None yet._
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.26] - 2026-03-07
+
+### Added
 - Added reusable root-owned per-agent secret-provider scaffolding for future agent-specific
   credentials such as Nostr or treasury keys, backed by exec-based OpenClaw secret providers
   instead of shared env files.

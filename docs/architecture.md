@@ -28,6 +28,12 @@ Core services:
 - `nginx` for public HTTPS ingress
 - `certbot` for Let's Encrypt certificate management
 - local FastAPI Telegram relay service at `127.0.0.1:9000`
+- five private same-host bot runtimes under the `openclaw` user:
+  - `clawbot-bob-runtime`
+  - `clawbot-stacks-runtime`
+  - `clawbot-jennifer-runtime`
+  - `clawbot-steve-runtime`
+  - `clawbot-number5-runtime`
 
 Public ingress:
 
@@ -109,9 +115,9 @@ stays root-owned at rest.
 Security limitation:
 
 - This is storage separation, not hard process isolation.
-- All bots still share one OpenClaw gateway container and one OS user.
-- A truly high-assurance Stacks secret boundary requires a separate gateway/runtime/host for
-  that agent.
+- All bots still share one host and one OS user.
+- A truly high-assurance Stacks or Treasurer secret boundary still requires a separate
+  runtime boundary on a separate host or VM.
 
 ## Runtime request path
 
@@ -128,18 +134,20 @@ Telegram webhook flow:
 1. Telegram sends `POST` to `https://agents.satoshis-plebs.com/telegram/<bot>`
 2. `nginx` forwards to the local relay at `127.0.0.1:9000`
 3. the relay validates `X-Telegram-Bot-Api-Secret-Token`
-4. the relay forwards to the per-bot local OpenClaw webhook listener
-5. OpenClaw routes the request to the bound agent
+4. the relay forwards to the per-bot private runtime
+5. the runtime returns structured actions
+6. the relay performs outbound Telegram sends with the correct bot token
 
-Current internal Telegram listener ports:
+Current private runtime listener ports:
 
-- `bob` -> `18890`
-- `stacks` -> `18891`
-- `jennifer` -> `18892`
-- `steve` -> `18893`
-- `number5` -> `18894`
+- `bob` -> `18920`
+- `stacks` -> `18921`
+- `jennifer` -> `18922`
+- `steve` -> `18923`
+- `number5` -> `18924`
 
-These ports were chosen specifically to avoid collisions with other OpenClaw listeners.
+Legacy OpenClaw Telegram listener ports `18890`-`18894` still exist during the migration,
+but they are no longer the primary ingress path for public Telegram traffic.
 
 ## OpenClaw configuration model
 
@@ -154,21 +162,13 @@ Key current settings:
 - owner Telegram user id allowlisted: `1619231777`
 - `agents.defaults.model.primary = "openrouter/auto"`
 
-Current Telegram account ids:
+Current private runtime mapping:
 
-- `orchestrator`
-- `podcast_media`
-- `research`
-- `engineering`
-- `business`
-
-Current Telegram bot mapping:
-
-- `bob` -> account `orchestrator` -> agent `orchestrator`
-- `stacks` -> account `podcast_media` -> agent `podcast_media`
-- `jennifer` -> account `research` -> agent `research`
-- `steve` -> account `engineering` -> agent `engineering`
-- `number5` -> account `business` -> agent `business`
+- `bob` -> runtime `bob-runtime` -> agent id `orchestrator`
+- `stacks` -> runtime `stacks-runtime` -> agent id `podcast_media`
+- `jennifer` -> runtime `jennifer-runtime` -> agent id `research`
+- `steve` -> runtime `steve-runtime` -> agent id `engineering`
+- `number5` -> runtime `number5-runtime` -> agent id `business`
 
 Current dashboard identity mapping:
 

@@ -26,7 +26,13 @@ Current production shape:
   - `nginx`
   - `certbot`
   - Telegram webhook relay
-- One shared OpenClaw gateway/runtime
+- One shared OpenClaw gateway for control/dashboard duties
+- Five same-host private bot runtimes behind ingress:
+  - `bob-runtime`
+  - `stacks-runtime`
+  - `jennifer-runtime`
+  - `steve-runtime`
+  - `number5-runtime`
 - Five Telegram-facing bots:
   - `Bob`
   - `Jennifer`
@@ -39,13 +45,14 @@ Current strengths:
 - Rebuilds are largely automated.
 - `/opt` survives rebuilds.
 - Telegram ingress and routing are working.
-- Multi-agent bindings and OpenRouter defaults are working.
+- Private same-host bot runtimes are working.
+- OpenRouter defaults are working across the bot fleet.
 
 Current limitation:
 
-- All five bots still share one gateway/container/user boundary.
-- That is good enough for prompt routing and shared operator workflows.
-- It is not the right permanent boundary for signing keys or treasury authority.
+- All five bots still share one host and one `openclaw` OS user boundary.
+- That is better than the former single shared gateway path, but it is not the
+  right permanent boundary for signing keys or treasury authority.
 
 ## Target architecture
 
@@ -304,7 +311,7 @@ Definition:
 
 Progress marker:
 
-- in progress
+- complete
 
 ### M4: Stacks secret migration
 
