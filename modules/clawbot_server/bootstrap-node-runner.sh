@@ -25,13 +25,6 @@ if [ -z "$OPENCLAW_USER" ]; then
   OPENCLAW_USER="openclaw"
 fi
 
-# TEMPORARY break-glass console user. Remove after incident response.
-OPENCLAW_RESCUE_USER="${OPENCLAW_RESCUE_USER:-rescue}"
-OPENCLAW_RESCUE_PASSWORD_HASH="${OPENCLAW_RESCUE_PASSWORD_HASH:-}"
-if [ -z "$OPENCLAW_RESCUE_PASSWORD_HASH" ]; then
-  OPENCLAW_RESCUE_PASSWORD_HASH='$6$7B.yWQhDpQrgGB4L$QRMXSjq6XEXtoKMsQPOAcJen4s4ux9fITod0RxrfXdXuv.MLdMq0CYMJV7Q1B0EMQhQbYdlHphtmocAPieSIm.'
-fi
-
 OPENCLAW_DIR="${OPENCLAW_DIR:-}"
 if [ -z "$OPENCLAW_DIR" ]; then
   OPENCLAW_DIR="/srv/openclaw"
@@ -495,31 +488,33 @@ app = FastAPI()
 
 ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks"}
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
-OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
+OPENCLAW_WEBHOOK_TARGETS = {
+  "bob": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB", "http://127.0.0.1:18790/telegram/bob"),
+  "stacks": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS", "http://127.0.0.1:18791/telegram/stacks"),
+  "jennifer": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER", "http://127.0.0.1:18792/telegram/jennifer"),
+  "steve": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE", "http://127.0.0.1:18793/telegram/steve"),
+  "number5": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5", "http://127.0.0.1:18794/telegram/number5"),
+}
 
 async def forward_to_openclaw(update: dict, agent: str | None = None):
-  candidate_paths = ["/telegram-webhook"]
-  if agent:
-    candidate_paths = [f"/telegram/{agent}", "/telegram", "/telegram-webhook"]
-  else:
-    candidate_paths = ["/telegram", "/telegram-webhook"]
+  if not agent:
+    raise HTTPException(status_code=404, detail="agent-specific webhook path required")
+
+  target_url = OPENCLAW_WEBHOOK_TARGETS.get(agent)
+  if not target_url:
+    raise HTTPException(status_code=404, detail="unknown agent")
 
   async with httpx.AsyncClient(timeout=10) as client:
-    response = None
-    for path in candidate_paths:
-      headers = {"x-openclaw-agent": agent} if agent else {}
-      response = await client.post(f"{OPENCLAW_GATEWAY_URL.rstrip('/')}{path}", json=update, headers=headers)
-      if response.status_code != 404:
-        break
-
-    if response is None:
-      raise HTTPException(status_code=502, detail="telegram forward failed: no response from openclaw")
-
-    if response.status_code == 404:
-      raise HTTPException(status_code=404, detail="openclaw webhook route unavailable")
-
-    response.raise_for_status()
-    return response
+    try:
+      response = await client.post(target_url, json=update)
+      if response.status_code == 404:
+        raise HTTPException(status_code=502, detail=f"openclaw webhook route unavailable for {agent}")
+      response.raise_for_status()
+      return response
+    except HTTPException:
+      raise
+    except httpx.HTTPError as exc:
+      raise HTTPException(status_code=502, detail=f"telegram forward failed for {agent}: {exc}") from exc
 
 async def handle_telegram_webhook(
   request: Request,
@@ -586,7 +581,6 @@ WorkingDirectory=$OPENCLAW_WEBHOOK_DIR
 EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE
 EnvironmentFile=-/opt/clawbot/config/.env
 Environment=OPENCLAW_WEBHOOK_RECEIVER_PORT=$OPENCLAW_WEBHOOK_RECEIVER_PORT
-Environment=OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
 ExecStart=$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_WEBHOOK_RECEIVER_PORT
 Restart=always
 RestartSec=2
@@ -1060,15 +1054,6 @@ run_step "Wait for system boot" wait_for_system_boot 36 10
 if ! id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
   run_step "Create openclaw user" useradd --system --create-home --home-dir /home/"$OPENCLAW_USER" --shell /usr/sbin/nologin "$OPENCLAW_USER"
 fi
-if [[ -n "$OPENCLAW_RESCUE_USER" ]]; then
-  if ! id -u "$OPENCLAW_RESCUE_USER" >/dev/null 2>&1; then
-    run_step "Create temporary rescue user" useradd --create-home --home-dir /home/"$OPENCLAW_RESCUE_USER" --shell /bin/bash --user-group --groups sudo --password "$OPENCLAW_RESCUE_PASSWORD_HASH" "$OPENCLAW_RESCUE_USER"
-  else
-    run_step "Ensure temporary rescue user password" usermod --password "$OPENCLAW_RESCUE_PASSWORD_HASH" "$OPENCLAW_RESCUE_USER"
-    run_step "Ensure temporary rescue user shell" usermod --shell /bin/bash "$OPENCLAW_RESCUE_USER"
-    run_step "Ensure temporary rescue user sudo group" usermod -aG sudo "$OPENCLAW_RESCUE_USER"
-  fi
-fi
 OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 assert_opt_volume_mount
 run_step "Prepare bootstrap directories" bash -lc "mkdir -p '$OPENCLAW_PARENT_DIR' /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state '/home/$OPENCLAW_USER/.config/containers/systemd' && chown -R '$OPENCLAW_USER:$OPENCLAW_USER' '/home/$OPENCLAW_USER' '/home/$OPENCLAW_USER/.config/containers/systemd' /opt/clawbot && chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state"
@@ -1495,9 +1480,9 @@ if id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
   run_as_openclaw "podman system migrate"
 fi
 
-OPENCLAW_WEBHOOK_CALLBACK_URL="http://127.0.0.1:${OPENCLAW_WEBHOOK_RECEIVER_PORT}/telegram-webhook"
+OPENCLAW_WEBHOOK_PUBLIC_BASE_URL="http://127.0.0.1:${OPENCLAW_WEBHOOK_RECEIVER_PORT}"
 if [ -n "${OPENCLAW_PUBLIC_HOSTNAME:-}" ]; then
-  OPENCLAW_WEBHOOK_CALLBACK_URL="https://${OPENCLAW_PUBLIC_HOSTNAME}/telegram-webhook"
+  OPENCLAW_WEBHOOK_PUBLIC_BASE_URL="https://${OPENCLAW_PUBLIC_HOSTNAME}"
 fi
 
 cat > /opt/clawbot/config/openclaw.json <<EOF
@@ -1515,26 +1500,47 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
     "telegram": {
       "enabled": true,
       "dmPolicy": "pairing",
-      "webhookUrl": "${OPENCLAW_WEBHOOK_CALLBACK_URL}",
-      "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
-      "webhookPath": "/telegram-webhook",
-      "webhookHost": "127.0.0.1",
-      "webhookPort": 18790,
+      "defaultAccount": "orchestrator",
       "accounts": {
         "orchestrator": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_BOB}"
+          "botToken": "\${TELEGRAM_BOT_TOKEN_BOB}",
+          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/bob",
+          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
+          "webhookPath": "/telegram/bob",
+          "webhookHost": "0.0.0.0",
+          "webhookPort": 18790
         },
         "podcast_media": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_STACKS}"
+          "botToken": "\${TELEGRAM_BOT_TOKEN_STACKS}",
+          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/stacks",
+          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
+          "webhookPath": "/telegram/stacks",
+          "webhookHost": "0.0.0.0",
+          "webhookPort": 18791
         },
         "research": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_JENNIFER}"
+          "botToken": "\${TELEGRAM_BOT_TOKEN_JENNIFER}",
+          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/jennifer",
+          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
+          "webhookPath": "/telegram/jennifer",
+          "webhookHost": "0.0.0.0",
+          "webhookPort": 18792
         },
         "engineering": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_STEVE}"
+          "botToken": "\${TELEGRAM_BOT_TOKEN_STEVE}",
+          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/steve",
+          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
+          "webhookPath": "/telegram/steve",
+          "webhookHost": "0.0.0.0",
+          "webhookPort": 18793
         },
         "business": {
-          "botToken": "\${TELEGRAM_BOT_TOKEN_NUMBER5}"
+          "botToken": "\${TELEGRAM_BOT_TOKEN_NUMBER5}",
+          "webhookUrl": "${OPENCLAW_WEBHOOK_PUBLIC_BASE_URL}/telegram/number5",
+          "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
+          "webhookPath": "/telegram/number5",
+          "webhookHost": "0.0.0.0",
+          "webhookPort": 18794
         }
       }
     }
@@ -1591,6 +1597,10 @@ Environment=OPENCLAW_CONFIG_DIR=/config
 
 PublishPort=127.0.0.1:18789:18789
 PublishPort=127.0.0.1:18790:18790
+PublishPort=127.0.0.1:18791:18791
+PublishPort=127.0.0.1:18792:18792
+PublishPort=127.0.0.1:18793:18793
+PublishPort=127.0.0.1:18794:18794
 
 Pull=never
 Exec=node dist/index.js gateway --bind lan --port 18789
@@ -1612,9 +1622,6 @@ run_step "Wait for openclaw service" wait_for_openclaw_service 60
 run_step "Check openclaw service" run_as_openclaw "systemctl --user status openclaw.service --no-pager"
 run_step "Install openclaw helper" write_openclaw_ctl
 run_step "Configure webhook stack" configure_webhook_stack
-if [[ -n "$OPENCLAW_RESCUE_USER" ]]; then
-  log "Temporary rescue console user configured: $OPENCLAW_RESCUE_USER (remove after incident response)."
-fi
 log_pairing_command
 
 touch "$BOOTSTRAP_MARKER"
