@@ -37,8 +37,18 @@ From a stack directory (example: `live/prod/us-east/clawbot`):
 - Adding CI (GitHub Actions/GitLab CI)
 - Opening SSH to the world (0.0.0.0/0) except for explicit temporary testing with a warning
 - Adding unrelated services (databases, monitoring stacks) unless requested
+- Running code or commands that change infra, mutate server state, rebuild the node, restart services, or execute test flows
 
 ## Safety defaults
 - Default server_type is `cpx22` (amd64). Do not assume ARM hosts.
 - Prefer least-privilege network access; never broaden firewall rules by default.
 
+## Bootstrap discipline
+- Do not run validation, smoke tests, or post-build checks against a rebuilt node until bootstrap is complete.
+- Treat bootstrap as complete only after `/var/log/cloud-init-output.log` shows completion. The node usually takes about 6 minutes.
+- Prefer waiting for explicit completion markers such as `openclaw node bootstrap complete.` or the final `Cloud-init ... finished` line before testing nginx, certbot, OpenClaw, or Telegram webhook behavior.
+
+## Milestones and releases
+- Commit changes at reasonable milestones instead of letting local work accumulate too long.
+- Prefer validating a milestone with a build or rebuild before treating it as complete, but only after bootstrap is fully complete.
+- When a milestone is ready to ship, update `CHANGELOG.md` with the next version number, commit that change, and create a matching git tag from that version.

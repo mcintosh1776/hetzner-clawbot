@@ -1539,6 +1539,16 @@ if [[ -d "$OPENCLAW_DIR" ]]; then
   fi
 fi
 
+openclaw_llm_env_line=""
+if [[ -f "$OPENCLAW_LLM_SECRETS_FILE" ]]; then
+  openclaw_llm_env_line="EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE"
+fi
+
+openclaw_telegram_env_line=""
+if [[ -f "$OPENCLAW_TELEGRAM_SECRETS_FILE" ]]; then
+  openclaw_telegram_env_line="EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE"
+fi
+
 cat >"/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container" <<EOF
 [Unit]
 Description=OpenClaw gateway (rootless Podman)
@@ -1555,6 +1565,8 @@ Volume=/opt/clawbot/work:/workspace
 Volume=/opt/clawbot/state:/state
 
 EnvironmentFile=/opt/clawbot/config/.env
+$openclaw_llm_env_line
+$openclaw_telegram_env_line
 Environment=OPENCLAW_CONFIG_PATH=/config/openclaw.json
 Environment=OPENCLAW_HOME=/state
 Environment=OPENCLAW_WORKSPACE_DIR=/workspace
@@ -1576,14 +1588,6 @@ WantedBy=default.target
 EOF
 chown root:root "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
 chmod 0644 "/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
-
-if [[ -f "$OPENCLAW_LLM_SECRETS_FILE" ]]; then
-  echo "EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE" >>"/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
-fi
-
-if [[ -f "$OPENCLAW_TELEGRAM_SECRETS_FILE" ]]; then
-  echo "EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE" >>"/home/$OPENCLAW_USER/.config/containers/systemd/openclaw.container"
-fi
 
 run_step "Reload openclaw user units" run_as_openclaw "systemctl --user daemon-reload"
 run_step "Enable openclaw service" enable_openclaw_service
