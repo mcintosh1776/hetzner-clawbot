@@ -235,6 +235,10 @@ When enabled, bootstrap performs these actions on the node:
 
 This rollout is fully automated from `openclaw-node-bootstrap-runner`. The remaining manual item is Telegram `setWebhook` registration.
 
+The production Telegram channel config is intended for one trusted operator. Direct
+messages are scoped per bot account and gated by an allowlist entry for the owner’s
+Telegram user ID, rather than interactive pairing.
+
 To verify after bootstrap:
 
 ```bash

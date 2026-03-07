@@ -1499,10 +1499,16 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
       ]
     }
   },
+  "session": {
+    "dmScope": "per-account-channel-peer"
+  },
   "channels": {
     "telegram": {
       "enabled": true,
-      "dmPolicy": "pairing",
+      "dmPolicy": "allowlist",
+      "allowFrom": [
+        "tg:1619231777"
+      ],
       "defaultAccount": "orchestrator",
       "accounts": {
         "orchestrator": {
