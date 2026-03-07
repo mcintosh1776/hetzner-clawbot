@@ -479,46 +479,85 @@ ensure_webhook_secret() {
 
 render_webhook_app() {
   cat >"${OPENCLAW_WEBHOOK_DIR}/app.py" <<'PY'
+import json
 import os
 from fastapi import FastAPI, Header, HTTPException, Request
 import httpx
 
 app = FastAPI()
 
+ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks"}
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
 
-async def forward_to_openclaw(update: dict):
-  url = f"{OPENCLAW_GATEWAY_URL.rstrip('/')}/telegram-webhook"
+async def forward_to_openclaw(update: dict, agent: str | None = None):
+  candidate_paths = ["/telegram-webhook"]
+  if agent:
+    candidate_paths = [f"/telegram/{agent}", "/telegram", "/telegram-webhook"]
+  else:
+    candidate_paths = ["/telegram", "/telegram-webhook"]
+
   async with httpx.AsyncClient(timeout=10) as client:
-    response = await client.post(url, json=update)
+    response = None
+    for path in candidate_paths:
+      headers = {"x-openclaw-agent": agent} if agent else {}
+      response = await client.post(f"{OPENCLAW_GATEWAY_URL.rstrip('/')}{path}", json=update, headers=headers)
+      if response.status_code != 404:
+        break
+
+    if response is None:
+      raise HTTPException(status_code=502, detail="telegram forward failed: no response from openclaw")
+
+    if response.status_code == 404:
+      raise HTTPException(status_code=404, detail="openclaw webhook route unavailable")
+
     response.raise_for_status()
     return response
 
 async def handle_telegram_webhook(
   request: Request,
+  agent: str | None = None,
   x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ):
   if TELEGRAM_SECRET and x_telegram_bot_api_secret_token != TELEGRAM_SECRET:
     raise HTTPException(status_code=401, detail="invalid telegram secret token")
 
-  update = await request.json()
+  if agent:
+    agent = agent.lower()
+    if agent not in ALLOWED_AGENTS:
+      raise HTTPException(status_code=404, detail="unknown agent")
+
+  try:
+    raw_body = await request.body()
+  except Exception as exc:
+    raise HTTPException(status_code=400, detail=f"failed reading webhook body: {exc}")
+
+  if not raw_body:
+    return {"ok": True}
+
+  try:
+    update = json.loads(raw_body)
+  except json.JSONDecodeError as exc:
+    raise HTTPException(status_code=400, detail=f"invalid webhook JSON: {exc}")
+
   if not update:
     return {"ok": True}
 
-  await forward_to_openclaw(update)
+  await forward_to_openclaw(update, agent)
   return {"ok": True}
 
 
 @app.post("/telegram")
-@app.post("/telegram/{_agent}")
+@app.post("/telegram/{agent}")
 @app.post("/telegram-webhook")
 async def telegram_webhook(
   request: Request,
+  agent: str | None = None,
   x_telegram_bot_api_secret_token: str | None = Header(default=None),
 ):
   return await handle_telegram_webhook(
     request=request,
+    agent=agent,
     x_telegram_bot_api_secret_token=x_telegram_bot_api_secret_token,
   )
 PY
@@ -1440,7 +1479,7 @@ if id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
   run_as_openclaw "podman system migrate"
 fi
 
-OPENCLAW_WEBHOOK_CALLBACK_URL="http://127.0.0.1:18789/telegram-webhook"
+OPENCLAW_WEBHOOK_CALLBACK_URL="http://127.0.0.1:${OPENCLAW_WEBHOOK_RECEIVER_PORT}/telegram-webhook"
 if [ -n "${OPENCLAW_PUBLIC_HOSTNAME:-}" ]; then
   OPENCLAW_WEBHOOK_CALLBACK_URL="https://${OPENCLAW_PUBLIC_HOSTNAME}/telegram-webhook"
 fi
