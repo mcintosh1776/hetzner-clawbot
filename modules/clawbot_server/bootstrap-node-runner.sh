@@ -489,11 +489,11 @@ app = FastAPI()
 ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks"}
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 OPENCLAW_WEBHOOK_TARGETS = {
-  "bob": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB", "http://127.0.0.1:18790/telegram/bob"),
-  "stacks": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS", "http://127.0.0.1:18791/telegram/stacks"),
-  "jennifer": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER", "http://127.0.0.1:18792/telegram/jennifer"),
-  "steve": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE", "http://127.0.0.1:18793/telegram/steve"),
-  "number5": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5", "http://127.0.0.1:18794/telegram/number5"),
+  "bob": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB", "http://127.0.0.1:18890/telegram/bob"),
+  "stacks": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS", "http://127.0.0.1:18891/telegram/stacks"),
+  "jennifer": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER", "http://127.0.0.1:18892/telegram/jennifer"),
+  "steve": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE", "http://127.0.0.1:18893/telegram/steve"),
+  "number5": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5", "http://127.0.0.1:18894/telegram/number5"),
 }
 
 async def forward_to_openclaw(update: dict, agent: str | None = None):
@@ -1511,7 +1511,7 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
           "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
           "webhookPath": "/telegram/bob",
           "webhookHost": "0.0.0.0",
-          "webhookPort": 18790
+          "webhookPort": 18890
         },
         "podcast_media": {
           "botToken": "\${TELEGRAM_BOT_TOKEN_STACKS}",
@@ -1519,7 +1519,7 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
           "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
           "webhookPath": "/telegram/stacks",
           "webhookHost": "0.0.0.0",
-          "webhookPort": 18791
+          "webhookPort": 18891
         },
         "research": {
           "botToken": "\${TELEGRAM_BOT_TOKEN_JENNIFER}",
@@ -1527,7 +1527,7 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
           "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
           "webhookPath": "/telegram/jennifer",
           "webhookHost": "0.0.0.0",
-          "webhookPort": 18792
+          "webhookPort": 18892
         },
         "engineering": {
           "botToken": "\${TELEGRAM_BOT_TOKEN_STEVE}",
@@ -1535,7 +1535,7 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
           "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
           "webhookPath": "/telegram/steve",
           "webhookHost": "0.0.0.0",
-          "webhookPort": 18793
+          "webhookPort": 18893
         },
         "business": {
           "botToken": "\${TELEGRAM_BOT_TOKEN_NUMBER5}",
@@ -1543,7 +1543,7 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
           "webhookSecret": "\${TELEGRAM_WEBHOOK_SECRET}",
           "webhookPath": "/telegram/number5",
           "webhookHost": "0.0.0.0",
-          "webhookPort": 18794
+          "webhookPort": 18894
         }
       }
     }
@@ -1599,11 +1599,11 @@ Environment=TERM=xterm-256color
 Environment=OPENCLAW_CONFIG_DIR=/config
 
 PublishPort=127.0.0.1:18789:18789
-PublishPort=127.0.0.1:18790:18790
-PublishPort=127.0.0.1:18791:18791
-PublishPort=127.0.0.1:18792:18792
-PublishPort=127.0.0.1:18793:18793
-PublishPort=127.0.0.1:18794:18794
+PublishPort=127.0.0.1:18890:18890
+PublishPort=127.0.0.1:18891:18891
+PublishPort=127.0.0.1:18892:18892
+PublishPort=127.0.0.1:18893:18893
+PublishPort=127.0.0.1:18894:18894
 
 Pull=never
 Exec=node dist/index.js gateway --bind lan --port 18789
