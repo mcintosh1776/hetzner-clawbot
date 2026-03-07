@@ -10,11 +10,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- Converted the five same-host private bot runtimes from host-level `systemd` Python services
-  into per-bot Podman containers while keeping the shared ingress contract and ports stable.
+- _None yet._
 
 ### Fixed
 - _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.27] - 2026-03-07
+
+### Added
+- _None yet._
+
+### Changed
+- Converted the five same-host private bot runtimes from host-level `systemd` Python services
+  into per-bot rootless Podman containers while keeping the shared ingress contract and ports
+  stable.
+
+### Fixed
+- Moved the per-bot runtime containers onto user-level quadlet units so replacement nodes no
+  longer fail when system-level services try to run rootless Podman without a valid user
+  runtime/session environment.
 
 ### Removed
 - _None yet._
