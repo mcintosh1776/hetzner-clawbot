@@ -52,6 +52,11 @@ OPENCLAW_OPT_VOLUME_DEVICE="${OPENCLAW_OPT_VOLUME_DEVICE:-}"
 OPENCLAW_OPT_VOLUME_ID="${OPENCLAW_OPT_VOLUME_ID:-}"
 OPENCLAW_OPT_VOLUME_NAME="${OPENCLAW_OPT_VOLUME_NAME:-}"
 OPENCLAW_OPT_VOLUME_WAIT_SECONDS="${OPENCLAW_OPT_VOLUME_WAIT_SECONDS:-180}"
+OPENCLAW_ROOT_STATE_DIR="${OPENCLAW_ROOT_STATE_DIR:-/opt/clawbot-root}"
+OPENCLAW_ROOT_SECRETS_DIR="${OPENCLAW_ROOT_SECRETS_DIR:-$OPENCLAW_ROOT_STATE_DIR/secrets}"
+OPENCLAW_PODCAST_MEDIA_SECRET_STORE="${OPENCLAW_PODCAST_MEDIA_SECRET_STORE:-$OPENCLAW_ROOT_SECRETS_DIR/podcast_media-secrets.json}"
+OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER="${OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER:-/usr/local/bin/openclaw-podcast-media-secret-provider}"
+OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS="${OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS:-/etc/sudoers.d/openclaw-podcast-media-secret-provider}"
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
@@ -267,6 +272,83 @@ prepare_bootstrap_directories() {
 
   chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "/home/$OPENCLAW_USER" "/home/$OPENCLAW_USER/.config/containers/systemd" /opt/clawbot
   chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state
+}
+
+prepare_root_secret_directories() {
+  mkdir -p "$OPENCLAW_ROOT_STATE_DIR" "$OPENCLAW_ROOT_SECRETS_DIR"
+  chown root:root "$OPENCLAW_ROOT_STATE_DIR" "$OPENCLAW_ROOT_SECRETS_DIR"
+  chmod 700 "$OPENCLAW_ROOT_STATE_DIR" "$OPENCLAW_ROOT_SECRETS_DIR"
+}
+
+ensure_podcast_media_secret_store() {
+  if [[ ! -f "$OPENCLAW_PODCAST_MEDIA_SECRET_STORE" ]]; then
+    printf '{}\n' > "$OPENCLAW_PODCAST_MEDIA_SECRET_STORE"
+  fi
+
+  chown root:root "$OPENCLAW_PODCAST_MEDIA_SECRET_STORE"
+  chmod 600 "$OPENCLAW_PODCAST_MEDIA_SECRET_STORE"
+}
+
+write_podcast_media_secret_provider() {
+  cat >"$OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER" <<EOF
+#!/usr/bin/env python3
+import json
+import sys
+from pathlib import Path
+
+STORE = Path(${OPENCLAW_PODCAST_MEDIA_SECRET_STORE@Q})
+
+def emit(payload, exit_code=0):
+    sys.stdout.write(json.dumps(payload))
+    sys.stdout.write("\\n")
+    raise SystemExit(exit_code)
+
+try:
+    request = json.load(sys.stdin)
+except Exception as exc:
+    emit({"protocolVersion": 1, "values": {}, "errors": {"__request__": {"message": f"invalid request payload: {exc}"}}}, 1)
+
+if request.get("protocolVersion") != 1:
+    emit({"protocolVersion": 1, "values": {}, "errors": {"__request__": {"message": "unsupported protocolVersion"}}}, 1)
+
+try:
+    payload = json.loads(STORE.read_text(encoding="utf-8")) if STORE.exists() else {}
+except Exception as exc:
+    emit({"protocolVersion": 1, "values": {}, "errors": {"__store__": {"message": f"invalid secret store: {exc}"}}}, 1)
+
+if not isinstance(payload, dict):
+    emit({"protocolVersion": 1, "values": {}, "errors": {"__store__": {"message": "secret store must be a JSON object"}}}, 1)
+
+values = {}
+errors = {}
+
+for secret_id in request.get("ids", []):
+    value = payload.get(secret_id)
+    if isinstance(value, str) and value:
+        values[secret_id] = value
+    else:
+        errors[secret_id] = {"message": "secret not found"}
+
+response = {"protocolVersion": 1, "values": values}
+if errors:
+    response["errors"] = errors
+    emit(response, 1)
+
+emit(response, 0)
+EOF
+
+  chown root:root "$OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER"
+  chmod 750 "$OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER"
+}
+
+write_podcast_media_secret_sudoers() {
+  cat >"$OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS" <<EOF
+Defaults!$OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER !requiretty
+$OPENCLAW_USER ALL=(root) NOPASSWD: $OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER
+EOF
+
+  chown root:root "$OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS"
+  chmod 440 "$OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS"
 }
 
 prepare_runtime_config_directory() {
@@ -1185,6 +1267,10 @@ fi
 OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 assert_opt_volume_mount
 run_step "Prepare bootstrap directories" prepare_bootstrap_directories
+run_step "Prepare root secret directories" prepare_root_secret_directories
+run_step "Initialize podcast media secret store" ensure_podcast_media_secret_store
+run_step "Install podcast media secret provider" write_podcast_media_secret_provider
+run_step "Install podcast media secret sudoers policy" write_podcast_media_secret_sudoers
 run_step "Prepare bootstrap runtime directory" prepare_runtime_config_directory
 ensure_gateway_token
 
@@ -1709,6 +1795,19 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
       }
     }
   ],
+  "secrets": {
+    "providers": {
+      "podcast_media_root": {
+        "source": "exec",
+        "command": "/usr/bin/sudo",
+        "args": [
+          "-n",
+          "/usr/local/bin/openclaw-podcast-media-secret-provider"
+        ],
+        "jsonOnly": true
+      }
+    }
+  },
   "channels": {
     "telegram": {
       "enabled": true,

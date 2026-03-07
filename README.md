@@ -194,6 +194,37 @@ so API tokens are not stored in the fleet manifest. Bootstrap also renders
 `agents.defaults.model.primary = "openrouter/auto"` so routed Telegram agents inherit the
 OpenRouter-backed default model unless you override them later.
 
+### Agent-specific secret scaffolding
+
+Bootstrap also prepares a root-owned secret path for the `podcast_media` agent:
+
+- secret store: `/opt/clawbot-root/secrets/podcast_media-secrets.json` (mode `600`, `root:root`)
+- provider helper: `/usr/local/bin/openclaw-podcast-media-secret-provider`
+- sudoers policy: `/etc/sudoers.d/openclaw-podcast-media-secret-provider`
+- OpenClaw provider id: `podcast_media_root`
+
+This is intended for high-value agent-specific credentials such as a future Nostr private
+key for Stacks. The secret should live in the root-owned JSON store and be referenced from
+agent-scoped OpenClaw config or `auth-profiles.json` via a `SecretRef`, not placed in shared
+env files like `telegram.env` or `llm.env`.
+
+Example store shape:
+
+```json
+{
+  "nostr/privateKey": "nsec1...",
+  "nostr/publicKey": "npub1..."
+}
+```
+
+Important boundary note:
+
+- This is stronger than shared environment variables or plaintext in `openclaw.json`.
+- It is not a hard multi-tenant isolation boundary because all five bots still share one
+  gateway process and one OS user.
+- If you need Stacks' Nostr private key to be unavailable even under a compromised
+  tool-enabled peer agent, Stacks should move to a separate gateway/runtime boundary.
+
 ## Useful paths on the node
 
 - Repo: `/srv/openclaw`

@@ -7,7 +7,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- _None yet._
+- Added root-owned Stacks/podcast-media secret-provider scaffolding for future agent-specific
+  credentials such as Nostr keys, backed by an exec-based OpenClaw secret provider instead of
+  shared env files.
 
 ### Changed
 - Reduced shell-string execution in bootstrap helpers and replaced several root-side
