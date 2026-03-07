@@ -233,7 +233,7 @@ When enabled, bootstrap performs these actions on the node:
 6. Persists/derives `TELEGRAM_WEBHOOK_SECRET` in `/opt/clawbot/config/secrets/telegram.env`.
 7. Ensures certbot renewal timer is enabled (`certbot.timer` or `snap.certbot.renew.timer`) and logs timer status.
 
-This rollout is fully automated from `openclaw-node-bootstrap-runner` for the first six stages. The remaining manual items are Telegram `setWebhook` registration.
+This rollout is fully automated from `openclaw-node-bootstrap-runner`. The remaining manual item is Telegram `setWebhook` registration.
 
 To verify after bootstrap:
 
@@ -246,7 +246,7 @@ sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secr
 sudo -u openclaw bash -lc 'tail -n 120 /var/log/openclaw-webhook-certbot.log'
 ```
 
-To wire bot webhooks (example for Bob):
+To wire bot webhooks, register each bot to its own public path. Example for Bob:
 
 ```bash
 set -a
@@ -254,34 +254,48 @@ set -a
 set +a
 
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/setWebhook" \
-  -d "url=https://agents.satoshis-plebs.com/telegram-webhook" \
+  -d "url=https://agents.satoshis-plebs.com/telegram/bob" \
   -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
 
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_BOB}/getWebhookInfo"
 ```
 
-Other bots use `/telegram-webhook` with the same Relay endpoint URL and each bot secret token remains distinct:
+Register the other bots to their matching paths:
 
 ```bash
 curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN_STACKS}/setWebhook" \
-  -d "url=https://agents.satoshis-plebs.com/telegram-webhook" \
+  -d "url=https://agents.satoshis-plebs.com/telegram/stacks" \
   -d "secret_token=${TELEGRAM_WEBHOOK_SECRET}"
 ```
 
+Current public webhook paths:
+
+- `bob` -> `/telegram/bob`
+- `jennifer` -> `/telegram/jennifer`
+- `steve` -> `/telegram/steve`
+- `stacks` -> `/telegram/stacks`
+- `number5` -> `/telegram/number5`
+
+The relay forwards those public paths to dedicated host-local OpenClaw webhook listeners on
+`127.0.0.1:18890-18894`. That port block is reserved to avoid collisions with the main gateway
+listener on `18789` and other OpenClaw internal ports.
+
 Quick six-item post-bootstrap check list:
 1. `curl -I https://agents.satoshis-plebs.com/` (expect HTTP 404, root intentionally not proxied)
-2. `curl -I https://agents.satoshis-plebs.com/telegram-webhook`
-   (Legacy compatibility routes `/telegram/<bot>` are also accepted by the relay while we align old bot setups.)
-3. `systemctl is-active --quiet nginx`
-4. `systemctl is-active --quiet clawbot-telegram-webhook`
-5. `sudo systemctl status --no-pager clawbot-telegram-webhook`
-6. `sudo systemctl --machine openclaw@ --user status openclaw.service --no-pager`
-7. `sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secrets/telegram.env'`
+2. `curl -I https://agents.satoshis-plebs.com/telegram/bob`
+3. `curl -I https://agents.satoshis-plebs.com/telegram/jennifer`
+4. `curl -I https://agents.satoshis-plebs.com/telegram/stacks`
+5. `systemctl is-active --quiet nginx`
+6. `systemctl is-active --quiet clawbot-telegram-webhook`
+7. `sudo systemctl status --no-pager clawbot-telegram-webhook`
+8. `sudo systemctl --machine openclaw@ --user status openclaw.service --no-pager`
+9. `sudo -u openclaw bash -lc 'grep TELEGRAM_WEBHOOK_SECRET /opt/clawbot/config/secrets/telegram.env'`
+10. `sudo ss -ltn | grep -E '127.0.0.1:(18890|18891|18892|18893|18894)'`
 
 Troubleshooting when bots reply with plain echoes:
 1. Verify relay logs: `journalctl -u clawbot-telegram-webhook -n 100 --no-pager`
 2. Verify OpenClaw receives the forwarded payload by watching gateway logs for Telegram path hits.
-3. Confirm the gateway endpoint is reachable from the host: `curl -s http://127.0.0.1:18789/telegram/bob -o /tmp/gw-echo-test.out -w "%{http_code}\n"`.
+3. Confirm the per-bot webhook listeners are bound: `sudo ss -ltn | grep -E '127.0.0.1:(18890|18891|18892|18893|18894)'`.
 
 Persisted artifacts for webhook/ingress are rooted in `/opt/clawbot` when possible:
 
