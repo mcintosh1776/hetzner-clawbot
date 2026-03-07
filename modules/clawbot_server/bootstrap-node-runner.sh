@@ -486,7 +486,7 @@ import httpx
 app = FastAPI()
 
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
-OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18790")
+OPENCLAW_GATEWAY_URL = os.getenv("OPENCLAW_GATEWAY_URL", "http://127.0.0.1:18789")
 
 async def forward_to_openclaw(update: dict):
   url = f"{OPENCLAW_GATEWAY_URL.rstrip('/')}/telegram-webhook"
@@ -540,7 +540,7 @@ WorkingDirectory=$OPENCLAW_WEBHOOK_DIR
 EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE
 EnvironmentFile=-/opt/clawbot/config/.env
 Environment=OPENCLAW_WEBHOOK_RECEIVER_PORT=$OPENCLAW_WEBHOOK_RECEIVER_PORT
-Environment=OPENCLAW_GATEWAY_URL=http://127.0.0.1:18790
+Environment=OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789
 ExecStart=$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_WEBHOOK_RECEIVER_PORT
 Restart=always
 RestartSec=2
@@ -1440,7 +1440,7 @@ if id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
   run_as_openclaw "podman system migrate"
 fi
 
-OPENCLAW_WEBHOOK_CALLBACK_URL="http://127.0.0.1:${OPENCLAW_WEBHOOK_RECEIVER_PORT}/telegram-webhook"
+OPENCLAW_WEBHOOK_CALLBACK_URL="http://127.0.0.1:18789/telegram-webhook"
 if [ -n "${OPENCLAW_PUBLIC_HOSTNAME:-}" ]; then
   OPENCLAW_WEBHOOK_CALLBACK_URL="https://${OPENCLAW_PUBLIC_HOSTNAME}/telegram-webhook"
 fi
