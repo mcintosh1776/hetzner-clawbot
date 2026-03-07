@@ -237,9 +237,12 @@ ensure_gateway_token() {
 
   if [[ ! -f "$env_file" || "$current_token" != "$desired_token" ]]; then
     if [[ -f "$env_file" ]]; then
-      awk -F= '!/^OPENCLAW_GATEWAY_TOKEN=/' "$env_file" > /tmp/openclaw_env.new
-      printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$desired_token" >> /tmp/openclaw_env.new
-      mv /tmp/openclaw_env.new "$env_file"
+      local temp_env
+      temp_env="$(mktemp /tmp/openclaw_env.XXXXXX)"
+      chmod 600 "$temp_env"
+      awk -F= '!/^OPENCLAW_GATEWAY_TOKEN=/' "$env_file" > "$temp_env"
+      printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$desired_token" >> "$temp_env"
+      mv "$temp_env" "$env_file"
     else
       printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$desired_token" > "$env_file"
     fi

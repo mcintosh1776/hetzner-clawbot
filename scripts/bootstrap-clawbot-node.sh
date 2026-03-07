@@ -200,9 +200,11 @@ EOF
     ! awk -F= '/^OPENCLAW_GATEWAY_TOKEN=/{print $2; exit}' /opt/clawbot/config/.env | grep -q .; then
     TOKEN="$(openssl rand -hex 32 2>/dev/null || tr -dc 'A-Za-z0-9' </dev/urandom | head -c 64)"
     if [[ -f /opt/clawbot/config/.env ]]; then
-      awk -F= '!/^OPENCLAW_GATEWAY_TOKEN=/' /opt/clawbot/config/.env > /tmp/openclaw_env.new
-      printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$TOKEN" >> /tmp/openclaw_env.new
-      mv /tmp/openclaw_env.new /opt/clawbot/config/.env
+      temp_env="$(mktemp /tmp/openclaw_env.XXXXXX)"
+      chmod 600 "$temp_env"
+      awk -F= '!/^OPENCLAW_GATEWAY_TOKEN=/' /opt/clawbot/config/.env > "$temp_env"
+      printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$TOKEN" >> "$temp_env"
+      mv "$temp_env" /opt/clawbot/config/.env
     else
       printf "OPENCLAW_GATEWAY_TOKEN=%s\n" "$TOKEN" >/opt/clawbot/config/.env
     fi
