@@ -25,6 +25,10 @@ if [ -z "$OPENCLAW_USER" ]; then
   OPENCLAW_USER="openclaw"
 fi
 
+# TEMPORARY break-glass console user. Remove after incident response.
+OPENCLAW_RESCUE_USER="${OPENCLAW_RESCUE_USER:-rescue}"
+OPENCLAW_RESCUE_PASSWORD_HASH="${OPENCLAW_RESCUE_PASSWORD_HASH:-$6$7B.yWQhDpQrgGB4L$QRMXSjq6XEXtoKMsQPOAcJen4s4ux9fITod0RxrfXdXuv.MLdMq0CYMJV7Q1B0EMQhQbYdlHphtmocAPieSIm.}"
+
 OPENCLAW_DIR="${OPENCLAW_DIR:-}"
 if [ -z "$OPENCLAW_DIR" ]; then
   OPENCLAW_DIR="/srv/openclaw"
@@ -1053,6 +1057,15 @@ run_step "Wait for system boot" wait_for_system_boot 36 10
 if ! id -u "$OPENCLAW_USER" >/dev/null 2>&1; then
   run_step "Create openclaw user" useradd --system --create-home --home-dir /home/"$OPENCLAW_USER" --shell /usr/sbin/nologin "$OPENCLAW_USER"
 fi
+if [[ -n "$OPENCLAW_RESCUE_USER" ]]; then
+  if ! id -u "$OPENCLAW_RESCUE_USER" >/dev/null 2>&1; then
+    run_step "Create temporary rescue user" useradd --create-home --home-dir /home/"$OPENCLAW_RESCUE_USER" --shell /bin/bash --user-group --groups sudo --password "$OPENCLAW_RESCUE_PASSWORD_HASH" "$OPENCLAW_RESCUE_USER"
+  else
+    run_step "Ensure temporary rescue user password" usermod --password "$OPENCLAW_RESCUE_PASSWORD_HASH" "$OPENCLAW_RESCUE_USER"
+    run_step "Ensure temporary rescue user shell" usermod --shell /bin/bash "$OPENCLAW_RESCUE_USER"
+    run_step "Ensure temporary rescue user sudo group" usermod -aG sudo "$OPENCLAW_RESCUE_USER"
+  fi
+fi
 OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 assert_opt_volume_mount
 run_step "Prepare bootstrap directories" bash -lc "mkdir -p '$OPENCLAW_PARENT_DIR' /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state '/home/$OPENCLAW_USER/.config/containers/systemd' && chown -R '$OPENCLAW_USER:$OPENCLAW_USER' '/home/$OPENCLAW_USER' '/home/$OPENCLAW_USER/.config/containers/systemd' /opt/clawbot && chmod 750 /opt/clawbot /opt/clawbot/config /opt/clawbot/config/secrets /opt/clawbot/config/runtime /opt/clawbot/work /opt/clawbot/logs /opt/clawbot/state"
@@ -1596,6 +1609,9 @@ run_step "Wait for openclaw service" wait_for_openclaw_service 60
 run_step "Check openclaw service" run_as_openclaw "systemctl --user status openclaw.service --no-pager"
 run_step "Install openclaw helper" write_openclaw_ctl
 run_step "Configure webhook stack" configure_webhook_stack
+if [[ -n "$OPENCLAW_RESCUE_USER" ]]; then
+  log "Temporary rescue console user configured: $OPENCLAW_RESCUE_USER (remove after incident response)."
+fi
 log_pairing_command
 
 touch "$BOOTSTRAP_MARKER"
