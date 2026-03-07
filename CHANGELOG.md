@@ -10,6 +10,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
+- _None yet._
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.28] - 2026-03-07
+
+### Added
+- _None yet._
+
+### Changed
 - Reduced the shared `openclaw` container surface by dropping legacy published Telegram
   listener ports now that all public bot traffic routes through per-bot private runtime
   containers.
