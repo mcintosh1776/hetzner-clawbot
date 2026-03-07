@@ -10,19 +10,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- Bootstrap runner fetches are now expected to be pinned by SHA-256 so replacement nodes do
-  not blindly trust a mutable remote branch tip.
-- The gateway token is no longer passed through Terraform/cloud-init user-data; rebuilds now
-  rely on the durable `/opt/clawbot/config/.env` copy or generate a new token on-node only
-  when that file is missing.
-- OpenClaw gateway quadlet generation now mounts only the specific non-secret config paths
-  it needs instead of binding the entire `/opt/clawbot/config` tree into the container.
+- _None yet._
 
 ### Fixed
 - _None yet._
 
 ### Removed
 - _None yet._
+
+## [0.7.25] - 2026-03-07
+
+### Added
+- Added `docs/future-plans.md` to outline the next work phases for memory, architecture,
+  observability, product expansion, and security hardening.
+- Added an explicit SHA-256 input for the remote bootstrap runner so replacement nodes can
+  verify downloaded bootstrap code before executing it as root.
+
+### Changed
+- Bootstrap runner fetches are now pinned by SHA-256 so replacement nodes do not blindly
+  trust a mutable remote branch tip.
+- The gateway token is no longer passed through Terraform/cloud-init user-data; rebuilds now
+  rely on the durable `/opt/clawbot/config/.env` copy or generate a new token on-node only
+  when that file is missing.
+- OpenClaw gateway quadlet generation now mounts only the specific non-secret config paths
+  it needs instead of binding the entire `/opt/clawbot/config` tree into the container.
+- Cached bootstrap fallback runner storage moved out of the `openclaw`-owned tree into a
+  root-owned location under `/opt/clawbot-root/bootstrap`.
+
+### Fixed
+- Reduced the chance of a rebuild-time root-code execution path via a mutable cached runner
+  stored on the persistent volume.
+- Reduced the amount of secret-bearing config material directly reachable from the main
+  gateway container.
+
+### Removed
+- Removed the need to pass `OPENCLAW_GATEWAY_TOKEN` through Terraform/Terragrunt during the
+  normal rebuild path.
 
 ## [0.7.24] - 2026-03-07
 
