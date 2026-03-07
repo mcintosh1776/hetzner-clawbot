@@ -1673,7 +1673,9 @@ User=$OPENCLAW_UID:$OPENCLAW_UID
 UserNS=keep-id
 Notify=no
 
-Volume=/opt/clawbot/config:/config
+Volume=/opt/clawbot/config/openclaw.json:/config/openclaw.json:ro
+Volume=/opt/clawbot/config/runtime:/config/runtime:ro
+Volume=/opt/clawbot/config/agent-config:/config/agent-config:ro
 Volume=/opt/clawbot/work:/workspace
 Volume=/opt/clawbot/state:/state
 

@@ -135,7 +135,9 @@ write_files:
       UserNS=keep-id
       Notify=no
 
-      Volume=/opt/clawbot/config:/config
+      Volume=/opt/clawbot/config/openclaw.json:/config/openclaw.json:ro
+      Volume=/opt/clawbot/config/runtime:/config/runtime:ro
+      Volume=/opt/clawbot/config/agent-config:/config/agent-config:ro
       Volume=/opt/clawbot/work:/workspace
       Volume=/opt/clawbot/state:/state
 
@@ -144,7 +146,7 @@ write_files:
       Environment=OPENCLAW_HOME=/state
       Environment=OPENCLAW_WORKSPACE_DIR=/workspace
       Environment=TERM=xterm-256color
-      EnvironmentFile=-/config/secrets/llm.env
+      EnvironmentFile=-/opt/clawbot/config/secrets/llm.env
 
       PublishPort=127.0.0.1:18789:18789
       PublishPort=127.0.0.1:18790:18790
@@ -170,6 +172,7 @@ write_files:
       if [ "$#" -gt 0 ] && [ -n "$1" ]; then
         destination="$1"
       fi
+      expected_sha="$${OPENCLAW_BOOTSTRAP_RUNNER_SHA256:-}"
       attempts="$${OPENCLAW_BOOTSTRAP_FETCH_ATTEMPTS:-6}"
       timeout="$${OPENCLAW_BOOTSTRAP_FETCH_TIMEOUT:-30}"
       wait_seconds="$${OPENCLAW_BOOTSTRAP_FETCH_RETRY_SECONDS:-4}"
@@ -181,6 +184,25 @@ write_files:
 
       log_msg() {
         printf '[%s] [openclaw-bootstrap-fetch] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$1"
+      }
+
+      verify_checksum() {
+        if [ -z "$expected_sha" ]; then
+          return 0
+        fi
+
+        if ! command -v sha256sum >/dev/null 2>&1; then
+          echo "Missing sha256sum for bootstrap runner verification." >&2
+          return 1
+        fi
+
+        actual_sha="$(sha256sum "$1" | awk '{print $1}')"
+        if [ "$actual_sha" != "$expected_sha" ]; then
+          echo "Bootstrap runner checksum mismatch for $1 (expected $expected_sha got $actual_sha)." >&2
+          return 1
+        fi
+
+        return 0
       }
 
       retry_fetch() {
@@ -218,27 +240,37 @@ write_files:
         exit 1
       fi
 
+      if ! verify_checksum "$destination"; then
+        rm -f "$destination"
+        exit 1
+      fi
+
       chmod 0755 "$destination"
 
 runcmd:
   - |
     OPENCLAW_BOOTSTRAP_RUNNER_URL='${openclaw_bootstrap_runner_url}'
-    OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH='/opt/clawbot/bootstrap/openclaw-node-bootstrap-runner.sh'
+    OPENCLAW_BOOTSTRAP_RUNNER_SHA256='${openclaw_bootstrap_runner_sha256}'
+    OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH='/opt/clawbot-root/bootstrap/openclaw-node-bootstrap-runner.sh'
     if [ -n "$${OPENCLAW_BOOTSTRAP_RUNNER_URL}" ]; then
       if ! OPENCLAW_BOOTSTRAP_RUNNER_URL="$OPENCLAW_BOOTSTRAP_RUNNER_URL" \
+        OPENCLAW_BOOTSTRAP_RUNNER_SHA256="$OPENCLAW_BOOTSTRAP_RUNNER_SHA256" \
         /usr/local/bin/openclaw-bootstrap-fetch; then
         echo "Failed to fetch bootstrap runner from OPENCLAW_BOOTSTRAP_RUNNER_URL=$OPENCLAW_BOOTSTRAP_RUNNER_URL" >&2
         if [ -x "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH" ]; then
-          echo "Using cached bootstrap runner from $OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH"
-          cp -p "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH" /usr/local/bin/openclaw-node-bootstrap-runner
-          chmod 0755 /usr/local/bin/openclaw-node-bootstrap-runner
+          if [ -n "$OPENCLAW_BOOTSTRAP_RUNNER_SHA256" ] && ! printf '%s  %s\n' "$OPENCLAW_BOOTSTRAP_RUNNER_SHA256" "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH" | sha256sum -c - >/dev/null 2>&1; then
+            echo "Cached bootstrap runner checksum mismatch at $OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH" >&2
+          else
+            echo "Using cached bootstrap runner from $OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH"
+            cp -p "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH" /usr/local/bin/openclaw-node-bootstrap-runner
+            chmod 0755 /usr/local/bin/openclaw-node-bootstrap-runner
+          fi
         fi
       fi
     fi
 
     OPENCLAW_REPO_URL='${openclaw_repo_url}'
     OPENCLAW_IMAGE='localhost/openclaw:local'
-    OPENCLAW_GATEWAY_TOKEN='${openclaw_gateway_token}'
     OPENCLAW_REQUIRE_OPT_VOLUME='${openclaw_opt_volume_enabled}'
     OPENCLAW_OPT_VOLUME_FSTYPE='${openclaw_opt_volume_fstype}'
     OPENCLAW_OPT_VOLUME_ID='${openclaw_opt_volume_id}'
@@ -255,7 +287,7 @@ runcmd:
     OPENCLAW_LETSENCRYPT_EMAIL='${openclaw_letsencrypt_email}'
     OPENCLAW_ENABLE_WEBHOOK_PROXY='${openclaw_enable_webhook_proxy}'
     OPENCLAW_WEBHOOK_RECEIVER_PORT='${openclaw_webhook_receiver_port}'
-    export OPENCLAW_REPO_URL OPENCLAW_IMAGE OPENCLAW_GATEWAY_TOKEN OPENCLAW_REQUIRE_OPT_VOLUME \
+    export OPENCLAW_REPO_URL OPENCLAW_IMAGE OPENCLAW_REQUIRE_OPT_VOLUME \
       OPENCLAW_OPT_VOLUME_FSTYPE OPENCLAW_OPT_VOLUME_ID OPENCLAW_OPT_VOLUME_NAME \
       OPENCLAW_OPT_VOLUME_WAIT_SECONDS OPENCLAW_AGENT_FLEET_TEMPLATE_B64 OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64 \
       OPENCLAW_STACKS_TEMPLATE_B64 OPENCLAW_JENNIFER_TEMPLATE_B64 OPENCLAW_STEVE_TEMPLATE_B64 \
@@ -286,7 +318,6 @@ runcmd:
     /usr/local/bin/openclaw-node-bootstrap-runner
 
     if [ -x /usr/local/bin/openclaw-node-bootstrap-runner ]; then
-      mkdir -p /opt/clawbot/bootstrap
-      cp -p /usr/local/bin/openclaw-node-bootstrap-runner "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH"
-      chmod 0755 "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH"
+      install -d -m 0700 /opt/clawbot-root/bootstrap
+      install -m 0700 /usr/local/bin/openclaw-node-bootstrap-runner "$OPENCLAW_BOOTSTRAP_RUNNER_BACKUP_PATH"
     fi

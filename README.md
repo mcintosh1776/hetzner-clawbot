@@ -12,7 +12,6 @@ From repo root:
 
 ```bash
 cd live/prod/fsn1/clawbot
-export OPENCLAW_GATEWAY_TOKEN="<same-token>"
 terragrunt init
 terragrunt plan
 terragrunt apply
@@ -20,9 +19,9 @@ terragrunt apply
 
 Notes:
 
-- `OPENCLAW_GATEWAY_TOKEN` is read by the module and passed into cloud-init.
-- The bootstrap flow writes that exact token to `/opt/clawbot/config/.env` on the node as `OPENCLAW_GATEWAY_TOKEN=...` if provided.
-  - If `OPENCLAW_GATEWAY_TOKEN` is not provided, bootstrap generates one only when `.env` is missing or token is blank.
+- The gateway token is no longer passed through Terraform/cloud-init user-data.
+- Bootstrap preserves the existing `/opt/clawbot/config/.env` token on rebuild when the `/opt` volume is retained.
+- If `.env` is missing or the token is blank, bootstrap generates a new token on-node.
 
 ## Deployment guardrail
 
@@ -42,24 +41,10 @@ This protects against partial bootstrap where SSH users/keys are not applied due
 
 ## Preserve the existing gateway token on rebuild
 
-To avoid token mismatch after a rebuild:
+The normal rebuild flow already preserves the gateway token because the `/opt` volume
+survives server replacement and bootstrap reuses `/opt/clawbot/config/.env`.
 
-1. Capture current token from a healthy node:
-
-   ```bash
-   ssh mcintosh@clawbot-prod \
-     "sudo -u openclaw awk -F= '/^OPENCLAW_GATEWAY_TOKEN=/{print \$2}' /opt/clawbot/config/.env"
-   ```
-
-2. Export it before apply:
-
-   ```bash
-   export OPENCLAW_GATEWAY_TOKEN="paste-token-here"
-   ```
-
-3. Run `terragrunt apply`.
-
-If you accidentally rebuild without passing a token and the existing `/opt/clawbot/config/.env` is missing, bootstrap will generate a new one.
+If that file is missing, bootstrap generates a new token on the node.
 
 ## Rebuild only the server while keeping `/opt` persistent
 
@@ -216,7 +201,7 @@ OpenRouter-backed default model unless you override them later.
 - Env/token: `/opt/clawbot/config/.env`
 - Service: `/home/openclaw/.config/containers/systemd/openclaw.container`
 - User service: `openclaw@` under user `openclaw` (uid 999 by default in the current layout)
-- Cached bootstrap runner (for rebuild recovery): `/opt/clawbot/bootstrap/openclaw-node-bootstrap-runner.sh`
+- Cached bootstrap runner (for rebuild recovery): `/opt/clawbot-root/bootstrap/openclaw-node-bootstrap-runner.sh`
 
 ## Telegram webhook automation (Nginx + certbot + relay)
 

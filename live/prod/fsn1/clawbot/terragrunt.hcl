@@ -30,7 +30,6 @@ inputs = {
 
   public_ipv4_enabled = true
   public_ipv6_enabled = false
-  openclaw_gateway_token = get_env("OPENCLAW_GATEWAY_TOKEN", "")
   opt_volume_size_gb = 10
   opt_volume_fstype = "xfs"
 
@@ -38,4 +37,5 @@ inputs = {
   openclaw_public_hostname = "agents.satoshis-plebs.com"
   openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"
   openclaw_bootstrap_runner_url = "https://raw.githubusercontent.com/mcintosh1776/hetzner-clawbot/main/modules/clawbot_server/bootstrap-node-runner.sh"
+  openclaw_bootstrap_runner_sha256 = "63cfdc51bce117c08d7ab7ca36539cb81f8d052a26be83c3843c9c59c9624e47"
 }

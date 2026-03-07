@@ -10,7 +10,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Bootstrap runner fetches are now expected to be pinned by SHA-256 so replacement nodes do
+  not blindly trust a mutable remote branch tip.
+- The gateway token is no longer passed through Terraform/cloud-init user-data; rebuilds now
+  rely on the durable `/opt/clawbot/config/.env` copy or generate a new token on-node only
+  when that file is missing.
+- OpenClaw gateway quadlet generation now mounts only the specific non-secret config paths
+  it needs instead of binding the entire `/opt/clawbot/config` tree into the container.
 
 ### Fixed
 - _None yet._

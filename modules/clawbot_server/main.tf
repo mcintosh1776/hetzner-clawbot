@@ -43,6 +43,7 @@ locals {
       openclaw_opt_volume_id                = var.opt_volume_enabled ? hcloud_volume.opt[0].id : ""
       openclaw_opt_volume_name              = var.opt_volume_enabled ? hcloud_volume.opt[0].name : ""
       openclaw_bootstrap_runner_url         = var.openclaw_bootstrap_runner_url
+      openclaw_bootstrap_runner_sha256      = var.openclaw_bootstrap_runner_sha256
       openclaw_bootstrap_runner_script      = local.bootstrap_runner_script
       openclaw_agent_fleet_template         = local.agent_fleet_template_b64
       openclaw_orchestrator_policy_template = local.agent_orchestrator_policy_template_b64

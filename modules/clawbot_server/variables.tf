@@ -108,6 +108,17 @@ variable "openclaw_bootstrap_runner_url" {
   default     = ""
 }
 
+variable "openclaw_bootstrap_runner_sha256" {
+  type        = string
+  description = "Optional SHA-256 hash for the bootstrap runner script fetched during cloud-init. When set, the downloaded or cached runner must match before it is executed as root."
+  default     = ""
+
+  validation {
+    condition     = var.openclaw_bootstrap_runner_sha256 == "" || can(regex("^[A-Fa-f0-9]{64}$", var.openclaw_bootstrap_runner_sha256))
+    error_message = "openclaw_bootstrap_runner_sha256 must be empty or a 64-character hexadecimal SHA-256 digest."
+  }
+}
+
 variable "openclaw_public_hostname" {
   type        = string
   description = "Public hostname for OpenClaw webhook/Reverse-proxy ingress (for example, agents.example.com)."

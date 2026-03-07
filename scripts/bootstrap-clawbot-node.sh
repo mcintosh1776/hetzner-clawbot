@@ -153,6 +153,7 @@ bootstrap_openclaw() {
   fi
 
   mkdir -p /srv /opt/clawbot /opt/clawbot/{config,work,logs,state}
+  mkdir -p /opt/clawbot/config/runtime /opt/clawbot/config/agent-config
   mkdir -p "/home/${OPENCLAW_USER}/.config/containers/systemd"
   chown -R "${OPENCLAW_USER}:${OPENCLAW_USER}" "/home/${OPENCLAW_USER}"
   chown -R "${OPENCLAW_USER}:${OPENCLAW_USER}" "/home/${OPENCLAW_USER}/.config/containers/systemd"
@@ -220,11 +221,14 @@ User=999:999
 UserNS=keep-id
 Notify=no
 
-Volume=/opt/clawbot/config:/config
+Volume=/opt/clawbot/config/openclaw.json:/config/openclaw.json:ro
+Volume=/opt/clawbot/config/runtime:/config/runtime:ro
+Volume=/opt/clawbot/config/agent-config:/config/agent-config:ro
 Volume=/opt/clawbot/work:/workspace
 Volume=/opt/clawbot/state:/state
 
 EnvironmentFile=/opt/clawbot/config/.env
+EnvironmentFile=-/opt/clawbot/config/secrets/llm.env
 Environment=OPENCLAW_CONFIG_PATH=/config/openclaw.json
 Environment=OPENCLAW_HOME=/state
 Environment=OPENCLAW_WORKSPACE_DIR=/workspace

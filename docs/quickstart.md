@@ -5,8 +5,6 @@
 - Install `terragrunt`
 - Export your Hetzner token:
   - `export HCLOUD_TOKEN=<token>`
-- Export a gateway token before provisioning:
-  - `export OPENCLAW_GATEWAY_TOKEN=<token>`
 
 ## Production stack
 
@@ -22,6 +20,7 @@ It provisions:
 - `nginx` + `certbot` for Telegram webhook ingress
 - per-bot Telegram webhook listeners
 - OpenRouter-backed default model selection
+- on-node gateway token generation/persistence under `/opt/clawbot/config/.env`
 
 ## Provision or update production
 
