@@ -54,9 +54,9 @@ OPENCLAW_OPT_VOLUME_NAME="${OPENCLAW_OPT_VOLUME_NAME:-}"
 OPENCLAW_OPT_VOLUME_WAIT_SECONDS="${OPENCLAW_OPT_VOLUME_WAIT_SECONDS:-180}"
 OPENCLAW_ROOT_STATE_DIR="${OPENCLAW_ROOT_STATE_DIR:-/opt/clawbot-root}"
 OPENCLAW_ROOT_SECRETS_DIR="${OPENCLAW_ROOT_SECRETS_DIR:-$OPENCLAW_ROOT_STATE_DIR/secrets}"
-OPENCLAW_PODCAST_MEDIA_SECRET_STORE="${OPENCLAW_PODCAST_MEDIA_SECRET_STORE:-$OPENCLAW_ROOT_SECRETS_DIR/podcast_media-secrets.json}"
-OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER="${OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER:-/usr/local/bin/openclaw-podcast-media-secret-provider}"
-OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS="${OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS:-/etc/sudoers.d/openclaw-podcast-media-secret-provider}"
+OPENCLAW_AGENT_SECRET_PROVIDER="${OPENCLAW_AGENT_SECRET_PROVIDER:-/usr/local/bin/openclaw-agent-secret-provider}"
+OPENCLAW_AGENT_SECRET_SUDOERS="${OPENCLAW_AGENT_SECRET_SUDOERS:-/etc/sudoers.d/openclaw-agent-secret-provider}"
+OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business)
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
@@ -280,23 +280,29 @@ prepare_root_secret_directories() {
   chmod 700 "$OPENCLAW_ROOT_STATE_DIR" "$OPENCLAW_ROOT_SECRETS_DIR"
 }
 
-ensure_podcast_media_secret_store() {
-  if [[ ! -f "$OPENCLAW_PODCAST_MEDIA_SECRET_STORE" ]]; then
-    printf '{}\n' > "$OPENCLAW_PODCAST_MEDIA_SECRET_STORE"
-  fi
+ensure_agent_secret_stores() {
+  local agent_id
+  local secret_store
 
-  chown root:root "$OPENCLAW_PODCAST_MEDIA_SECRET_STORE"
-  chmod 600 "$OPENCLAW_PODCAST_MEDIA_SECRET_STORE"
+  for agent_id in "${OPENCLAW_AGENT_SECRET_IDS[@]}"; do
+    secret_store="$OPENCLAW_ROOT_SECRETS_DIR/${agent_id}.json"
+    if [[ ! -f "$secret_store" ]]; then
+      printf '{}\n' > "$secret_store"
+    fi
+
+    chown root:root "$secret_store"
+    chmod 600 "$secret_store"
+  done
 }
 
-write_podcast_media_secret_provider() {
-  cat >"$OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER" <<EOF
+write_agent_secret_provider() {
+  cat >"$OPENCLAW_AGENT_SECRET_PROVIDER" <<EOF
 #!/usr/bin/env python3
 import json
 import sys
 from pathlib import Path
 
-STORE = Path(${OPENCLAW_PODCAST_MEDIA_SECRET_STORE@Q})
+ROOT = Path(${OPENCLAW_ROOT_SECRETS_DIR@Q})
 
 def emit(payload, exit_code=0):
     sys.stdout.write(json.dumps(payload))
@@ -311,8 +317,14 @@ except Exception as exc:
 if request.get("protocolVersion") != 1:
     emit({"protocolVersion": 1, "values": {}, "errors": {"__request__": {"message": "unsupported protocolVersion"}}}, 1)
 
+if len(sys.argv) != 2:
+    emit({"protocolVersion": 1, "values": {}, "errors": {"__request__": {"message": "agent id argument required"}}}, 1)
+
+agent_id = sys.argv[1]
+store = ROOT / f"{agent_id}.json"
+
 try:
-    payload = json.loads(STORE.read_text(encoding="utf-8")) if STORE.exists() else {}
+    payload = json.loads(store.read_text(encoding="utf-8")) if store.exists() else {}
 except Exception as exc:
     emit({"protocolVersion": 1, "values": {}, "errors": {"__store__": {"message": f"invalid secret store: {exc}"}}}, 1)
 
@@ -337,18 +349,18 @@ if errors:
 emit(response, 0)
 EOF
 
-  chown root:root "$OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER"
-  chmod 750 "$OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER"
+  chown root:root "$OPENCLAW_AGENT_SECRET_PROVIDER"
+  chmod 750 "$OPENCLAW_AGENT_SECRET_PROVIDER"
 }
 
-write_podcast_media_secret_sudoers() {
-  cat >"$OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS" <<EOF
-Defaults!$OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER !requiretty
-$OPENCLAW_USER ALL=(root) NOPASSWD: $OPENCLAW_PODCAST_MEDIA_SECRET_PROVIDER
+write_agent_secret_sudoers() {
+  cat >"$OPENCLAW_AGENT_SECRET_SUDOERS" <<EOF
+Defaults!$OPENCLAW_AGENT_SECRET_PROVIDER !requiretty
+$OPENCLAW_USER ALL=(root) NOPASSWD: $OPENCLAW_AGENT_SECRET_PROVIDER *
 EOF
 
-  chown root:root "$OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS"
-  chmod 440 "$OPENCLAW_PODCAST_MEDIA_SECRET_SUDOERS"
+  chown root:root "$OPENCLAW_AGENT_SECRET_SUDOERS"
+  chmod 440 "$OPENCLAW_AGENT_SECRET_SUDOERS"
 }
 
 prepare_runtime_config_directory() {
@@ -1268,9 +1280,9 @@ OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 assert_opt_volume_mount
 run_step "Prepare bootstrap directories" prepare_bootstrap_directories
 run_step "Prepare root secret directories" prepare_root_secret_directories
-run_step "Initialize podcast media secret store" ensure_podcast_media_secret_store
-run_step "Install podcast media secret provider" write_podcast_media_secret_provider
-run_step "Install podcast media secret sudoers policy" write_podcast_media_secret_sudoers
+run_step "Initialize agent secret stores" ensure_agent_secret_stores
+run_step "Install agent secret provider" write_agent_secret_provider
+run_step "Install agent secret sudoers policy" write_agent_secret_sudoers
 run_step "Prepare bootstrap runtime directory" prepare_runtime_config_directory
 ensure_gateway_token
 
@@ -1797,12 +1809,53 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
   ],
   "secrets": {
     "providers": {
-      "podcast_media_root": {
+      "agent_orchestrator_root": {
         "source": "exec",
         "command": "/usr/bin/sudo",
         "args": [
           "-n",
-          "/usr/local/bin/openclaw-podcast-media-secret-provider"
+          "/usr/local/bin/openclaw-agent-secret-provider",
+          "orchestrator"
+        ],
+        "jsonOnly": true
+      },
+      "agent_podcast_media_root": {
+        "source": "exec",
+        "command": "/usr/bin/sudo",
+        "args": [
+          "-n",
+          "/usr/local/bin/openclaw-agent-secret-provider",
+          "podcast_media"
+        ],
+        "jsonOnly": true
+      },
+      "agent_research_root": {
+        "source": "exec",
+        "command": "/usr/bin/sudo",
+        "args": [
+          "-n",
+          "/usr/local/bin/openclaw-agent-secret-provider",
+          "research"
+        ],
+        "jsonOnly": true
+      },
+      "agent_engineering_root": {
+        "source": "exec",
+        "command": "/usr/bin/sudo",
+        "args": [
+          "-n",
+          "/usr/local/bin/openclaw-agent-secret-provider",
+          "engineering"
+        ],
+        "jsonOnly": true
+      },
+      "agent_business_root": {
+        "source": "exec",
+        "command": "/usr/bin/sudo",
+        "args": [
+          "-n",
+          "/usr/local/bin/openclaw-agent-secret-provider",
+          "business"
         ],
         "jsonOnly": true
       }

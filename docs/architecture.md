@@ -72,7 +72,7 @@ Important durable paths:
 - `/opt/clawbot/config/telegram-webhook/`
 - `/opt/clawbot/tls/letsencrypt/`
 - `/opt/clawbot-root/bootstrap/openclaw-node-bootstrap-runner.sh`
-- `/opt/clawbot-root/secrets/podcast_media-secrets.json`
+- `/opt/clawbot-root/secrets/`
 - `/opt/clawbot/state/`
 - `/opt/clawbot/work/`
 - `/opt/clawbot/logs/`
@@ -98,12 +98,13 @@ Current secret layers:
   - `/opt/clawbot/config/secrets/llm.env`
   - `/opt/clawbot/config/secrets/telegram.env`
 - agent-specific root-owned secret scaffolding:
-  - `/opt/clawbot-root/secrets/podcast_media-secrets.json`
-  - OpenClaw `secrets.providers.podcast_media_root`
+  - `/opt/clawbot-root/secrets/<agent-id>.json`
+  - OpenClaw `secrets.providers.agent_<agent-id>_root`
 
-The new `podcast_media_root` provider exists to keep future Stacks-only credentials, such as
-Nostr private keys, out of shared env and out of `openclaw.json`. It uses a root-run exec
-provider and a narrow sudoers rule so the secret stays root-owned at rest.
+The `agent_<agent-id>_root` providers exist to keep future per-agent credentials, such as
+Nostr private keys or treasury-related material, out of shared env and out of
+`openclaw.json`. They use a root-run exec provider and a narrow sudoers rule so the secret
+stays root-owned at rest.
 
 Security limitation:
 

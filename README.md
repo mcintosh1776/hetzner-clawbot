@@ -196,17 +196,30 @@ OpenRouter-backed default model unless you override them later.
 
 ### Agent-specific secret scaffolding
 
-Bootstrap also prepares a root-owned secret path for the `podcast_media` agent:
+Bootstrap now prepares a reusable root-owned secret path for each current agent:
 
-- secret store: `/opt/clawbot-root/secrets/podcast_media-secrets.json` (mode `600`, `root:root`)
-- provider helper: `/usr/local/bin/openclaw-podcast-media-secret-provider`
-- sudoers policy: `/etc/sudoers.d/openclaw-podcast-media-secret-provider`
-- OpenClaw provider id: `podcast_media_root`
+- secret stores:
+  - `/opt/clawbot-root/secrets/orchestrator.json`
+  - `/opt/clawbot-root/secrets/podcast_media.json`
+  - `/opt/clawbot-root/secrets/research.json`
+  - `/opt/clawbot-root/secrets/engineering.json`
+  - `/opt/clawbot-root/secrets/business.json`
+- provider helper:
+  - `/usr/local/bin/openclaw-agent-secret-provider`
+- sudoers policy:
+  - `/etc/sudoers.d/openclaw-agent-secret-provider`
+- OpenClaw provider ids:
+  - `agent_orchestrator_root`
+  - `agent_podcast_media_root`
+  - `agent_research_root`
+  - `agent_engineering_root`
+  - `agent_business_root`
 
 This is intended for high-value agent-specific credentials such as a future Nostr private
-key for Stacks. The secret should live in the root-owned JSON store and be referenced from
-agent-scoped OpenClaw config or `auth-profiles.json` via a `SecretRef`, not placed in shared
-env files like `telegram.env` or `llm.env`.
+key for Stacks or future treasury-related material. The secret should live in the
+root-owned per-agent JSON store and be referenced from agent-scoped OpenClaw config or
+`auth-profiles.json` via a `SecretRef`, not placed in shared env files like `telegram.env`
+or `llm.env`.
 
 Example store shape:
 
@@ -222,8 +235,8 @@ Important boundary note:
 - This is stronger than shared environment variables or plaintext in `openclaw.json`.
 - It is not a hard multi-tenant isolation boundary because all five bots still share one
   gateway process and one OS user.
-- If you need Stacks' Nostr private key to be unavailable even under a compromised
-  tool-enabled peer agent, Stacks should move to a separate gateway/runtime boundary.
+- If a future bot must hold high-assurance signing or treasury keys, that bot should still
+  move to a separate runtime boundary.
 
 ## Useful paths on the node
 
