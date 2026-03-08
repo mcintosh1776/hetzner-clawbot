@@ -27,6 +27,17 @@ Working contract:
 
 - see [private-agent-pack-contract.md](/home/mcintosh/repos/hetzner-clawbot/docs/private-agent-pack-contract.md)
 
+## Immediate policy guardrail: approval-gated social publishing
+
+Before broader social/Nostr automation is enabled, the current operating rule is:
+
+- agents may draft posts
+- agents may prepare content for signing
+- agents may not publish externally without operator approval
+
+This rule should remain in place until the signer and publishing flow have a
+clear approval boundary and audit trail.
+
 ## Current baseline
 
 The current production baseline is:

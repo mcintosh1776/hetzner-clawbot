@@ -40,6 +40,7 @@ locals {
       openclaw_branch                       = var.openclaw_branch
       openclaw_agent_pack_repo_url          = var.openclaw_agent_pack_repo_url
       openclaw_agent_pack_ref               = var.openclaw_agent_pack_ref
+      openclaw_operator_telegram_user_id    = var.openclaw_operator_telegram_user_id
       openclaw_gateway_token                = var.openclaw_gateway_token
       openclaw_opt_volume_enabled           = var.opt_volume_enabled
       openclaw_opt_volume_fstype            = var.opt_volume_fstype

@@ -311,6 +311,18 @@ Start with a very small set:
 
 Do not start with a broad arbitrary action system.
 
+### Publishing approval rule
+
+For social and Nostr workflows, the current operating rule is:
+
+- agents may draft content
+- agents may prepare content for signing
+- agents may sign only within explicit signer policy
+- agents may not publish externally without operator approval
+
+For now, any externally visible Nostr post should be treated as approval-gated,
+even if the draft and signing path are available.
+
 ## Delegation between runtimes
 
 ### Purpose
@@ -359,6 +371,16 @@ This allows:
 2. Callee must authenticate the caller.
 3. High-risk actions must declare approval requirements in payload or policy.
 4. Delegation should produce audit events.
+
+### Nostr-specific approval interpretation
+
+Until the operator loosens policy, treat Nostr actions as:
+
+- `draft`: allowed within role
+- `sign`: allowed only through the signer boundary and only for approved policy classes
+- `publish`: requires explicit operator approval
+
+This applies to both direct runtime requests and delegated requests.
 
 ## Secret rules
 

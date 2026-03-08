@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- _None yet._
+- Added a dedicated `docs/nostr-signer-contract.md` defining sign-only key handling and approval-gated social publishing.
 
 ### Fixed
 - _None yet._
@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Documented the current operator policy that agents may draft and prepare signing for social/Nostr content, but external publishing still requires explicit operator approval.
 
 ## [0.7.32] - 2026-03-08
 
@@ -60,10 +60,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [0.7.30] - 2026-03-08
 
 ### Added
-- _None yet._
+- Added a repo-local Nostr signer contract document defining sign-only custody rules and approval-gated social publishing.
 
 ### Changed
-- _None yet._
+- Enforced approval-aware Nostr signing semantics so publish-intent signing now requires explicit operator approval metadata, while draft signing remains available through the signer boundary.
+- Added Telegram approval-loop semantics for signer-backed runtimes so Nostr-capable agents can draft a post, wait for an operator `approve`/`reject`/`revise:` reply, and only then request a publish-intent signature.
 
 ### Fixed
 - Updated the pinned bootstrap runner checksum so replacement nodes accept the current

@@ -119,6 +119,12 @@ variable "openclaw_agent_pack_ref" {
   default     = "main"
 }
 
+variable "openclaw_operator_telegram_user_id" {
+  type        = string
+  description = "Telegram user id allowed to approve publish-intent social signing workflows."
+  default     = ""
+}
+
 variable "openclaw_gateway_token" {
   type        = string
   description = "Optional fixed OPENCLAW_GATEWAY_TOKEN to persist across rebuilds."

@@ -58,6 +58,20 @@ Not included yet:
 - Bob-to-Stacks delegation from another runtime
 - richer response shaping beyond the minimal "final reply text only" guardrail
 
+## Current publishing policy
+
+For now, Stacks must run social/Nostr posts past the operator before any public
+publish step.
+
+Operationally, that means:
+
+- drafting is allowed
+- signing is allowed only through the signer boundary
+- publishing is approval-gated
+
+The first implementation should therefore stop at draft and sign support unless
+the request explicitly carries operator approval.
+
 ## Runtime identity
 
 Runtime id:
@@ -163,6 +177,13 @@ It should return only structured actions, such as:
   - `audit.note`
   - `delegate.request`
 
+For Nostr-specific work, Stacks should prefer responses like:
+
+- `draft ready for approval`
+- `signed artifact prepared`
+
+and should not publish directly until approval is explicit.
+
 ## Secret model for Stacks
 
 ### Root-owned store
@@ -204,6 +225,11 @@ provider path, not from:
 - shared `.env`
 - shared `telegram.env`
 - shared `llm.env`
+
+And even with key material configured:
+
+- `nostr/privateKey` remains sign-only
+- public posting still requires operator approval
 
 ## Configuration inventory
 

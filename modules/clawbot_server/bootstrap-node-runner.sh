@@ -63,6 +63,7 @@ OPENCLAW_AGENT_PACK_EXPORT_DIR_REL="${OPENCLAW_AGENT_PACK_EXPORT_DIR_REL:-export
 OPENCLAW_AGENT_PACK_SSH_KEY_FILE="${OPENCLAW_AGENT_PACK_SSH_KEY_FILE:-$OPENCLAW_ROOT_STATE_DIR/bootstrap/agent-pack-deploy-key}"
 OPENCLAW_AGENT_SECRET_PROVIDER="${OPENCLAW_AGENT_SECRET_PROVIDER:-/usr/local/bin/openclaw-agent-secret-provider}"
 OPENCLAW_AGENT_SECRET_SUDOERS="${OPENCLAW_AGENT_SECRET_SUDOERS:-/etc/sudoers.d/openclaw-agent-secret-provider}"
+OPENCLAW_OPERATOR_TELEGRAM_USER_ID="${OPENCLAW_OPERATOR_TELEGRAM_USER_ID:-}"
 OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business)
 OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS=(stacks jennifer)
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
@@ -76,6 +77,7 @@ OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT="/etc/systemd/system/clawbot-stacks-runtime
 OPENCLAW_STACKS_RUNTIME_AGENT_ID="podcast_media"
 OPENCLAW_STACKS_PROMPT_FILE="$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
 OPENCLAW_PRIVATE_RUNTIME_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_BASE_DIR:-/opt/clawbot/config/private-runtimes}"
+OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR:-/opt/clawbot/state/private-runtimes}"
 OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT="${OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT:-$OPENCLAW_STACKS_RUNTIME_MODEL}"
 OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
 OPENCLAW_PRIVATE_RUNTIME_IMAGE="${OPENCLAW_PRIVATE_RUNTIME_IMAGE:-localhost/clawbot-private-runtime:local}"
@@ -1027,6 +1029,10 @@ private_runtime_dir() {
   printf '%s/%s\n' "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR" "$1"
 }
 
+private_runtime_state_dir() {
+  printf '%s/%s\n' "$OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR" "$1"
+}
+
 private_runtime_unit_name() {
   printf 'clawbot-%s-runtime.service\n' "$1"
 }
@@ -1087,8 +1093,10 @@ render_private_runtime_app() {
   local runtime_dir="$1"
   cat >"${runtime_dir}/app.py" <<'PY'
 import json
+import json
 import os
 from pathlib import Path
+import time
 
 from fastapi import FastAPI, Header, HTTPException, Request
 import httpx
@@ -1103,6 +1111,8 @@ OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TE
 OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET = os.getenv("OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN", "").strip()
+OPENCLAW_PRIVATE_RUNTIME_STATE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_DIR", "/runtime-state").strip()
+OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID", "").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
@@ -1111,6 +1121,10 @@ OPENCLAW_PRIVATE_RUNTIME_API_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_API_TOK
 OUTPUT_POLICY = (
   "Return only the final Telegram reply text. "
   "Do not include titles, checklists, plans, internal notes, logs, or tool instructions."
+)
+NOSTR_DRAFT_POLICY = (
+  "Return only the exact user-facing text of the Nostr post draft. "
+  "No labels, no notes, no approval instructions, and no markdown fences."
 )
 
 
@@ -1135,6 +1149,37 @@ def resolve_internal_api_token() -> str:
 
 def resolve_test_secret_marker() -> str:
   return OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE
+
+
+def runtime_state_dir() -> Path:
+  path = Path(OPENCLAW_PRIVATE_RUNTIME_STATE_DIR or "/runtime-state")
+  path.mkdir(parents=True, exist_ok=True)
+  return path
+
+
+def pending_nostr_path() -> Path:
+  return runtime_state_dir() / "pending-nostr.json"
+
+
+def load_pending_nostr() -> dict | None:
+  path = pending_nostr_path()
+  if not path.exists():
+    return None
+  try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+  except Exception:
+    return None
+  return payload if isinstance(payload, dict) else None
+
+
+def save_pending_nostr(payload: dict) -> None:
+  pending_nostr_path().write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def clear_pending_nostr() -> None:
+  path = pending_nostr_path()
+  if path.exists():
+    path.unlink()
 
 
 def nostr_signer_configured() -> bool:
@@ -1185,12 +1230,16 @@ def build_user_message(payload: dict) -> str:
   )
 
 
-async def generate_reply(payload: dict) -> str:
+async def generate_reply(payload: dict, extra_instruction: str = "") -> str:
   if not OPENROUTER_API_KEY:
     raise HTTPException(status_code=500, detail=f"OPENROUTER_API_KEY is not configured for {RUNTIME_DISPLAY_NAME} runtime")
 
+  system_content = f"{load_prompt()}\n\n{OUTPUT_POLICY}"
+  if extra_instruction.strip():
+    system_content = f"{system_content}\n\n{extra_instruction.strip()}"
+
   messages = [
-    {"role": "system", "content": f"{load_prompt()}\n\n{OUTPUT_POLICY}"},
+    {"role": "system", "content": system_content},
     {"role": "user", "content": build_user_message(payload)},
   ]
 
@@ -1224,6 +1273,97 @@ async def generate_reply(payload: dict) -> str:
       if isinstance(item, dict) and item.get("text")
     ).strip()
   return str(content).strip()
+
+
+def sender_is_operator(event: dict) -> bool:
+  sender = event.get("sender") or {}
+  sender_id = sender.get("id")
+  if sender_id in (None, "") or not OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID:
+    return False
+  return str(sender_id).strip() == OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID
+
+
+def normalize_text(value) -> str:
+  return str(value or "").strip()
+
+
+def is_approval_command(text: str) -> bool:
+  return normalize_text(text).lower() in {"approve", "approve publish", "publish", "approved"}
+
+
+def is_reject_command(text: str) -> bool:
+  return normalize_text(text).lower() in {"reject", "cancel", "deny", "discard"}
+
+
+def revision_instruction(text: str) -> str:
+  value = normalize_text(text)
+  for prefix in ("revise:", "edit:", "change:"):
+    if value.lower().startswith(prefix):
+      return value[len(prefix):].strip()
+  return ""
+
+
+def looks_like_nostr_publish_request(text: str) -> bool:
+  lowered = normalize_text(text).lower()
+  if "nostr" not in lowered:
+    return False
+  return any(keyword in lowered for keyword in ("post", "publish", "announcement", "thread", "note", "reply", "share"))
+
+
+def approval_message(draft: str, draft_id: str) -> str:
+  return (
+    f"Draft ready for approval ({draft_id}).\n\n"
+    f"{draft}\n\n"
+    "Reply `approve` to sign it for publish intent. "
+    "Reply `reject` to discard it. "
+    "Reply `revise: <changes>` to request a revision. "
+    "Publishing remains disabled until the publish transport is implemented."
+  )
+
+
+def signed_ack_message(result: dict) -> str:
+  nostr = result.get("nostr") or {}
+  event = nostr.get("event") or {}
+  return (
+    "Approved. The post has been signed for publish intent.\n\n"
+    f"Event ID: {event.get('id', '')}\n"
+    f"Pubkey: {nostr.get('publicKey', '')}\n\n"
+    "Publishing is still disabled, so nothing has been broadcast yet."
+  )
+
+
+async def generate_nostr_draft(payload: dict, revision_note: str = "", previous_draft: str = "") -> str:
+  extra_instruction = NOSTR_DRAFT_POLICY
+  if revision_note:
+    extra_instruction = (
+      f"{extra_instruction}\n\n"
+      "Revise the existing Nostr draft using the operator feedback below.\n"
+      f"Existing draft:\n{previous_draft}\n\n"
+      f"Operator feedback:\n{revision_note}"
+    )
+  return await generate_reply(payload, extra_instruction=extra_instruction)
+
+
+def build_pending_draft(payload: dict, draft_text: str) -> dict:
+  event = payload.get("event") or {}
+  sender = event.get("sender") or {}
+  return {
+    "id": f"{RUNTIME_AGENT_ID}-{int(time.time())}",
+    "createdAt": int(time.time()),
+    "chatId": event.get("chat", {}).get("id"),
+    "replyToMessageId": event.get("messageId"),
+    "requestedBy": {
+      "id": sender.get("id"),
+      "username": sender.get("username"),
+      "firstName": sender.get("firstName"),
+      "lastName": sender.get("lastName"),
+    },
+    "event": {
+      "kind": 1,
+      "tags": [],
+      "content": draft_text,
+    },
+  }
 
 
 @app.get("/v1/runtime/status")
@@ -1308,6 +1448,113 @@ async def inbound_telegram(
   text = event.get("text") or ""
   if not isinstance(text, str) or not text.strip():
     return {"ok": True, "actions": []}
+
+  pending_nostr = load_pending_nostr()
+  if sender_is_operator(event) and pending_nostr:
+    if is_approval_command(text):
+      signed = await request_nostr_signer(
+        "POST",
+        "/v1/nostr/sign-event",
+        {
+          "intent": "publish",
+          "approval": {
+            "approved": True,
+            "approvedBy": str((event.get("sender") or {}).get("username") or (event.get("sender") or {}).get("id") or "operator"),
+            "approvedAt": str(int(time.time())),
+            "notes": "Approved via Telegram reply",
+          },
+          "event": {
+            **(pending_nostr.get("event") or {}),
+            "created_at": int(time.time()),
+          },
+        },
+      )
+      clear_pending_nostr()
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": signed_ack_message(signed),
+            },
+          }
+        ],
+      }
+
+    if is_reject_command(text):
+      clear_pending_nostr()
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": "Draft discarded. Nothing was signed or published.",
+            },
+          }
+        ],
+      }
+
+    revision_note = revision_instruction(text)
+    if revision_note:
+      revised_draft = await generate_nostr_draft(
+        payload,
+        revision_note=revision_note,
+        previous_draft=str((pending_nostr.get("event") or {}).get("content") or ""),
+      )
+      pending_nostr["event"] = {
+        "kind": 1,
+        "tags": [],
+        "content": revised_draft,
+      }
+      pending_nostr["updatedAt"] = int(time.time())
+      save_pending_nostr(pending_nostr)
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": approval_message(revised_draft, pending_nostr["id"]),
+            },
+          }
+        ],
+      }
+
+  if nostr_signer_configured() and looks_like_nostr_publish_request(text):
+    draft_text = await generate_nostr_draft(payload)
+    if not draft_text:
+      return {"ok": True, "actions": []}
+    pending_nostr = build_pending_draft(payload, draft_text)
+    save_pending_nostr(pending_nostr)
+    return {
+      "ok": True,
+      "actions": [
+        {
+          "type": "telegram.sendMessage",
+          "target": {
+            "chatId": chat.get("id"),
+            "replyToMessageId": event.get("messageId"),
+          },
+          "message": {
+            "text": approval_message(draft_text, pending_nostr["id"]),
+          },
+        }
+      ],
+    }
 
   reply_text = await generate_reply(payload)
   if not reply_text:
@@ -1581,6 +1828,41 @@ def normalize_event(payload: dict) -> dict:
   }
 
 
+def normalize_signing_policy(payload: dict) -> dict:
+  intent = payload.get("intent", "draft")
+  if not isinstance(intent, str):
+    raise HTTPException(status_code=400, detail="intent must be a string")
+  intent = intent.strip().lower() or "draft"
+  if intent not in {"draft", "publish"}:
+    raise HTTPException(status_code=400, detail="intent must be one of: draft, publish")
+
+  approval = payload.get("approval")
+  normalized_approval = None
+  if approval is not None:
+    if not isinstance(approval, dict):
+      raise HTTPException(status_code=400, detail="approval must be an object when provided")
+    approved = approval.get("approved")
+    approved_by = approval.get("approvedBy")
+    approved_at = approval.get("approvedAt")
+    notes = approval.get("notes")
+    normalized_approval = {
+      "approved": approved is True,
+      "approvedBy": str(approved_by).strip() if approved_by not in (None, "") else "",
+      "approvedAt": str(approved_at).strip() if approved_at not in (None, "") else "",
+      "notes": str(notes).strip() if notes not in (None, "") else "",
+    }
+  if intent == "publish":
+    if not normalized_approval or not normalized_approval["approved"]:
+      raise HTTPException(status_code=409, detail="operator approval required before publish intent may be signed")
+    if not normalized_approval["approvedBy"] or not normalized_approval["approvedAt"]:
+      raise HTTPException(status_code=409, detail="publish approval must include approvedBy and approvedAt")
+
+  return {
+    "intent": intent,
+    "approval": normalized_approval,
+  }
+
+
 def sign_event(unsigned_event: dict) -> dict:
   serialized = json.dumps(
     [
@@ -1621,6 +1903,8 @@ async def nostr_status(
       "configured": configured,
       "publicKey": public_key,
       "signOnly": configured,
+      "publishApprovalRequired": True,
+      "publishSupported": False,
     },
   }
 
@@ -1632,6 +1916,7 @@ async def nostr_sign_event(
 ):
   verify_signer_token(authorization)
   payload = await request.json()
+  signing_policy = normalize_signing_policy(payload)
   unsigned_event = normalize_event(payload)
   signed_event = sign_event(unsigned_event)
   return {
@@ -1639,6 +1924,9 @@ async def nostr_sign_event(
     "nostr": {
       "publicKey": signed_event["pubkey"],
       "event": signed_event,
+      "intent": signing_policy["intent"],
+      "approval": signing_policy["approval"],
+      "publishApprovalRequired": True,
     },
   }
 PY
@@ -1750,10 +2038,12 @@ write_private_runtime_quadlet() {
   local test_marker
   local signer_token
   local signer_socket_dir
+  local runtime_state_dir
   runtime_quadlet="$(private_runtime_quadlet_path "$public_id")"
   runtime_container_name="$(private_runtime_container_name "$public_id")"
   runtime_token="$(read_agent_internal_api_token "$agent_id")"
   test_marker="$(read_agent_secret_value "$agent_id" diagnostics testMarker || true)"
+  runtime_state_dir="$(private_runtime_state_dir "$public_id")"
   cat >"$runtime_quadlet" <<EOF
 [Unit]
 Description=Clawbot ${display_name} isolated runtime (rootless Podman)
@@ -1767,6 +2057,7 @@ Notify=no
 
 Volume=$runtime_dir:/app:ro
 Volume=$OPENCLAW_AGENT_CONFIG_DIR:$OPENCLAW_AGENT_CONFIG_DIR:ro
+Volume=$runtime_state_dir:/runtime-state:rw
 EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE
 Environment=OPENCLAW_PRIVATE_RUNTIME_AGENT_ID=$agent_id
 Environment=OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME=$display_name
@@ -1775,6 +2066,8 @@ Environment=OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE=$prompt_file
 Environment=OPENCLAW_PRIVATE_RUNTIME_API_TOKEN=$runtime_token
 Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID=diagnostics/testMarker
 Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE=$test_marker
+Environment=OPENCLAW_PRIVATE_RUNTIME_STATE_DIR=/runtime-state
+Environment=OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID=$OPENCLAW_OPERATOR_TELEGRAM_USER_ID
 EOF
   if private_nostr_signer_enabled "$public_id"; then
     signer_token="$(read_agent_secret_value "$agent_id" internal signerToken)"
@@ -1813,11 +2106,15 @@ configure_private_runtimes() {
   local prompt_file
   local runtime_port
   local runtime_dir
+  local runtime_state_dir
   local runtime_unit
 
   mkdir -p "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
+  mkdir -p "$OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR"
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR"
   chmod 750 "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
+  chmod 750 "$OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR"
   build_private_runtime_image
 
   for public_id in "${OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS[@]}"; do
@@ -1826,11 +2123,13 @@ configure_private_runtimes() {
     prompt_file="$(private_runtime_prompt_file "$public_id")"
     runtime_port="$(private_runtime_port "$public_id")"
     runtime_dir="$(private_runtime_dir "$public_id")"
+    runtime_state_dir="$(private_runtime_state_dir "$public_id")"
     runtime_unit="$(private_runtime_unit_name "$public_id")"
 
-    mkdir -p "$runtime_dir"
+    mkdir -p "$runtime_dir" "$runtime_state_dir"
     chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$runtime_dir"
-    chmod 750 "$runtime_dir"
+    chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$runtime_state_dir"
+    chmod 750 "$runtime_dir" "$runtime_state_dir"
 
     render_private_runtime_app "$runtime_dir"
     write_private_runtime_quadlet "$public_id" "$agent_id" "$display_name" "$prompt_file" "$runtime_port" "$runtime_dir"

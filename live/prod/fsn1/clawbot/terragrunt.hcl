@@ -38,9 +38,10 @@ inputs = {
   openclaw_branch = "v2026.3.2"
   openclaw_agent_pack_repo_url = "git@github.com:mcintosh1776/clawbot-agents.git"
   openclaw_agent_pack_ref = "v0.0.4"
+  openclaw_operator_telegram_user_id = "1619231777"
   openclaw_public_hostname = "agents.satoshis-plebs.com"
   openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"
   openclaw_private_runtime_public_ids = ["bob", "stacks", "jennifer", "steve", "number5"]
   openclaw_bootstrap_runner_url = "https://raw.githubusercontent.com/mcintosh1776/hetzner-clawbot/main/modules/clawbot_server/bootstrap-node-runner.sh"
-  openclaw_bootstrap_runner_sha256 = "2e0a6eed9971d393e2fac486255cd9308a20a9cdfb22c06e609e64f4fe5c93b9"
+  openclaw_bootstrap_runner_sha256 = "695a8d2e6abf428721239652a58c680cb4a0ac4648217e8c4dcef362d8edacd7"
 }
