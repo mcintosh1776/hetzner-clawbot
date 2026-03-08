@@ -1647,6 +1647,10 @@ ensure_nostr_signer_venv() {
   if [[ ! -x "${signer_venv}/bin/python" ]]; then
     python3 -m venv "$signer_venv"
   fi
+  if [[ ! -x "${signer_venv}/bin/pip" ]]; then
+    rm -rf "$signer_venv"
+    python3 -m venv "$signer_venv"
+  fi
   "${signer_venv}/bin/pip" install --upgrade --no-cache-dir fastapi uvicorn coincurve bech32 >/tmp/openclaw-nostr-signer-pip.log 2>&1
 }
 
