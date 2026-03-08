@@ -107,6 +107,18 @@ variable "openclaw_branch" {
   default     = "main"
 }
 
+variable "openclaw_agent_pack_repo_url" {
+  type        = string
+  description = "Optional private agent-pack Git repository URL. When set, bootstrap will sync a pinned exported agent-config tree from this repo before using public fallback templates."
+  default     = ""
+}
+
+variable "openclaw_agent_pack_ref" {
+  type        = string
+  description = "Pinned branch, tag, or commit for the private agent-pack repository."
+  default     = "main"
+}
+
 variable "openclaw_gateway_token" {
   type        = string
   description = "Optional fixed OPENCLAW_GATEWAY_TOKEN to persist across rebuilds."

@@ -12,6 +12,21 @@ It separates:
 - security hardening and audit work
 - possible product additions such as a treasurer bot
 
+## Immediate top priority: private agent pack extraction
+
+The next major milestone is to move real agent identity content out of this
+public repo and into a pinned private agent-pack repo.
+
+Why:
+
+- those files are the actual product IP
+- they should not be published with the infrastructure code
+- future `SOUL` / `AGENT` / `MEMORY` work should happen in the private repo
+
+Working contract:
+
+- see [private-agent-pack-contract.md](/home/mcintosh/repos/hetzner-clawbot/docs/private-agent-pack-contract.md)
+
 ## Current baseline
 
 The current production baseline is:

@@ -19,6 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Seeded a root-owned per-agent diagnostic secret marker and added a private runtime status endpoint that can prove a runtime resolved its own secret without exposing the value.
 - Projected each agent's root-owned secret store into only that agent's runtime container, so future per-bot secrets can be resolved by path without using shared global env files.
 
+### Changed
+- Added optional bootstrap support for a pinned private agent-pack repo that can overlay an exported `agent-config` tree before the public fallback templates, and documented private agent-pack extraction as the new top-priority milestone.
+
 ## [0.7.31] - 2026-03-08
 
 ### Added

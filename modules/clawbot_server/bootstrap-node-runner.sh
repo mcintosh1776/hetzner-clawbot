@@ -40,6 +40,13 @@ if [ -z "$OPENCLAW_REPO_URL" ]; then
   OPENCLAW_REPO_URL="https://github.com/openclaw/openclaw.git"
 fi
 
+OPENCLAW_AGENT_PACK_REPO_URL="${OPENCLAW_AGENT_PACK_REPO_URL:-}"
+OPENCLAW_AGENT_PACK_REF="${OPENCLAW_AGENT_PACK_REF:-main}"
+OPENCLAW_AGENT_PACK_ROOT_DIR="${OPENCLAW_AGENT_PACK_ROOT_DIR:-$OPENCLAW_ROOT_STATE_DIR/agent-pack}"
+OPENCLAW_AGENT_PACK_CHECKOUT_DIR="${OPENCLAW_AGENT_PACK_CHECKOUT_DIR:-$OPENCLAW_AGENT_PACK_ROOT_DIR/repo}"
+OPENCLAW_AGENT_PACK_EXPORT_DIR_REL="${OPENCLAW_AGENT_PACK_EXPORT_DIR_REL:-exports/agent-config}"
+OPENCLAW_AGENT_PACK_SSH_KEY_FILE="${OPENCLAW_AGENT_PACK_SSH_KEY_FILE:-$OPENCLAW_ROOT_STATE_DIR/bootstrap/agent-pack-deploy-key}"
+
 OPENCLAW_IMAGE="${OPENCLAW_IMAGE:-}"
 if [ -z "$OPENCLAW_IMAGE" ]; then
   OPENCLAW_IMAGE="localhost/openclaw:local"
@@ -431,6 +438,48 @@ prepare_runtime_config_directory() {
 
 prepare_default_agent_config_templates() {
   mkdir -p "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
+}
+
+sync_private_agent_pack() {
+  if [[ -z "$OPENCLAW_AGENT_PACK_REPO_URL" ]]; then
+    return 0
+  fi
+
+  local repo_dir="$OPENCLAW_AGENT_PACK_CHECKOUT_DIR"
+  local export_dir
+  local -a git_prefix=()
+
+  install -d -m 0700 "$OPENCLAW_AGENT_PACK_ROOT_DIR"
+
+  if [[ "$OPENCLAW_AGENT_PACK_REPO_URL" == git@* || "$OPENCLAW_AGENT_PACK_REPO_URL" == ssh://* ]]; then
+    if [[ ! -f "$OPENCLAW_AGENT_PACK_SSH_KEY_FILE" ]]; then
+      echo "Private agent pack repo requires deploy key at $OPENCLAW_AGENT_PACK_SSH_KEY_FILE" >&2
+      return 1
+    fi
+    chmod 600 "$OPENCLAW_AGENT_PACK_SSH_KEY_FILE"
+    git_prefix=(
+      env
+      "GIT_SSH_COMMAND=ssh -i $OPENCLAW_AGENT_PACK_SSH_KEY_FILE -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    )
+  fi
+
+  rm -rf "$repo_dir"
+  "${git_prefix[@]}" git clone --depth 1 --branch "$OPENCLAW_AGENT_PACK_REF" "$OPENCLAW_AGENT_PACK_REPO_URL" "$repo_dir"
+
+  export_dir="$repo_dir/$OPENCLAW_AGENT_PACK_EXPORT_DIR_REL"
+  if [[ ! -f "$export_dir/agent-fleet.yaml" ]]; then
+    echo "Private agent pack export missing $OPENCLAW_AGENT_PACK_EXPORT_DIR_REL/agent-fleet.yaml" >&2
+    return 1
+  fi
+
+  install -d -m 0750 -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" \
+    "$OPENCLAW_AGENT_CONFIG_DIR" \
+    "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" \
+    "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
+  cp -a "$export_dir/." "$OPENCLAW_AGENT_CONFIG_DIR/"
+  chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR"
+  find "$OPENCLAW_AGENT_CONFIG_DIR" -type d -exec chmod 750 {} +
+  find "$OPENCLAW_AGENT_CONFIG_DIR" -type f -exec chmod 640 {} +
 }
 
 prepare_rootless_runtime_directory() {
@@ -1911,6 +1960,8 @@ ensure_gateway_token
 if [[ ! -d "$OPENCLAW_AGENT_CONFIG_DIR" ]]; then
   run_step "Prepare default agent config templates" prepare_default_agent_config_templates
 fi
+
+run_step "Sync private agent pack" sync_private_agent_pack
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" ]]; then
   if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" "$OPENCLAW_AGENT_FLEET_TEMPLATE_B64"; then

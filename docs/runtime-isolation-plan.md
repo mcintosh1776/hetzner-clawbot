@@ -17,6 +17,22 @@ Reason:
 This plan is intended to survive context loss and compaction. It is the working
 record for the next major architecture step.
 
+## Top-priority milestone
+
+Before more bot behavior work lands, extract private agent identity content out
+of this public repo.
+
+Reason:
+
+- the real `SOUL` / `AGENT` / `MEMORY` files are part of the product IP
+- they should not live in public bootstrap code long-term
+- the infrastructure repo should consume a pinned private export, not remain the
+  source of truth for agent identity
+
+Contract:
+
+- see [private-agent-pack-contract.md](/home/mcintosh/repos/hetzner-clawbot/docs/private-agent-pack-contract.md)
+
 ## Current state
 
 Current production shape:
