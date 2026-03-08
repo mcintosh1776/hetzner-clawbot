@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Fixed
-- _None yet._
+- Resolved the private runtime secret-probe path by injecting the diagnostic marker from the host-owned secret store into each runtime container, instead of attempting a host-only secret lookup from inside the container.
 
 ### Removed
 - _None yet._

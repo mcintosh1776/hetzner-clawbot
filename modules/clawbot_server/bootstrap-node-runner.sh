@@ -1049,6 +1049,7 @@ RUNTIME_MODEL = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MODEL", "openrouter/auto")
 RUNTIME_PROMPT_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE", "/opt/clawbot/config/agent-config/specialists/podcast_media.md")
 OPENCLAW_AGENT_SECRET_PROVIDER = os.getenv("OPENCLAW_AGENT_SECRET_PROVIDER", "/usr/local/bin/openclaw-agent-secret-provider")
 OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID", "diagnostics/testMarker").strip()
+OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_MARKER = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_MARKER", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
@@ -1111,7 +1112,7 @@ def resolve_internal_api_token() -> str:
 def resolve_test_secret_marker() -> str:
   if not OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID:
     return ""
-  return resolve_secret_value(OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID, required=False)
+  return OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_MARKER.strip()
 
 
 def build_user_message(payload: dict) -> str:
@@ -1255,16 +1256,24 @@ build_private_runtime_image() {
 }
 
 read_agent_internal_api_token() {
+  read_agent_secret_value "$1" internal apiToken
+}
+
+read_agent_secret_value() {
   local agent_id="$1"
+  local section="$2"
+  local key="$3"
   local secret_store="$OPENCLAW_ROOT_SECRETS_DIR/${agent_id}.json"
-  python3 - "$secret_store" <<'PY'
+  python3 - "$secret_store" "$section" "$key" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 store = Path(sys.argv[1])
+section = sys.argv[2]
+key = sys.argv[3]
 payload = json.loads(store.read_text(encoding="utf-8"))
-value = (((payload.get("internal") or {}).get("apiToken")) if isinstance(payload, dict) else None)
+value = (((payload.get(section) or {}).get(key)) if isinstance(payload, dict) else None)
 if not isinstance(value, str) or not value.strip():
     raise SystemExit(1)
 print(value)
@@ -1281,9 +1290,11 @@ write_private_runtime_quadlet() {
   local runtime_quadlet
   local runtime_container_name
   local runtime_token
+  local runtime_test_marker
   runtime_quadlet="$(private_runtime_quadlet_path "$public_id")"
   runtime_container_name="$(private_runtime_container_name "$public_id")"
   runtime_token="$(read_agent_internal_api_token "$agent_id")"
+  runtime_test_marker="$(read_agent_secret_value "$agent_id" diagnostics testMarker)"
   cat >"$runtime_quadlet" <<EOF
 [Unit]
 Description=Clawbot ${display_name} isolated runtime (rootless Podman)
@@ -1304,6 +1315,7 @@ Environment=OPENCLAW_PRIVATE_RUNTIME_MODEL=$OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAU
 Environment=OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE=$prompt_file
 Environment=OPENCLAW_PRIVATE_RUNTIME_API_TOKEN=$runtime_token
 Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID=diagnostics/testMarker
+Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_MARKER=$runtime_test_marker
 Environment=OPENCLAW_PRIVATE_RUNTIME_PORT=$runtime_port
 Environment=OPENCLAW_PRIVATE_RUNTIME_HOST=0.0.0.0
 Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
