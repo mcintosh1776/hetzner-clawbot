@@ -1035,7 +1035,7 @@ render_private_runtime_app() {
   cat >"${runtime_dir}/app.py" <<'PY'
 import json
 import os
-import subprocess
+import base64
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -1047,9 +1047,8 @@ RUNTIME_AGENT_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_AGENT_ID", "podcast_media
 RUNTIME_DISPLAY_NAME = os.getenv("OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME", "Stacks")
 RUNTIME_MODEL = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MODEL", "openrouter/auto")
 RUNTIME_PROMPT_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE", "/opt/clawbot/config/agent-config/specialists/podcast_media.md")
-OPENCLAW_AGENT_SECRET_PROVIDER = os.getenv("OPENCLAW_AGENT_SECRET_PROVIDER", "/usr/local/bin/openclaw-agent-secret-provider")
+OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64 = os.getenv("OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID", "diagnostics/testMarker").strip()
-OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_MARKER = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_MARKER", "")
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
@@ -1074,30 +1073,30 @@ def load_prompt() -> str:
   return prompt_path.read_text(encoding="utf-8")
 
 
+def load_agent_secrets() -> dict:
+  if not OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64:
+    return {}
+  try:
+    decoded = base64.b64decode(OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64.encode("ascii")).decode("utf-8")
+    payload = json.loads(decoded)
+  except Exception:
+    return {}
+  return payload if isinstance(payload, dict) else {}
+
+
+AGENT_SECRETS = load_agent_secrets()
+
+
 def resolve_secret_value(secret_id: str, *, required: bool = True) -> str:
   if secret_id == "internal/apiToken" and OPENCLAW_PRIVATE_RUNTIME_API_TOKEN:
     return OPENCLAW_PRIVATE_RUNTIME_API_TOKEN
 
-  request_payload = json.dumps({"protocolVersion": 1, "ids": [secret_id]})
-  try:
-    completed = subprocess.run(
-      ["sudo", "-n", OPENCLAW_AGENT_SECRET_PROVIDER, RUNTIME_AGENT_ID],
-      input=request_payload,
-      text=True,
-      capture_output=True,
-      check=True,
-    )
-  except subprocess.CalledProcessError as exc:
-    detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
-    raise RuntimeError(f"failed resolving internal token: {detail}") from exc
-
-  payload = json.loads(completed.stdout or "{}")
-  if payload.get("errors"):
-    if required:
-      raise RuntimeError(f"secret lookup failed for {secret_id}: {payload['errors']}")
-    return ""
-
-  value = payload.get("values", {}).get(secret_id)
+  value = AGENT_SECRETS
+  for part in secret_id.split("/"):
+    if not isinstance(value, dict):
+      value = None
+      break
+    value = value.get(part)
   if not value:
     if required:
       raise RuntimeError(f"secret missing for {secret_id}")
@@ -1112,7 +1111,7 @@ def resolve_internal_api_token() -> str:
 def resolve_test_secret_marker() -> str:
   if not OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID:
     return ""
-  return OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_MARKER.strip()
+  return resolve_secret_value(OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID, required=False)
 
 
 def build_user_message(payload: dict) -> str:
@@ -1255,6 +1254,22 @@ build_private_runtime_image() {
   run_as_openclaw podman build -t "$OPENCLAW_PRIVATE_RUNTIME_IMAGE" -f "$OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE" "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
 }
 
+read_agent_secret_store_b64() {
+  local agent_id="$1"
+  local secret_store="$OPENCLAW_ROOT_SECRETS_DIR/${agent_id}.json"
+  python3 - "$secret_store" <<'PY'
+import base64
+import json
+import sys
+from pathlib import Path
+
+store = Path(sys.argv[1])
+payload = json.loads(store.read_text(encoding="utf-8"))
+encoded = base64.b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
+print(encoded)
+PY
+}
+
 read_agent_internal_api_token() {
   read_agent_secret_value "$1" internal apiToken
 }
@@ -1290,11 +1305,11 @@ write_private_runtime_quadlet() {
   local runtime_quadlet
   local runtime_container_name
   local runtime_token
-  local runtime_test_marker
+  local runtime_secrets_b64
   runtime_quadlet="$(private_runtime_quadlet_path "$public_id")"
   runtime_container_name="$(private_runtime_container_name "$public_id")"
   runtime_token="$(read_agent_internal_api_token "$agent_id")"
-  runtime_test_marker="$(read_agent_secret_value "$agent_id" diagnostics testMarker)"
+  runtime_secrets_b64="$(read_agent_secret_store_b64 "$agent_id")"
   cat >"$runtime_quadlet" <<EOF
 [Unit]
 Description=Clawbot ${display_name} isolated runtime (rootless Podman)
@@ -1314,8 +1329,8 @@ Environment=OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME=$display_name
 Environment=OPENCLAW_PRIVATE_RUNTIME_MODEL=$OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT
 Environment=OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE=$prompt_file
 Environment=OPENCLAW_PRIVATE_RUNTIME_API_TOKEN=$runtime_token
+Environment=OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64=$runtime_secrets_b64
 Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID=diagnostics/testMarker
-Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_MARKER=$runtime_test_marker
 Environment=OPENCLAW_PRIVATE_RUNTIME_PORT=$runtime_port
 Environment=OPENCLAW_PRIVATE_RUNTIME_HOST=0.0.0.0
 Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
