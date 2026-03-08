@@ -302,13 +302,14 @@ ensure_agent_secret_stores() {
 
   for agent_id in "${OPENCLAW_AGENT_SECRET_IDS[@]}"; do
     secret_store="$OPENCLAW_ROOT_SECRETS_DIR/${agent_id}.json"
-    python3 - "$secret_store" <<'PY'
+    python3 - "$secret_store" "$agent_id" <<'PY'
 import json
 import secrets
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+agent_id = sys.argv[2]
 if path.exists():
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -327,6 +328,14 @@ if not isinstance(internal, dict):
 
 if not isinstance(internal.get("apiToken"), str) or not internal["apiToken"].strip():
     internal["apiToken"] = secrets.token_urlsafe(32)
+
+diagnostics = payload.get("diagnostics")
+if not isinstance(diagnostics, dict):
+    diagnostics = {}
+    payload["diagnostics"] = diagnostics
+
+if not isinstance(diagnostics.get("testMarker"), str) or not diagnostics["testMarker"].strip():
+    diagnostics["testMarker"] = f"agent:{agent_id}:ok"
 
 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
@@ -1039,6 +1048,7 @@ RUNTIME_DISPLAY_NAME = os.getenv("OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME", "Stack
 RUNTIME_MODEL = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MODEL", "openrouter/auto")
 RUNTIME_PROMPT_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE", "/opt/clawbot/config/agent-config/specialists/podcast_media.md")
 OPENCLAW_AGENT_SECRET_PROVIDER = os.getenv("OPENCLAW_AGENT_SECRET_PROVIDER", "/usr/local/bin/openclaw-agent-secret-provider")
+OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID", "diagnostics/testMarker").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
@@ -1063,11 +1073,11 @@ def load_prompt() -> str:
   return prompt_path.read_text(encoding="utf-8")
 
 
-def resolve_internal_api_token() -> str:
-  if OPENCLAW_PRIVATE_RUNTIME_API_TOKEN:
+def resolve_secret_value(secret_id: str, *, required: bool = True) -> str:
+  if secret_id == "internal/apiToken" and OPENCLAW_PRIVATE_RUNTIME_API_TOKEN:
     return OPENCLAW_PRIVATE_RUNTIME_API_TOKEN
 
-  request_payload = json.dumps({"protocolVersion": 1, "ids": ["internal/apiToken"]})
+  request_payload = json.dumps({"protocolVersion": 1, "ids": [secret_id]})
   try:
     completed = subprocess.run(
       ["sudo", "-n", OPENCLAW_AGENT_SECRET_PROVIDER, RUNTIME_AGENT_ID],
@@ -1082,12 +1092,26 @@ def resolve_internal_api_token() -> str:
 
   payload = json.loads(completed.stdout or "{}")
   if payload.get("errors"):
-    raise RuntimeError(f"internal token lookup failed: {payload['errors']}")
+    if required:
+      raise RuntimeError(f"secret lookup failed for {secret_id}: {payload['errors']}")
+    return ""
 
-  value = payload.get("values", {}).get("internal/apiToken")
+  value = payload.get("values", {}).get(secret_id)
   if not value:
-    raise RuntimeError("internal api token missing")
+    if required:
+      raise RuntimeError(f"secret missing for {secret_id}")
+    return ""
   return value
+
+
+def resolve_internal_api_token() -> str:
+  return resolve_secret_value("internal/apiToken")
+
+
+def resolve_test_secret_marker() -> str:
+  if not OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID:
+    return ""
+  return resolve_secret_value(OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID, required=False)
 
 
 def build_user_message(payload: dict) -> str:
@@ -1143,6 +1167,29 @@ async def generate_reply(payload: dict) -> str:
       if isinstance(item, dict) and item.get("text")
     ).strip()
   return str(content).strip()
+
+
+@app.get("/v1/runtime/status")
+async def runtime_status(
+  authorization: str | None = Header(default=None),
+):
+  expected_token = resolve_internal_api_token()
+  if authorization != f"Bearer {expected_token}":
+    raise HTTPException(status_code=401, detail="invalid runtime authorization")
+
+  marker = resolve_test_secret_marker()
+  return {
+    "ok": True,
+    "runtime": {
+      "agentId": RUNTIME_AGENT_ID,
+      "displayName": RUNTIME_DISPLAY_NAME,
+      "model": RUNTIME_MODEL,
+    },
+    "secretProbe": {
+      "id": OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID,
+      "resolved": bool(marker),
+    },
+  }
 
 
 @app.post("/v1/inbound/telegram")
@@ -1256,6 +1303,7 @@ Environment=OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME=$display_name
 Environment=OPENCLAW_PRIVATE_RUNTIME_MODEL=$OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT
 Environment=OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE=$prompt_file
 Environment=OPENCLAW_PRIVATE_RUNTIME_API_TOKEN=$runtime_token
+Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID=diagnostics/testMarker
 Environment=OPENCLAW_PRIVATE_RUNTIME_PORT=$runtime_port
 Environment=OPENCLAW_PRIVATE_RUNTIME_HOST=0.0.0.0
 Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1

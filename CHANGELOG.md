@@ -15,6 +15,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - _None yet._
 
+### Security
+- Seeded a root-owned per-agent diagnostic secret marker and added a private runtime status endpoint that can prove a runtime resolved its own secret without exposing the value.
+
 ## [0.7.31] - 2026-03-08
 
 ### Added
