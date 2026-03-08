@@ -347,3 +347,13 @@ The next checkpoint should be considered complete when:
 2. `bob`, `jennifer`, and `stacks` all reply successfully after rebuild.
 3. Docs reflect the current state without known major staleness.
 4. A first-pass security audit has been completed and written down.
+
+## Dashboard auth follow-up
+
+- Root-cause the Control UI `device signature invalid` behavior seen on OpenClaw builds newer than `v2026.3.2`.
+- Test a newer OpenClaw version only as an explicit pinned upgrade, not by drifting back to `main`.
+- Before unpinning from `v2026.3.2`, verify:
+  - dashboard token flow
+  - Control UI device pairing/reconnect
+  - all five bot runtime containers
+  - Telegram ingress and reply behavior

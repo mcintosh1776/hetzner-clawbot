@@ -172,3 +172,32 @@ is the `terragrunt` stack above.
 ```bash
 terraform fmt -recursive
 ```
+
+## Dashboard access and pairing
+
+The dashboard is local-only on the server. Use an SSH tunnel:
+
+```bash
+ssh -N -L 18789:127.0.0.1:18789 mcintosh@91.107.207.3
+```
+
+Then generate the dashboard URL on the server:
+
+```bash
+sudo -u openclaw env HOME=/home/openclaw XDG_RUNTIME_DIR=/run/user/999 \
+  podman exec openclaw node dist/index.js dashboard
+```
+
+Useful recovery commands:
+
+```bash
+sudo -u openclaw env HOME=/home/openclaw XDG_RUNTIME_DIR=/run/user/999 \
+  podman exec openclaw node dist/index.js devices list
+```
+
+```bash
+sudo -u openclaw env HOME=/home/openclaw XDG_RUNTIME_DIR=/run/user/999 \
+  podman exec openclaw node dist/index.js devices clear --yes
+```
+
+The public hostname `agents.satoshis-plebs.com` is for webhook ingress only. Do not use it for the dashboard.

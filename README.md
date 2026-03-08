@@ -342,3 +342,45 @@ Persisted artifacts for webhook/ingress are rooted in `/opt/clawbot` when possib
 
 If you add or modify webhook-specific code/templates, keep durable state files in `/opt/clawbot`
 so rebuilds via `taint`/`apply` preserve them.
+
+## Control UI access and pairing
+
+The OpenClaw dashboard is intentionally loopback-only. Do not expect `https://agents.satoshis-plebs.com/` to expose the control UI.
+
+Use an SSH tunnel:
+
+```bash
+ssh -N -L 18789:127.0.0.1:18789 mcintosh@91.107.207.3
+```
+
+Then generate the tokenized dashboard URL on the server:
+
+```bash
+sudo -u openclaw env HOME=/home/openclaw XDG_RUNTIME_DIR=/run/user/999 \
+  podman exec openclaw node dist/index.js dashboard
+```
+
+If the Control UI needs a fresh device pairing:
+
+```bash
+sudo -u openclaw env HOME=/home/openclaw XDG_RUNTIME_DIR=/run/user/999 \
+  podman exec openclaw node dist/index.js devices list
+```
+
+```bash
+sudo -u openclaw env HOME=/home/openclaw XDG_RUNTIME_DIR=/run/user/999 \
+  podman exec openclaw node dist/index.js devices approve --latest
+```
+
+If dashboard device state becomes stale:
+
+```bash
+sudo -u openclaw env HOME=/home/openclaw XDG_RUNTIME_DIR=/run/user/999 \
+  podman exec openclaw node dist/index.js devices clear --yes
+```
+
+This dashboard/device pairing flow is separate from Telegram channel pairing.
+
+## Version pin note
+
+Production is currently pinned to OpenClaw `v2026.3.2`. Keep that pin in place until the newer Control UI `device signature invalid` behavior is root-caused and a newer release is revalidated.

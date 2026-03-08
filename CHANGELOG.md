@@ -10,7 +10,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Fixed
-- Added an explicit `openclaw_branch` infrastructure variable and pinned the production OpenClaw source build to `v2026.3.2` for rebuild verification.
+- _None yet._
+
+### Removed
+- _None yet._
+
+## [0.7.31] - 2026-03-08
+
+### Added
+- Documented the current dashboard tunnel and Control UI pairing workflow, including the single-host container topology and the `v2026.3.2` operational pin.
+
+### Changed
+- Added an explicit `openclaw_branch` infrastructure variable and pinned the production OpenClaw source build to `v2026.3.2` for controlled rebuilds.
+
+### Fixed
+- Clarified that `agents.satoshis-plebs.com` is webhook ingress only and not the dashboard endpoint.
 
 ### Removed
 - _None yet._

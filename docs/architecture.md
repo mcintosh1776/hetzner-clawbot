@@ -346,3 +346,24 @@ The current system is best understood as:
 
 It is operational now, but still a good candidate for later cleanup into a more
 standardized agent architecture.
+
+## Current production topology
+
+As of the current single-host production layout:
+
+- One Hetzner host: `clawbot-prod-1`
+- Stable public IPv4: `91.107.207.3`
+- Public ingress: `nginx` plus the local webhook relay
+- Control plane: one rootless `openclaw` container bound to `127.0.0.1:18789`
+- Bot execution: five per-bot runtime containers bound locally
+  - `clawbot-bob-runtime` -> `127.0.0.1:18920`
+  - `clawbot-stacks-runtime` -> `127.0.0.1:18921`
+  - `clawbot-jennifer-runtime` -> `127.0.0.1:18922`
+  - `clawbot-steve-runtime` -> `127.0.0.1:18923`
+  - `clawbot-number5-runtime` -> `127.0.0.1:18924`
+- Public domain use: Telegram/webhook ingress only, not dashboard access
+- OpenClaw source pin: `v2026.3.2`
+
+## Current control-plane caveat
+
+A newer OpenClaw build exposed a Control UI/device-auth problem that surfaced as `device signature invalid` in the dashboard WebSocket handshake. Production is pinned to `v2026.3.2` until that behavior is root-caused and a newer version is revalidated.
