@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- _None yet._
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- _None yet._
+
+## [0.7.32] - 2026-03-08
+
+### Added
 - Added root-owned internal Nostr signer services for `Stacks` and `Jennifer` with private Unix-socket access, safe status reporting, and sign-only event operations.
 
 ### Fixed
