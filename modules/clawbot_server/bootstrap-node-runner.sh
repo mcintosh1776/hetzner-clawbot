@@ -54,6 +54,7 @@ OPENCLAW_OPT_VOLUME_NAME="${OPENCLAW_OPT_VOLUME_NAME:-}"
 OPENCLAW_OPT_VOLUME_WAIT_SECONDS="${OPENCLAW_OPT_VOLUME_WAIT_SECONDS:-180}"
 OPENCLAW_ROOT_STATE_DIR="${OPENCLAW_ROOT_STATE_DIR:-/opt/clawbot-root}"
 OPENCLAW_ROOT_SECRETS_DIR="${OPENCLAW_ROOT_SECRETS_DIR:-$OPENCLAW_ROOT_STATE_DIR/secrets}"
+OPENCLAW_NOSTR_SIGNER_SOCKET_BASE_DIR="${OPENCLAW_NOSTR_SIGNER_SOCKET_BASE_DIR:-/opt/clawbot/state/nostr-signers}"
 OPENCLAW_AGENT_PACK_REPO_URL="${OPENCLAW_AGENT_PACK_REPO_URL:-}"
 OPENCLAW_AGENT_PACK_REF="${OPENCLAW_AGENT_PACK_REF:-main}"
 OPENCLAW_AGENT_PACK_ROOT_DIR="${OPENCLAW_AGENT_PACK_ROOT_DIR:-$OPENCLAW_ROOT_STATE_DIR/agent-pack}"
@@ -1413,7 +1414,7 @@ private_nostr_signer_dir() {
 }
 
 private_nostr_signer_socket_dir() {
-  printf '%s/socket\n' "$(private_nostr_signer_dir "$1")"
+  printf '%s/%s\n' "$OPENCLAW_NOSTR_SIGNER_SOCKET_BASE_DIR" "$1"
 }
 
 private_nostr_signer_socket_path() {
@@ -1432,6 +1433,9 @@ prepare_nostr_signer_directories() {
   mkdir -p "$OPENCLAW_ROOT_STATE_DIR/nostr-signers"
   chown root:root "$OPENCLAW_ROOT_STATE_DIR/nostr-signers"
   chmod 700 "$OPENCLAW_ROOT_STATE_DIR/nostr-signers"
+  mkdir -p "$OPENCLAW_NOSTR_SIGNER_SOCKET_BASE_DIR"
+  chown root:"$OPENCLAW_USER" "$OPENCLAW_NOSTR_SIGNER_SOCKET_BASE_DIR"
+  chmod 750 "$OPENCLAW_NOSTR_SIGNER_SOCKET_BASE_DIR"
 
   for public_id in "${OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS[@]}"; do
     signer_dir="$(private_nostr_signer_dir "$public_id")"
