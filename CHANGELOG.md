@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Fixed
-- _None yet._
+- Added an explicit `openclaw_branch` infrastructure variable and pinned the production OpenClaw source build to `v2026.3.2` for rebuild verification.
 
 ### Removed
 - _None yet._

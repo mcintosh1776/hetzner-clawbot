@@ -101,6 +101,12 @@ variable "openclaw_repo_url" {
   default     = "https://github.com/openclaw/openclaw.git"
 }
 
+variable "openclaw_branch" {
+  type        = string
+  description = "OpenClaw Git branch or tag to clone and build during cloud-init."
+  default     = "main"
+}
+
 variable "openclaw_gateway_token" {
   type        = string
   description = "Optional fixed OPENCLAW_GATEWAY_TOKEN to persist across rebuilds."

@@ -37,6 +37,7 @@ locals {
       user_ssh_authorized_keys              = var.bootstrap_user_ssh_public_keys
       enable_root_ssh                       = var.enable_root_ssh
       openclaw_repo_url                     = var.openclaw_repo_url
+      openclaw_branch                       = var.openclaw_branch
       openclaw_gateway_token                = var.openclaw_gateway_token
       openclaw_opt_volume_enabled           = var.opt_volume_enabled
       openclaw_opt_volume_fstype            = var.opt_volume_fstype
