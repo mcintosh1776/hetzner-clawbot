@@ -15,6 +15,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Removed
 - _None yet._
 
+## [0.7.30] - 2026-03-08
+
+### Added
+- _None yet._
+
+### Changed
+- _None yet._
+
+### Fixed
+- Updated the pinned bootstrap runner checksum so replacement nodes accept the current
+  `bootstrap-node-runner.sh` and complete cloud-init again.
+
+### Removed
+- _None yet._
+
 ## [0.7.29] - 2026-03-08
 
 ### Added
