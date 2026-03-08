@@ -36,6 +36,8 @@ inputs = {
 
   openclaw_enable_webhook_proxy = true
   openclaw_branch = "v2026.3.2"
+  openclaw_agent_pack_repo_url = "git@github.com:mcintosh1776/clawbot-agents.git"
+  openclaw_agent_pack_ref = "v0.0.1"
   openclaw_public_hostname = "agents.satoshis-plebs.com"
   openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"
   openclaw_private_runtime_public_ids = ["bob", "stacks", "jennifer", "steve", "number5"]

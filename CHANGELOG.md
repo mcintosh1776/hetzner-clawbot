@@ -21,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 - Added optional bootstrap support for a pinned private agent-pack repo that can overlay an exported `agent-config` tree before the public fallback templates, and documented private agent-pack extraction as the new top-priority milestone.
+- Pointed production bootstrap at the private `clawbot-agents` repository pinned to `v0.0.1` so agent identity and behavior content can be sourced from the private pack instead of the public fallback templates.
 
 ## [0.7.31] - 2026-03-08
 
