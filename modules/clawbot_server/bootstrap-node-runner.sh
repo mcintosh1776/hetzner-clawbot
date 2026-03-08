@@ -63,6 +63,7 @@ OPENCLAW_AGENT_PACK_SSH_KEY_FILE="${OPENCLAW_AGENT_PACK_SSH_KEY_FILE:-$OPENCLAW_
 OPENCLAW_AGENT_SECRET_PROVIDER="${OPENCLAW_AGENT_SECRET_PROVIDER:-/usr/local/bin/openclaw-agent-secret-provider}"
 OPENCLAW_AGENT_SECRET_SUDOERS="${OPENCLAW_AGENT_SECRET_SUDOERS:-/etc/sudoers.d/openclaw-agent-secret-provider}"
 OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business)
+OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS=(stacks jennifer)
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
@@ -334,6 +335,9 @@ if not isinstance(internal, dict):
 
 if not isinstance(internal.get("apiToken"), str) or not internal["apiToken"].strip():
     internal["apiToken"] = secrets.token_urlsafe(32)
+
+if not isinstance(internal.get("signerToken"), str) or not internal["signerToken"].strip():
+    internal["signerToken"] = secrets.token_urlsafe(32)
 
 diagnostics = payload.get("diagnostics")
 if not isinstance(diagnostics, dict):
@@ -1083,7 +1087,6 @@ render_private_runtime_app() {
   cat >"${runtime_dir}/app.py" <<'PY'
 import json
 import os
-import base64
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -1095,8 +1098,10 @@ RUNTIME_AGENT_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_AGENT_ID", "podcast_media
 RUNTIME_DISPLAY_NAME = os.getenv("OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME", "Stacks")
 RUNTIME_MODEL = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MODEL", "openrouter/auto")
 RUNTIME_PROMPT_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE", "/opt/clawbot/config/agent-config/specialists/podcast_media.md")
-OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64 = os.getenv("OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID", "diagnostics/testMarker").strip()
+OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE", "").strip()
+OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET = os.getenv("OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET", "").strip()
+OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN", "").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
@@ -1121,45 +1126,48 @@ def load_prompt() -> str:
   return prompt_path.read_text(encoding="utf-8")
 
 
-def load_agent_secrets() -> dict:
-  if not OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64:
-    return {}
-  try:
-    decoded = base64.b64decode(OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64.encode("ascii")).decode("utf-8")
-    payload = json.loads(decoded)
-  except Exception:
-    return {}
-  return payload if isinstance(payload, dict) else {}
-
-
-AGENT_SECRETS = load_agent_secrets()
-
-
-def resolve_secret_value(secret_id: str, *, required: bool = True) -> str:
-  if secret_id == "internal/apiToken" and OPENCLAW_PRIVATE_RUNTIME_API_TOKEN:
-    return OPENCLAW_PRIVATE_RUNTIME_API_TOKEN
-
-  value = AGENT_SECRETS
-  for part in secret_id.split("/"):
-    if not isinstance(value, dict):
-      value = None
-      break
-    value = value.get(part)
-  if not value:
-    if required:
-      raise RuntimeError(f"secret missing for {secret_id}")
-    return ""
-  return value
-
-
 def resolve_internal_api_token() -> str:
-  return resolve_secret_value("internal/apiToken")
+  if not OPENCLAW_PRIVATE_RUNTIME_API_TOKEN:
+    raise RuntimeError("runtime api token missing")
+  return OPENCLAW_PRIVATE_RUNTIME_API_TOKEN
 
 
 def resolve_test_secret_marker() -> str:
-  if not OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID:
-    return ""
-  return resolve_secret_value(OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID, required=False)
+  return OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE
+
+
+def nostr_signer_configured() -> bool:
+  return bool(OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET and OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN)
+
+
+async def request_nostr_signer(method: str, path: str, payload: dict | None = None) -> dict:
+  if not nostr_signer_configured():
+    raise HTTPException(status_code=503, detail=f"nostr signer not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://nostr-signer",
+      timeout=30,
+    ) as client:
+      response = await client.request(
+        method,
+        path,
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN}"},
+        json=payload,
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"nostr signer request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"nostr signer unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid nostr signer response: {exc}") from exc
 
 
 def build_user_message(payload: dict) -> str:
@@ -1240,6 +1248,50 @@ async def runtime_status(
   }
 
 
+@app.get("/v1/runtime/nostr/status")
+async def runtime_nostr_status(
+  authorization: str | None = Header(default=None),
+):
+  expected_token = resolve_internal_api_token()
+  if authorization != f"Bearer {expected_token}":
+    raise HTTPException(status_code=401, detail="invalid runtime authorization")
+
+  if not nostr_signer_configured():
+    return {
+      "ok": True,
+      "runtime": {
+        "agentId": RUNTIME_AGENT_ID,
+        "displayName": RUNTIME_DISPLAY_NAME,
+      },
+      "nostr": {
+        "configured": False,
+      },
+    }
+
+  signer_status = await request_nostr_signer("GET", "/v1/nostr/status")
+  return {
+    "ok": True,
+    "runtime": {
+      "agentId": RUNTIME_AGENT_ID,
+      "displayName": RUNTIME_DISPLAY_NAME,
+    },
+    "nostr": signer_status.get("nostr", {"configured": False}),
+  }
+
+
+@app.post("/v1/runtime/nostr/sign-event")
+async def runtime_nostr_sign_event(
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  expected_token = resolve_internal_api_token()
+  if authorization != f"Bearer {expected_token}":
+    raise HTTPException(status_code=401, detail="invalid runtime authorization")
+
+  payload = await request.json()
+  return await request_nostr_signer("POST", "/v1/nostr/sign-event", payload)
+
+
 @app.post("/v1/inbound/telegram")
 async def inbound_telegram(
   request: Request,
@@ -1302,22 +1354,6 @@ build_private_runtime_image() {
   run_as_openclaw podman build -t "$OPENCLAW_PRIVATE_RUNTIME_IMAGE" -f "$OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE" "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
 }
 
-read_agent_secret_store_b64() {
-  local agent_id="$1"
-  local secret_store="$OPENCLAW_ROOT_SECRETS_DIR/${agent_id}.json"
-  python3 - "$secret_store" <<'PY'
-import base64
-import json
-import sys
-from pathlib import Path
-
-store = Path(sys.argv[1])
-payload = json.loads(store.read_text(encoding="utf-8"))
-encoded = base64.b64encode(json.dumps(payload, separators=(",", ":")).encode("utf-8")).decode("ascii")
-print(encoded)
-PY
-}
-
 read_agent_internal_api_token() {
   read_agent_secret_value "$1" internal apiToken
 }
@@ -1343,6 +1379,351 @@ print(value)
 PY
 }
 
+read_agent_nostr_store_b64() {
+  local secret_store="$OPENCLAW_ROOT_SECRETS_DIR/$1.json"
+  python3 - "$secret_store" <<'PY'
+import base64
+import json
+import sys
+from pathlib import Path
+
+store = Path(sys.argv[1])
+payload = json.loads(store.read_text(encoding="utf-8"))
+nostr = payload.get("nostr") if isinstance(payload, dict) else None
+if not isinstance(nostr, dict):
+    nostr = {}
+encoded = base64.b64encode(json.dumps(nostr, separators=(",", ":")).encode("utf-8")).decode("ascii")
+print(encoded)
+PY
+}
+
+private_nostr_signer_enabled() {
+  local public_id="$1"
+  local enabled_id
+  for enabled_id in "${OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS[@]}"; do
+    if [[ "$enabled_id" == "$public_id" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+private_nostr_signer_dir() {
+  printf '%s/%s\n' "$OPENCLAW_ROOT_STATE_DIR/nostr-signers" "$1"
+}
+
+private_nostr_signer_socket_dir() {
+  printf '%s/socket\n' "$(private_nostr_signer_dir "$1")"
+}
+
+private_nostr_signer_socket_path() {
+  printf '%s/service.sock\n' "$(private_nostr_signer_socket_dir "$1")"
+}
+
+private_nostr_signer_unit_name() {
+  printf 'clawbot-%s-nostr-signer.service\n' "$1"
+}
+
+prepare_nostr_signer_directories() {
+  local public_id
+  local signer_dir
+  local socket_dir
+
+  mkdir -p "$OPENCLAW_ROOT_STATE_DIR/nostr-signers"
+  chown root:root "$OPENCLAW_ROOT_STATE_DIR/nostr-signers"
+  chmod 700 "$OPENCLAW_ROOT_STATE_DIR/nostr-signers"
+
+  for public_id in "${OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS[@]}"; do
+    signer_dir="$(private_nostr_signer_dir "$public_id")"
+    socket_dir="$(private_nostr_signer_socket_dir "$public_id")"
+    mkdir -p "$signer_dir" "$socket_dir"
+    chown -R root:root "$signer_dir"
+    chmod 700 "$signer_dir"
+    chown root:"$OPENCLAW_USER" "$socket_dir"
+    chmod 750 "$socket_dir"
+  done
+}
+
+render_nostr_signer_app() {
+  local signer_dir="$1"
+  cat >"${signer_dir}/app.py" <<'PY'
+import base64
+import hashlib
+import json
+import os
+import time
+
+from bech32 import bech32_decode, convertbits
+from coincurve import PrivateKey, PublicKeyXOnly
+from fastapi import FastAPI, Header, HTTPException, Request
+
+app = FastAPI()
+
+RUNTIME_AGENT_ID = os.getenv("OPENCLAW_PRIVATE_SIGNER_AGENT_ID", "podcast_media")
+RUNTIME_DISPLAY_NAME = os.getenv("OPENCLAW_PRIVATE_SIGNER_DISPLAY_NAME", "Stacks")
+OPENCLAW_PRIVATE_SIGNER_TOKEN = os.getenv("OPENCLAW_PRIVATE_SIGNER_TOKEN", "")
+OPENCLAW_PRIVATE_SIGNER_NOSTR_B64 = os.getenv("OPENCLAW_PRIVATE_SIGNER_NOSTR_B64", "").strip()
+
+
+def load_nostr_config() -> dict:
+  if not OPENCLAW_PRIVATE_SIGNER_NOSTR_B64:
+    return {}
+  try:
+    decoded = base64.b64decode(OPENCLAW_PRIVATE_SIGNER_NOSTR_B64.encode("ascii")).decode("utf-8")
+    payload = json.loads(decoded)
+  except Exception:
+    return {}
+  return payload if isinstance(payload, dict) else {}
+
+
+NOSTR_CONFIG = load_nostr_config()
+
+
+def normalize_hex_key(value: str, hrp: str) -> str:
+  raw = value.strip()
+  if raw.startswith("0x"):
+    raw = raw[2:]
+  if raw.lower().startswith(f"{hrp}1"):
+    found_hrp, data = bech32_decode(raw)
+    if found_hrp != hrp or data is None:
+      raise HTTPException(status_code=500, detail=f"invalid {hrp} key encoding")
+    decoded = convertbits(data, 5, 8, False)
+    if decoded is None:
+      raise HTTPException(status_code=500, detail=f"invalid {hrp} key payload")
+    raw = bytes(decoded).hex()
+  if len(raw) != 64:
+    raise HTTPException(status_code=500, detail=f"invalid {hrp} key length")
+  try:
+    bytes.fromhex(raw)
+  except ValueError as exc:
+    raise HTTPException(status_code=500, detail=f"invalid {hrp} key hex") from exc
+  return raw.lower()
+
+
+def resolve_private_key_hex() -> str:
+  value = NOSTR_CONFIG.get("privateKey")
+  if not isinstance(value, str) or not value.strip():
+    raise HTTPException(status_code=503, detail=f"nostr private key not configured for {RUNTIME_DISPLAY_NAME}")
+  return normalize_hex_key(value, "nsec")
+
+
+def derive_public_key_hex(private_key_hex: str) -> str:
+  return PublicKeyXOnly.from_secret(bytes.fromhex(private_key_hex)).format().hex()
+
+
+def resolve_public_key_hex() -> str:
+  configured = NOSTR_CONFIG.get("publicKey")
+  private_key_hex = resolve_private_key_hex()
+  derived = derive_public_key_hex(private_key_hex)
+  if not isinstance(configured, str) or not configured.strip():
+    return derived
+  normalized = normalize_hex_key(configured, "npub")
+  if normalized != derived:
+    raise HTTPException(status_code=500, detail=f"configured public key mismatch for {RUNTIME_DISPLAY_NAME}")
+  return normalized
+
+
+def verify_signer_token(authorization: str | None) -> None:
+  if not OPENCLAW_PRIVATE_SIGNER_TOKEN:
+    raise HTTPException(status_code=500, detail=f"nostr signer token missing for {RUNTIME_DISPLAY_NAME}")
+  if authorization != f"Bearer {OPENCLAW_PRIVATE_SIGNER_TOKEN}":
+    raise HTTPException(status_code=401, detail="invalid signer authorization")
+
+
+def normalize_tags(value) -> list[list[str]]:
+  if value is None:
+    return []
+  if not isinstance(value, list):
+    raise HTTPException(status_code=400, detail="event.tags must be a list")
+  normalized: list[list[str]] = []
+  for tag in value:
+    if not isinstance(tag, list):
+      raise HTTPException(status_code=400, detail="each event tag must be a list")
+    normalized.append([str(item) for item in tag])
+  return normalized
+
+
+def normalize_event(payload: dict) -> dict:
+  event = payload.get("event")
+  if not isinstance(event, dict):
+    raise HTTPException(status_code=400, detail="event payload is required")
+
+  kind = event.get("kind")
+  if not isinstance(kind, int):
+    raise HTTPException(status_code=400, detail="event.kind must be an integer")
+
+  content = event.get("content", "")
+  if not isinstance(content, str):
+    raise HTTPException(status_code=400, detail="event.content must be a string")
+
+  created_at = event.get("created_at", int(time.time()))
+  if not isinstance(created_at, int):
+    raise HTTPException(status_code=400, detail="event.created_at must be an integer")
+
+  tags = normalize_tags(event.get("tags"))
+  pubkey = resolve_public_key_hex()
+  requested_pubkey = event.get("pubkey")
+  if requested_pubkey:
+    normalized_requested = normalize_hex_key(str(requested_pubkey), "npub")
+    if normalized_requested != pubkey:
+      raise HTTPException(status_code=400, detail="event.pubkey does not match configured signer public key")
+
+  return {
+    "pubkey": pubkey,
+    "created_at": created_at,
+    "kind": kind,
+    "tags": tags,
+    "content": content,
+  }
+
+
+def sign_event(unsigned_event: dict) -> dict:
+  serialized = json.dumps(
+    [
+      0,
+      unsigned_event["pubkey"],
+      unsigned_event["created_at"],
+      unsigned_event["kind"],
+      unsigned_event["tags"],
+      unsigned_event["content"],
+    ],
+    ensure_ascii=False,
+    separators=(",", ":"),
+  ).encode("utf-8")
+  event_id = hashlib.sha256(serialized).hexdigest()
+  private_key_hex = resolve_private_key_hex()
+  signer = PrivateKey(bytes.fromhex(private_key_hex))
+  signature = signer.sign_schnorr(bytes.fromhex(event_id)).hex()
+  verifier = PublicKeyXOnly(bytes.fromhex(unsigned_event["pubkey"]))
+  if not verifier.verify(bytes.fromhex(signature), bytes.fromhex(event_id)):
+    raise HTTPException(status_code=500, detail="nostr signature verification failed")
+  return {
+    **unsigned_event,
+    "id": event_id,
+    "sig": signature,
+  }
+
+
+@app.get("/v1/nostr/status")
+async def nostr_status(
+  authorization: str | None = Header(default=None),
+):
+  verify_signer_token(authorization)
+  configured = bool(NOSTR_CONFIG.get("privateKey"))
+  public_key = resolve_public_key_hex() if configured else ""
+  return {
+    "ok": True,
+    "nostr": {
+      "configured": configured,
+      "publicKey": public_key,
+      "signOnly": configured,
+    },
+  }
+
+
+@app.post("/v1/nostr/sign-event")
+async def nostr_sign_event(
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  verify_signer_token(authorization)
+  payload = await request.json()
+  unsigned_event = normalize_event(payload)
+  signed_event = sign_event(unsigned_event)
+  return {
+    "ok": True,
+    "nostr": {
+      "publicKey": signed_event["pubkey"],
+      "event": signed_event,
+    },
+  }
+PY
+  chown root:root "${signer_dir}/app.py"
+  chmod 700 "${signer_dir}/app.py"
+}
+
+ensure_nostr_signer_venv() {
+  local signer_venv="$OPENCLAW_ROOT_STATE_DIR/nostr-signers/.venv"
+  if [[ ! -x "${signer_venv}/bin/python" ]]; then
+    python3 -m venv "$signer_venv"
+  fi
+  "${signer_venv}/bin/pip" install --upgrade --no-cache-dir fastapi uvicorn coincurve bech32 >/tmp/openclaw-nostr-signer-pip.log 2>&1
+}
+
+write_nostr_signer_service() {
+  local public_id="$1"
+  local agent_id="$2"
+  local display_name="$3"
+  local signer_unit="/etc/systemd/system/$(private_nostr_signer_unit_name "$public_id")"
+  local signer_dir
+  local signer_socket_dir
+  local signer_socket_path
+  local signer_token
+  local nostr_b64
+  signer_dir="$(private_nostr_signer_dir "$public_id")"
+  signer_socket_dir="$(private_nostr_signer_socket_dir "$public_id")"
+  signer_socket_path="$(private_nostr_signer_socket_path "$public_id")"
+  signer_token="$(read_agent_secret_value "$agent_id" internal signerToken)"
+  nostr_b64="$(read_agent_nostr_store_b64 "$agent_id")"
+  cat >"$signer_unit" <<EOF
+[Unit]
+Description=Clawbot ${display_name} Nostr signer
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=$OPENCLAW_USER
+UMask=0007
+WorkingDirectory=$signer_dir
+ExecStartPre=/usr/bin/install -d -o root -g $OPENCLAW_USER -m 0750 $signer_socket_dir
+ExecStartPre=/usr/bin/rm -f $signer_socket_path
+ExecStart=$OPENCLAW_ROOT_STATE_DIR/nostr-signers/.venv/bin/uvicorn app:app --uds $signer_socket_path
+Environment=OPENCLAW_PRIVATE_SIGNER_AGENT_ID=$agent_id
+Environment=OPENCLAW_PRIVATE_SIGNER_DISPLAY_NAME=$display_name
+Environment=OPENCLAW_PRIVATE_SIGNER_TOKEN=$signer_token
+Environment=OPENCLAW_PRIVATE_SIGNER_NOSTR_B64=$nostr_b64
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chown root:root "$signer_unit"
+  chmod 0644 "$signer_unit"
+}
+
+configure_nostr_signers() {
+  local public_id
+  local agent_id
+  local display_name
+  local signer_dir
+  local signer_unit
+
+  if [[ "${#OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  prepare_nostr_signer_directories
+  ensure_nostr_signer_venv
+
+  for public_id in "${OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS[@]}"; do
+    agent_id="$(private_runtime_agent_id "$public_id")"
+    display_name="$(private_runtime_display_name "$public_id")"
+    signer_dir="$(private_nostr_signer_dir "$public_id")"
+    render_nostr_signer_app "$signer_dir"
+    write_nostr_signer_service "$public_id" "$agent_id" "$display_name"
+  done
+
+  run_step "Reload systemd for nostr signers" systemctl daemon-reload
+
+  for public_id in "${OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS[@]}"; do
+    signer_unit="$(private_nostr_signer_unit_name "$public_id")"
+    run_step "Enable ${public_id} nostr signer service" systemctl enable "$signer_unit"
+    run_step "Restart ${public_id} nostr signer service" systemctl restart "$signer_unit"
+  done
+}
+
 write_private_runtime_quadlet() {
   local public_id="$1"
   local agent_id="$2"
@@ -1353,11 +1734,13 @@ write_private_runtime_quadlet() {
   local runtime_quadlet
   local runtime_container_name
   local runtime_token
-  local runtime_secrets_b64
+  local test_marker
+  local signer_token
+  local signer_socket_dir
   runtime_quadlet="$(private_runtime_quadlet_path "$public_id")"
   runtime_container_name="$(private_runtime_container_name "$public_id")"
   runtime_token="$(read_agent_internal_api_token "$agent_id")"
-  runtime_secrets_b64="$(read_agent_secret_store_b64 "$agent_id")"
+  test_marker="$(read_agent_secret_value "$agent_id" diagnostics testMarker || true)"
   cat >"$runtime_quadlet" <<EOF
 [Unit]
 Description=Clawbot ${display_name} isolated runtime (rootless Podman)
@@ -1377,8 +1760,19 @@ Environment=OPENCLAW_PRIVATE_RUNTIME_DISPLAY_NAME=$display_name
 Environment=OPENCLAW_PRIVATE_RUNTIME_MODEL=$OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT
 Environment=OPENCLAW_PRIVATE_RUNTIME_PROMPT_FILE=$prompt_file
 Environment=OPENCLAW_PRIVATE_RUNTIME_API_TOKEN=$runtime_token
-Environment=OPENCLAW_PRIVATE_RUNTIME_AGENT_SECRETS_B64=$runtime_secrets_b64
 Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID=diagnostics/testMarker
+Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE=$test_marker
+EOF
+  if private_nostr_signer_enabled "$public_id"; then
+    signer_token="$(read_agent_secret_value "$agent_id" internal signerToken)"
+    signer_socket_dir="$(private_nostr_signer_socket_dir "$public_id")"
+    cat >>"$runtime_quadlet" <<EOF
+Volume=$signer_socket_dir:/run/clawbot/nostr-signer:rw
+Environment=OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET=/run/clawbot/nostr-signer/service.sock
+Environment=OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN=$signer_token
+EOF
+  fi
+  cat >>"$runtime_quadlet" <<EOF
 Environment=OPENCLAW_PRIVATE_RUNTIME_PORT=$runtime_port
 Environment=OPENCLAW_PRIVATE_RUNTIME_HOST=0.0.0.0
 Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
@@ -1953,6 +2347,7 @@ run_step "Prepare root secret directories" prepare_root_secret_directories
 run_step "Initialize agent secret stores" ensure_agent_secret_stores
 run_step "Install agent secret provider" write_agent_secret_provider
 run_step "Install agent secret sudoers policy" write_agent_secret_sudoers
+run_step "Configure nostr signer services" configure_nostr_signers
 run_step "Prepare bootstrap runtime directory" prepare_runtime_config_directory
 ensure_gateway_token
 
