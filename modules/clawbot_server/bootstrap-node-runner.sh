@@ -1648,6 +1648,11 @@ ensure_nostr_signer_venv() {
     python3 -m venv "$signer_venv"
   fi
   if [[ ! -x "${signer_venv}/bin/pip" ]]; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      python3-venv \
+      python3-pip \
+      python3-setuptools
     rm -rf "$signer_venv"
     python3 -m venv "$signer_venv"
   fi
