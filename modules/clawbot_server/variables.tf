@@ -48,6 +48,12 @@ variable "public_ipv4_enabled" {
   default     = true
 }
 
+variable "primary_ipv4_enabled" {
+  type        = bool
+  description = "Whether to allocate and attach a managed Hetzner Primary IPv4 so the public address survives server replacement."
+  default     = false
+}
+
 variable "public_ipv6_enabled" {
   type        = bool
   description = "Whether to enable public IPv6."

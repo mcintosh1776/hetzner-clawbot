@@ -29,6 +29,7 @@ inputs = {
   enable_root_ssh    = true
 
   public_ipv4_enabled = true
+  primary_ipv4_enabled = true
   public_ipv6_enabled = false
   opt_volume_size_gb = 10
   opt_volume_fstype = "xfs"

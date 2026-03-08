@@ -141,6 +141,21 @@ resource "hcloud_volume_attachment" "opt" {
   server_id = hcloud_server.clawbot.id
 }
 
+resource "hcloud_primary_ip" "ipv4" {
+  count = var.primary_ipv4_enabled ? 1 : 0
+
+  name          = "${var.name}-ipv4"
+  type          = "ipv4"
+  assignee_type = "server"
+  auto_delete   = false
+  location      = var.location
+
+  labels = {
+    env  = var.env
+    role = var.role
+  }
+}
+
 resource "hcloud_server" "clawbot" {
   name        = var.name
   image       = "ubuntu-24.04"
@@ -149,6 +164,7 @@ resource "hcloud_server" "clawbot" {
 
   public_net {
     ipv4_enabled = var.public_ipv4_enabled
+    ipv4         = var.primary_ipv4_enabled ? hcloud_primary_ip.ipv4[0].id : null
     ipv6_enabled = var.public_ipv6_enabled
   }
 
@@ -167,6 +183,11 @@ resource "hcloud_server" "clawbot" {
     precondition {
       condition     = var.enable_cloud_init ? length(local.rendered_cloud_init) <= 32768 : true
       error_message = "Rendered cloud-init exceeds Hetzner user_data limit (max 32768 chars). Remove optional/custom payload or reduce cloud-init size before applying."
+    }
+
+    precondition {
+      condition     = !(var.primary_ipv4_enabled && !var.public_ipv4_enabled)
+      error_message = "primary_ipv4_enabled requires public_ipv4_enabled to also be true."
     }
 
     precondition {

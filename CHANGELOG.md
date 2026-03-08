@@ -7,16 +7,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- Added a managed Hetzner Primary IPv4 to the main `clawbot` stack so ingress
+  replacements keep a stable public address.
 - Restored the single-host production topology so all bot runtimes run locally on `clawbot-prod-1` while keeping the per-bot container split.
-- Generalized the server module and bootstrap runner for ingress-host versus worker-host mode,
-  including private-network attachment, private runtime listener firewalling, and remote
-  runtime forwarding from the public relay to worker-host private IPs.
 
 ### Fixed
 - _None yet._
 
 ### Removed
-- _None yet._
+- Removed the worker-host/private-network split for `stacks-runtime` and `steve-runtime`
+  so production is back on the single-host container topology.
 
 ## [0.7.28] - 2026-03-07
 

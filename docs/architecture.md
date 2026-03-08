@@ -38,6 +38,8 @@ Core services:
 Public ingress:
 
 - `https://agents.satoshis-plebs.com/`
+- The ingress VM now uses a managed Hetzner Primary IPv4 so server replacement keeps the
+  same public address.
 - root path intentionally returns `404`
 - only Telegram webhook paths are intended for public use
 
