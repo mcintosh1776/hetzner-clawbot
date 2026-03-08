@@ -109,7 +109,6 @@ resource "hcloud_firewall" "clawbot" {
       description = "Allow ingress port ${ingress_port.value} for ${var.name}"
     }
   }
-  }
 
   rule {
     direction       = "out"
@@ -176,4 +175,3 @@ resource "hcloud_server" "clawbot" {
     }
   }
 }
-
