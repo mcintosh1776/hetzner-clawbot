@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 - Resolved the private runtime secret-probe path by injecting the diagnostic marker from the host-owned secret store into each runtime container, instead of attempting a host-only secret lookup from inside the container.
+- Fixed the private agent-pack bootstrap runner initialization order so replacement nodes can resolve the root state paths before computing the private repo checkout and deploy-key locations.
 
 ### Removed
 - _None yet._
