@@ -2369,6 +2369,7 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
         ],
         "jsonOnly": true
       }
+    }
   }
 }
 EOF
