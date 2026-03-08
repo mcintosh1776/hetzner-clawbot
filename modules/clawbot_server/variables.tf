@@ -36,30 +36,6 @@ variable "role" {
   default     = "clawbot"
 }
 
-variable "private_network_id" {
-  type        = string
-  description = "Optional Hetzner private network ID to attach the server to."
-  default     = ""
-}
-
-variable "private_network_ip" {
-  type        = string
-  description = "Optional static private IPv4 address to assign on the Hetzner private network."
-  default     = ""
-}
-
-variable "private_runtime_ingress_cidrs" {
-  type        = list(string)
-  description = "CIDR blocks allowed to reach private runtime listener ports."
-  default     = []
-}
-
-variable "private_runtime_ingress_ports" {
-  type        = list(number)
-  description = "Private runtime listener ports that should be opened to private_runtime_ingress_cidrs."
-  default     = []
-}
-
 variable "firewall_ssh_cidrs" {
   type        = list(string)
   description = "CIDR blocks allowed to reach SSH (22). Empty means no inbound SSH."
@@ -162,28 +138,10 @@ variable "openclaw_enable_webhook_proxy" {
   default     = false
 }
 
-variable "openclaw_enable_gateway" {
-  type        = bool
-  description = "Enable the shared OpenClaw gateway/control-plane container on this host."
-  default     = true
-}
-
 variable "openclaw_private_runtime_public_ids" {
   type        = list(string)
   description = "Public bot IDs whose private runtimes should run on this host."
   default     = ["bob", "stacks", "jennifer", "steve", "number5"]
-}
-
-variable "openclaw_private_runtime_bind_host" {
-  type        = string
-  description = "Host IP used when publishing private runtime container ports."
-  default     = "127.0.0.1"
-}
-
-variable "openclaw_remote_runtime_urls" {
-  type        = map(string)
-  description = "Optional map of public bot IDs to remote runtime URLs used by the ingress relay."
-  default     = {}
 }
 
 variable "openclaw_webhook_receiver_port" {

@@ -7,11 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- Added a dedicated Hetzner private-network stack plus new `stacks-runtime` and
-  `steve-runtime` live stacks so selected bot runtimes can move onto separate hosts without
-  changing the public ingress contract.
-
-### Changed
+- Restored the single-host production topology so all bot runtimes run locally on `clawbot-prod-1` while keeping the per-bot container split.
 - Generalized the server module and bootstrap runner for ingress-host versus worker-host mode,
   including private-network attachment, private runtime listener firewalling, and remote
   runtime forwarding from the public relay to worker-host private IPs.

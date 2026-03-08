@@ -165,10 +165,10 @@ Key current settings:
 Current private runtime mapping:
 
 - `bob` -> runtime `bob-runtime` -> agent id `orchestrator`
-- `stacks` -> runtime `stacks-runtime` -> agent id `podcast_media`
-- `jennifer` -> runtime `jennifer-runtime` -> agent id `research`
-- `steve` -> runtime `steve-runtime` -> agent id `engineering`
-- `number5` -> runtime `number5-runtime` -> agent id `business`
+- `stacks` -> local runtime container `clawbot-stacks-runtime` -> agent id `podcast_media`
+- `jennifer` -> local runtime container `clawbot-jennifer-runtime` -> agent id `research`
+- `steve` -> local runtime container `clawbot-steve-runtime` -> agent id `engineering`
+- `number5` -> local runtime container `clawbot-number5-runtime` -> agent id `business`
 
 Current dashboard identity mapping:
 

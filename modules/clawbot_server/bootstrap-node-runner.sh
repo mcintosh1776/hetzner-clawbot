@@ -84,16 +84,8 @@ OPENCLAW_PUBLIC_HOSTNAME="${OPENCLAW_PUBLIC_HOSTNAME:-}"
 OPENCLAW_LETSENCRYPT_EMAIL="${OPENCLAW_LETSENCRYPT_EMAIL:-}"
 OPENCLAW_ENABLE_WEBHOOK_PROXY="${OPENCLAW_ENABLE_WEBHOOK_PROXY:-false}"
 OPENCLAW_ENABLE_WEBHOOK_PROXY="$(normalize_bool "$OPENCLAW_ENABLE_WEBHOOK_PROXY")"
-OPENCLAW_ENABLE_GATEWAY="${OPENCLAW_ENABLE_GATEWAY:-true}"
-OPENCLAW_ENABLE_GATEWAY="$(normalize_bool "$OPENCLAW_ENABLE_GATEWAY")"
 OPENCLAW_WEBHOOK_RECEIVER_PORT="${OPENCLAW_WEBHOOK_RECEIVER_PORT:-9000}"
 OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV="${OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV:-bob,stacks,jennifer,steve,number5}"
-OPENCLAW_PRIVATE_RUNTIME_BIND_HOST="${OPENCLAW_PRIVATE_RUNTIME_BIND_HOST:-127.0.0.1}"
-OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB="${OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB:-}"
-OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS="${OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS:-}"
-OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER="${OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER:-}"
-OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE="${OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE:-}"
-OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5="${OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5:-}"
 IFS=',' read -r -a OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS <<<"$OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV"
 if [[ "${#OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS[@]}" -eq 0 ]]; then
   OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
@@ -692,11 +684,11 @@ app = FastAPI()
 ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks"}
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 OPENCLAW_WEBHOOK_TARGETS = {
-  "bob": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB", "http://127.0.0.1:18920/v1/inbound/telegram"),
-  "stacks": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS", "http://127.0.0.1:18921/v1/inbound/telegram"),
-  "jennifer": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER", "http://127.0.0.1:18922/v1/inbound/telegram"),
-  "steve": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE", "http://127.0.0.1:18923/v1/inbound/telegram"),
-  "number5": os.getenv("OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5", "http://127.0.0.1:18924/v1/inbound/telegram"),
+  "bob": "http://127.0.0.1:18920/v1/inbound/telegram",
+  "stacks": "http://127.0.0.1:18921/v1/inbound/telegram",
+  "jennifer": "http://127.0.0.1:18922/v1/inbound/telegram",
+  "steve": "http://127.0.0.1:18923/v1/inbound/telegram",
+  "number5": "http://127.0.0.1:18924/v1/inbound/telegram",
 }
 OPENCLAW_AGENT_SECRET_PROVIDER = os.getenv("OPENCLAW_AGENT_SECRET_PROVIDER", "/usr/local/bin/openclaw-agent-secret-provider")
 RUNTIME_AGENT_BY_PUBLIC_AGENT = {
@@ -905,17 +897,7 @@ PY
 }
 
 write_webhook_systemd_unit() {
-  local bob_runtime_url_line=""
-  local stacks_runtime_url_line=""
-  local jennifer_runtime_url_line=""
-  local steve_runtime_url_line=""
-  local number5_runtime_url_line=""
 
-  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB" ]] && bob_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB=$OPENCLAW_TELEGRAM_WEBHOOK_URL_BOB"
-  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS" ]] && stacks_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS=$OPENCLAW_TELEGRAM_WEBHOOK_URL_STACKS"
-  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER" ]] && jennifer_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER=$OPENCLAW_TELEGRAM_WEBHOOK_URL_JENNIFER"
-  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE" ]] && steve_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE=$OPENCLAW_TELEGRAM_WEBHOOK_URL_STEVE"
-  [[ -n "$OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5" ]] && number5_runtime_url_line="Environment=OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5=$OPENCLAW_TELEGRAM_WEBHOOK_URL_NUMBER5"
 
   cat >/etc/systemd/system/clawbot-telegram-webhook.service <<EOF
 [Unit]
@@ -932,11 +914,6 @@ EnvironmentFile=-/opt/clawbot/config/.env
 Environment=OPENCLAW_WEBHOOK_RECEIVER_PORT=$OPENCLAW_WEBHOOK_RECEIVER_PORT
 Environment=OPENCLAW_AGENT_SECRET_PROVIDER=$OPENCLAW_AGENT_SECRET_PROVIDER
 Environment=OPENCLAW_STACKS_SECRET_AGENT_ID=$OPENCLAW_STACKS_RUNTIME_AGENT_ID
-$bob_runtime_url_line
-$stacks_runtime_url_line
-$jennifer_runtime_url_line
-$steve_runtime_url_line
-$number5_runtime_url_line
 ExecStart=$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_WEBHOOK_RECEIVER_PORT
 Restart=always
 RestartSec=2
@@ -1285,7 +1262,7 @@ Environment=OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 Environment=OPENROUTER_HTTP_REFERER=https://${OPENCLAW_PUBLIC_HOSTNAME:-agents.satoshis-plebs.com}/
 Environment=OPENROUTER_X_TITLE=clawbot-${public_id}-runtime
 
-PublishPort=${OPENCLAW_PRIVATE_RUNTIME_BIND_HOST}:${runtime_port}:${runtime_port}
+PublishPort=127.0.0.1:${runtime_port}:${runtime_port}
 Pull=never
 
 [Install]
@@ -2281,7 +2258,6 @@ if [ -n "${OPENCLAW_PUBLIC_HOSTNAME:-}" ]; then
   OPENCLAW_WEBHOOK_PUBLIC_BASE_URL="https://${OPENCLAW_PUBLIC_HOSTNAME}"
 fi
 
-if [[ "$OPENCLAW_ENABLE_GATEWAY" == "true" ]]; then
 cat > /opt/clawbot/config/openclaw.json <<EOF
 {
   "gateway": {
@@ -2461,9 +2437,6 @@ EOF
   run_step "Wait for openclaw service" wait_for_openclaw_service 60
   run_step "Check openclaw service" run_as_openclaw_from_tmp systemctl --user status openclaw.service --no-pager
   run_step "Install openclaw helper" write_openclaw_ctl
-else
-  log "OPENCLAW_ENABLE_GATEWAY is not true; skipping shared OpenClaw gateway bootstrap on this host."
-fi
 run_step "Configure webhook stack" configure_webhook_stack
 log_pairing_command
 
