@@ -138,6 +138,70 @@ Expected steady state:
 - no fresh `502 Bad Gateway`
 - no fresh `Connection refused`
 
+## Configure a new agent
+
+Agent identity and behavior do not live in this public infra repo anymore.
+They live in the private `clawbot-agents` repo and are rendered into the
+production `agent-config` export tree.
+
+High-level flow:
+
+1. Add or update source files in `clawbot-agents`
+   - shared files:
+     - `FOUNDATION.md`
+     - `VOICE.md`
+     - `CHAIN_OF_COMMAND.md`
+     - `SECRET_HANDLING.md`
+     - `PUBLISHING.md`
+   - per-agent files:
+     - `agents/<agent-id>/IDENTITY.md`
+     - `agents/<agent-id>/SOUL.md`
+     - `agents/<agent-id>/AGENT.md`
+     - `agents/<agent-id>/MEMORY.md`
+     - `agents/<agent-id>/RELATIONSHIPS.md`
+     - `agents/<agent-id>/SKILLS/*.md`
+
+2. Render the production export in `clawbot-agents`
+
+```bash
+./scripts/render-agent-config.sh
+```
+
+3. Commit and tag the private repo
+
+```bash
+git add .
+git commit -m "feat: add <agent-name>"
+git tag vX.Y.Z
+git push origin main
+git push origin vX.Y.Z
+```
+
+4. Point production at the new private agent-pack tag in this repo
+   - update `openclaw_agent_pack_ref` in:
+     - `live/prod/fsn1/clawbot/terragrunt.hcl`
+
+5. Rebuild the main node
+
+```bash
+cd live/prod/fsn1/clawbot
+terragrunt apply -auto-approve -replace='hcloud_server.clawbot'
+```
+
+6. After bootstrap completes, verify the rendered private prompts landed on the node:
+
+```bash
+sudo ls /opt/clawbot/config/agent-config
+sudo sed -n '1,120p' /opt/clawbot/config/agent-config/agent-fleet.yaml
+```
+
+Notes:
+
+- Keep internal agent ids stable unless you are doing a deliberate migration.
+- Public bot names can differ from internal ids.
+- Do not put live secrets or private keys in `clawbot-agents`.
+- Private keys belong in the root-owned per-agent secret store under `/opt/clawbot-root/secrets/`.
+
 ## Rebuild production safely
 
 The normal rebuild workflow is to replace the main server and keep the `/opt` volume.
