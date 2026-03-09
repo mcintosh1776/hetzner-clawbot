@@ -21,6 +21,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.34] - 2026-03-09
+
+### Added
+- Documented the private `clawbot-agents` onboarding workflow in `docs/quickstart.md`, including render/tag/deploy steps for new agents.
+
+### Fixed
+- Improved signer-backed social draft quality for `Stacks` and `Jennifer` by tightening runtime draft instructions and refreshing the pinned bootstrap runner checksum.
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- Bumped the production private agent-pack ref from `v0.0.5` through `v0.0.7`, bringing in shared social-posting guidance and tighter Bitcoin-first messaging from the private repo.
+
 ## [0.7.33] - 2026-03-08
 
 ### Added
