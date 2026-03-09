@@ -446,6 +446,84 @@ prepare_default_agent_config_templates() {
   mkdir -p "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
 }
 
+agent_workspace_host_dir() {
+  local agent_id="$1"
+  printf '/opt/clawbot/state/.openclaw/workspace-%s\n' "$agent_id"
+}
+
+sync_private_agent_pack_avatar() {
+  local repo_dir="$1"
+  local agent_id="$2"
+  local source_dir="$repo_dir/agents/$agent_id/ASSETS"
+  local workspace_dir
+  local avatar_dir
+  local source_file=""
+  local source_name=""
+  local target_name=""
+  local existing
+
+  workspace_dir="$(agent_workspace_host_dir "$agent_id")"
+  avatar_dir="$workspace_dir/avatars"
+
+  install -d -m 0750 -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" "$workspace_dir" "$avatar_dir"
+
+  shopt -s nullglob
+  for existing in "$avatar_dir"/avatar.*; do
+    rm -f "$existing"
+  done
+  shopt -u nullglob
+
+  if [[ ! -d "$source_dir" ]]; then
+    return 0
+  fi
+
+  shopt -s nullglob
+  for existing in "$source_dir"/avatar.*; do
+    source_file="$existing"
+    source_name="$(basename "$existing")"
+    break
+  done
+  shopt -u nullglob
+
+  if [[ -z "$source_file" ]]; then
+    return 0
+  fi
+
+  target_name="${source_name,,}"
+  install -m 0640 -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" "$source_file" "$avatar_dir/$target_name"
+}
+
+sync_private_agent_pack_avatars() {
+  local repo_dir="$1"
+  local agent_id
+
+  for agent_id in orchestrator podcast_media research engineering business; do
+    sync_private_agent_pack_avatar "$repo_dir" "$agent_id"
+  done
+}
+
+render_openclaw_identity_json() {
+  local agent_id="$1"
+  local display_name="$2"
+  local workspace_dir
+  local avatar_path=""
+  local avatar_file
+
+  workspace_dir="$(agent_workspace_host_dir "$agent_id")"
+  shopt -s nullglob
+  for avatar_file in "$workspace_dir"/avatars/avatar.*; do
+    avatar_path="avatars/$(basename "$avatar_file")"
+    break
+  done
+  shopt -u nullglob
+
+  if [[ -n "$avatar_path" ]]; then
+    printf '{\n          "name": "%s",\n          "avatar": "%s"\n        }' "$display_name" "$avatar_path"
+  else
+    printf '{\n          "name": "%s"\n        }' "$display_name"
+  fi
+}
+
 sync_private_agent_pack() {
   if [[ -z "$OPENCLAW_AGENT_PACK_REPO_URL" ]]; then
     return 0
@@ -486,6 +564,8 @@ sync_private_agent_pack() {
   chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR"
   find "$OPENCLAW_AGENT_CONFIG_DIR" -type d -exec chmod 750 {} +
   find "$OPENCLAW_AGENT_CONFIG_DIR" -type f -exec chmod 640 {} +
+
+  sync_private_agent_pack_avatars "$repo_dir"
 }
 
 prepare_rootless_runtime_directory() {
@@ -3151,37 +3231,27 @@ cat > /opt/clawbot/config/openclaw.json <<EOF
         "id": "orchestrator",
         "default": true,
         "workspace": "/state/.openclaw/workspace-orchestrator",
-        "identity": {
-          "name": "Bob"
-        }
+        "identity": $(render_openclaw_identity_json "orchestrator" "Bob")
       },
       {
         "id": "podcast_media",
         "workspace": "/state/.openclaw/workspace-podcast_media",
-        "identity": {
-          "name": "Stacks"
-        }
+        "identity": $(render_openclaw_identity_json "podcast_media" "Stacks")
       },
       {
         "id": "research",
         "workspace": "/state/.openclaw/workspace-research",
-        "identity": {
-          "name": "Jennifer"
-        }
+        "identity": $(render_openclaw_identity_json "research" "Jennifer")
       },
       {
         "id": "engineering",
         "workspace": "/state/.openclaw/workspace-engineering",
-        "identity": {
-          "name": "Steve"
-        }
+        "identity": $(render_openclaw_identity_json "engineering" "Steve")
       },
       {
         "id": "business",
         "workspace": "/state/.openclaw/workspace-business",
-        "identity": {
-          "name": "Number 5"
-        }
+        "identity": $(render_openclaw_identity_json "business" "Number 5")
       }
     ]
   },
