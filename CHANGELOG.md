@@ -7,6 +7,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- _None yet._
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- _None yet._
+
+## [0.7.33] - 2026-03-08
+
+### Added
 - Added a dedicated `docs/nostr-signer-contract.md` defining sign-only key handling and approval-gated social publishing.
 
 ### Fixed
