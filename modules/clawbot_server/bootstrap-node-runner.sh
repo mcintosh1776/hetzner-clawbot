@@ -1093,7 +1093,6 @@ render_private_runtime_app() {
   local runtime_dir="$1"
   cat >"${runtime_dir}/app.py" <<'PY'
 import json
-import json
 import os
 from pathlib import Path
 import time
@@ -1310,6 +1309,46 @@ def looks_like_nostr_publish_request(text: str) -> bool:
   return any(keyword in lowered for keyword in ("post", "publish", "announcement", "thread", "note", "reply", "share"))
 
 
+def build_nostr_draft_instruction(payload: dict, revision_note: str = "", previous_draft: str = "") -> str:
+  event = payload.get("event") or {}
+  request_text = normalize_text(event.get("text"))
+  instruction_lines = [
+    NOSTR_DRAFT_POLICY,
+    "Write one complete Nostr post in plain text.",
+    "Keep it concise and publication-ready.",
+    "Never use placeholders such as [topic], [guest], [time], [link], TODO, or angle brackets.",
+    "Do not invent facts, quotes, guests, dates, links, or episode details that are not clearly present in the request or prompt context.",
+    "If specifics are missing, write a truthful high-signal draft that stays generic without sounding empty.",
+    "Use at most two hashtags, and only when they genuinely add value.",
+    "Do not mention approvals, drafts, internal process, or that publishing is disabled.",
+  ]
+
+  if RUNTIME_AGENT_ID == "podcast_media":
+    instruction_lines.extend([
+      "Write like a sharp podcast/media operator promoting a real episode or segment.",
+      "Favor crisp promotional copy, specific listener value, and a clean call to engage.",
+      "Avoid hype, filler, or generic marketing language.",
+    ])
+  elif RUNTIME_AGENT_ID == "research":
+    instruction_lines.extend([
+      "Write like a careful editorial/news specialist.",
+      "Favor factual framing, clarity, and restrained confidence.",
+      "Avoid hype, speculation, and vague editorial filler.",
+    ])
+
+  if request_text:
+    instruction_lines.append(f"Request context:\n{request_text}")
+
+  if revision_note:
+    instruction_lines.extend([
+      "Revise the existing draft using the operator feedback below.",
+      f"Existing draft:\n{previous_draft}",
+      f"Operator feedback:\n{revision_note}",
+    ])
+
+  return "\n\n".join(instruction_lines)
+
+
 def approval_message(draft: str, draft_id: str) -> str:
   return (
     f"Draft ready for approval ({draft_id}).\n\n"
@@ -1333,14 +1372,11 @@ def signed_ack_message(result: dict) -> str:
 
 
 async def generate_nostr_draft(payload: dict, revision_note: str = "", previous_draft: str = "") -> str:
-  extra_instruction = NOSTR_DRAFT_POLICY
-  if revision_note:
-    extra_instruction = (
-      f"{extra_instruction}\n\n"
-      "Revise the existing Nostr draft using the operator feedback below.\n"
-      f"Existing draft:\n{previous_draft}\n\n"
-      f"Operator feedback:\n{revision_note}"
-    )
+  extra_instruction = build_nostr_draft_instruction(
+    payload,
+    revision_note=revision_note,
+    previous_draft=previous_draft,
+  )
   return await generate_reply(payload, extra_instruction=extra_instruction)
 
 
