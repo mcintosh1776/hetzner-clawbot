@@ -1205,6 +1205,10 @@ NOSTR_DRAFT_POLICY = (
   "Return only the exact user-facing text of the Nostr post draft. "
   "No labels, no notes, no approval instructions, and no markdown fences."
 )
+NOSTR_PROFILE_POLICY = (
+  "Return only a valid JSON object for a Nostr kind-0 profile metadata draft. "
+  "No markdown fences, no labels, no notes, and no commentary."
+)
 
 
 def normalize_model_name(model_name: str) -> str:
@@ -1389,6 +1393,13 @@ def looks_like_nostr_publish_request(text: str) -> bool:
   return any(keyword in lowered for keyword in ("post", "publish", "announcement", "thread", "note", "reply", "share"))
 
 
+def looks_like_nostr_profile_request(text: str) -> bool:
+  lowered = normalize_text(text).lower()
+  if "nostr" not in lowered:
+    return False
+  return any(keyword in lowered for keyword in ("profile", "bio", "about", "metadata", "display name", "kind 0"))
+
+
 def build_nostr_draft_instruction(payload: dict, revision_note: str = "", previous_draft: str = "") -> str:
   event = payload.get("event") or {}
   request_text = normalize_text(event.get("text"))
@@ -1429,9 +1440,51 @@ def build_nostr_draft_instruction(payload: dict, revision_note: str = "", previo
   return "\n\n".join(instruction_lines)
 
 
-def approval_message(draft: str, draft_id: str) -> str:
+def build_nostr_profile_instruction(payload: dict, revision_note: str = "", previous_profile: str = "") -> str:
+  event = payload.get("event") or {}
+  request_text = normalize_text(event.get("text"))
+  instruction_lines = [
+    NOSTR_PROFILE_POLICY,
+    "Return a JSON object only.",
+    "Allowed fields include: name, display_name, displayName, about, website, picture, banner, nip05, lud16.",
+    "Only include fields you can justify from the request and agent identity context.",
+    "Do not invent picture URLs, websites, nip05 values, or lightning addresses.",
+    "If a field is unknown, omit it instead of fabricating it.",
+    "Keep the profile aligned with the agent's actual identity, role, and public posture.",
+    "Do not mention approvals, drafts, internal process, or implementation details.",
+    "Do not include private keys, tokens, or secret references.",
+  ]
+
+  if RUNTIME_AGENT_ID == "podcast_media":
+    instruction_lines.extend([
+      "Write Stacks as a Bitcoin-first podcast/media operator.",
+      "The profile should feel public-facing, credible, concise, and promotional without hype.",
+      "Do not describe Bitcoin work as crypto work unless non-Bitcoin systems are explicitly part of the remit.",
+    ])
+  elif RUNTIME_AGENT_ID == "research":
+    instruction_lines.extend([
+      "Write Jennifer as a Bitcoin-first research, editorial, and news specialist.",
+      "The profile should feel sharp, evidence-aware, and publication-capable without sounding stiff.",
+      "Do not use generalized crypto framing for Bitcoin-first editorial work.",
+    ])
+
+  if request_text:
+    instruction_lines.append(f"Request context:\n{request_text}")
+
+  if revision_note:
+    instruction_lines.extend([
+      "Revise the existing profile draft using the operator feedback below.",
+      f"Existing profile draft:\n{previous_profile}",
+      f"Operator feedback:\n{revision_note}",
+    ])
+
+  return "\n\n".join(instruction_lines)
+
+
+def approval_message(draft: str, draft_id: str, draft_type: str = "post") -> str:
+  label = "Profile draft" if draft_type == "profile" else "Draft"
   return (
-    f"Draft ready for approval ({draft_id}).\n\n"
+    f"{label} ready for approval ({draft_id}).\n\n"
     f"{draft}\n\n"
     "Reply `approve` to sign it for publish intent. "
     "Reply `reject` to discard it. "
@@ -1440,11 +1493,12 @@ def approval_message(draft: str, draft_id: str) -> str:
   )
 
 
-def signed_ack_message(result: dict) -> str:
+def signed_ack_message(result: dict, draft_type: str = "post") -> str:
   nostr = result.get("nostr") or {}
   event = nostr.get("event") or {}
+  action = "profile metadata has" if draft_type == "profile" else "post has"
   return (
-    "Approved. The post has been signed for publish intent.\n\n"
+    f"Approved. The {action} been signed for publish intent.\n\n"
     f"Event ID: {event.get('id', '')}\n"
     f"Pubkey: {nostr.get('publicKey', '')}\n\n"
     "Publishing is still disabled, so nothing has been broadcast yet."
@@ -1460,12 +1514,46 @@ async def generate_nostr_draft(payload: dict, revision_note: str = "", previous_
   return await generate_reply(payload, extra_instruction=extra_instruction)
 
 
-def build_pending_draft(payload: dict, draft_text: str) -> dict:
+def normalize_profile_json(raw_text: str) -> tuple[str, str]:
+  try:
+    payload = json.loads(raw_text)
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"profile draft is not valid JSON: {exc}") from exc
+
+  if not isinstance(payload, dict):
+    raise HTTPException(status_code=502, detail="profile draft must be a JSON object")
+
+  normalized = {}
+  for key, value in payload.items():
+    if not isinstance(key, str):
+      continue
+    if value is None:
+      continue
+    if isinstance(value, (str, int, float, bool)):
+      normalized[key] = value
+
+  canonical = json.dumps(normalized, separators=(",", ":"), sort_keys=True)
+  pretty = json.dumps(normalized, indent=2, sort_keys=True)
+  return canonical, pretty
+
+
+async def generate_nostr_profile(payload: dict, revision_note: str = "", previous_profile: str = "") -> tuple[str, str]:
+  extra_instruction = build_nostr_profile_instruction(
+    payload,
+    revision_note=revision_note,
+    previous_profile=previous_profile,
+  )
+  raw_reply = await generate_reply(payload, extra_instruction=extra_instruction)
+  return normalize_profile_json(raw_reply)
+
+
+def build_pending_draft(payload: dict, event_payload: dict, draft_type: str, preview_text: str) -> dict:
   event = payload.get("event") or {}
   sender = event.get("sender") or {}
   return {
     "id": f"{RUNTIME_AGENT_ID}-{int(time.time())}",
     "createdAt": int(time.time()),
+    "draftType": draft_type,
     "chatId": event.get("chat", {}).get("id"),
     "replyToMessageId": event.get("messageId"),
     "requestedBy": {
@@ -1474,11 +1562,8 @@ def build_pending_draft(payload: dict, draft_text: str) -> dict:
       "firstName": sender.get("firstName"),
       "lastName": sender.get("lastName"),
     },
-    "event": {
-      "kind": 1,
-      "tags": [],
-      "content": draft_text,
-    },
+    "event": event_payload,
+    "previewText": preview_text,
   }
 
 
@@ -1568,6 +1653,7 @@ async def inbound_telegram(
   pending_nostr = load_pending_nostr()
   if sender_is_operator(event) and pending_nostr:
     if is_approval_command(text):
+      draft_type = str(pending_nostr.get("draftType") or "post")
       signed = await request_nostr_signer(
         "POST",
         "/v1/nostr/sign-event",
@@ -1596,7 +1682,7 @@ async def inbound_telegram(
               "replyToMessageId": event.get("messageId"),
             },
             "message": {
-              "text": signed_ack_message(signed),
+              "text": signed_ack_message(signed, draft_type=draft_type),
             },
           }
         ],
@@ -1622,16 +1708,31 @@ async def inbound_telegram(
 
     revision_note = revision_instruction(text)
     if revision_note:
-      revised_draft = await generate_nostr_draft(
-        payload,
-        revision_note=revision_note,
-        previous_draft=str((pending_nostr.get("event") or {}).get("content") or ""),
-      )
-      pending_nostr["event"] = {
-        "kind": 1,
-        "tags": [],
-        "content": revised_draft,
-      }
+      draft_type = str(pending_nostr.get("draftType") or "post")
+      if draft_type == "profile":
+        revised_content, revised_preview = await generate_nostr_profile(
+          payload,
+          revision_note=revision_note,
+          previous_profile=str(pending_nostr.get("previewText") or ""),
+        )
+        pending_nostr["event"] = {
+          "kind": 0,
+          "tags": [],
+          "content": revised_content,
+        }
+        pending_nostr["previewText"] = revised_preview
+      else:
+        revised_draft = await generate_nostr_draft(
+          payload,
+          revision_note=revision_note,
+          previous_draft=str((pending_nostr.get("event") or {}).get("content") or ""),
+        )
+        pending_nostr["event"] = {
+          "kind": 1,
+          "tags": [],
+          "content": revised_draft,
+        }
+        pending_nostr["previewText"] = revised_draft
       pending_nostr["updatedAt"] = int(time.time())
       save_pending_nostr(pending_nostr)
       return {
@@ -1644,17 +1745,28 @@ async def inbound_telegram(
               "replyToMessageId": event.get("messageId"),
             },
             "message": {
-              "text": approval_message(revised_draft, pending_nostr["id"]),
+              "text": approval_message(
+                str(pending_nostr.get("previewText") or ""),
+                pending_nostr["id"],
+                draft_type=draft_type,
+              ),
             },
           }
         ],
       }
 
-  if nostr_signer_configured() and looks_like_nostr_publish_request(text):
-    draft_text = await generate_nostr_draft(payload)
-    if not draft_text:
-      return {"ok": True, "actions": []}
-    pending_nostr = build_pending_draft(payload, draft_text)
+  if nostr_signer_configured() and looks_like_nostr_profile_request(text):
+    profile_content, profile_preview = await generate_nostr_profile(payload)
+    pending_nostr = build_pending_draft(
+      payload,
+      {
+        "kind": 0,
+        "tags": [],
+        "content": profile_content,
+      },
+      "profile",
+      profile_preview,
+    )
     save_pending_nostr(pending_nostr)
     return {
       "ok": True,
@@ -1666,11 +1778,42 @@ async def inbound_telegram(
             "replyToMessageId": event.get("messageId"),
           },
           "message": {
-            "text": approval_message(draft_text, pending_nostr["id"]),
+            "text": approval_message(profile_preview, pending_nostr["id"], draft_type="profile"),
           },
         }
       ],
     }
+
+  if nostr_signer_configured() and looks_like_nostr_publish_request(text):
+    draft_text = await generate_nostr_draft(payload)
+    if not draft_text:
+      return {"ok": True, "actions": []}
+    pending_nostr = build_pending_draft(
+      payload,
+      {
+        "kind": 1,
+        "tags": [],
+        "content": draft_text,
+      },
+      "post",
+      draft_text,
+    )
+    save_pending_nostr(pending_nostr)
+    return {
+      "ok": True,
+      "actions": [
+        {
+          "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": approval_message(draft_text, pending_nostr["id"], draft_type="post"),
+            },
+          }
+        ],
+      }
 
   reply_text = await generate_reply(payload)
   if not reply_text:
