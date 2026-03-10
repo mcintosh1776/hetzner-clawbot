@@ -21,6 +21,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.35] - 2026-03-09
+
+### Added
+- Added generic Nostr profile-metadata draft and approval/sign support for `Stacks` and `Jennifer`, reusing the existing Telegram approval loop while keeping external publish disabled.
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+### Security
+- Kept Nostr profile setup behind the existing sign-only signer boundary so private keys remain outside the bot runtimes while approved profile events can still be signed.
+
+### Changed
+- Synced private-repo avatar assets into the per-agent workspace path and populated `identity.avatar` for agents that provide avatar files in `clawbot-agents`.
+
 ## [0.7.34] - 2026-03-09
 
 ### Added
