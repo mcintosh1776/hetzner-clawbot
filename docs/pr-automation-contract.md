@@ -262,3 +262,22 @@ Implement this in phases:
 
 This gets you the low-friction workflow you want without giving agents direct
 control over canonical production state.
+
+## Initial helper
+
+This repo provides an operator-side helper for the first PR workflow slice:
+
+```bash
+scripts/clawbot-agents-pr.sh <agent-id> <topic-slug> <repo-path> [summary]
+```
+
+It:
+
+1. reads the GitHub App credentials from the configured root-owned files
+2. creates an installation token
+3. creates a proposal branch
+4. commits the current changes in the target `clawbot-agents` working tree
+5. pushes the branch
+6. opens a pull request
+
+It is intentionally operator-run first, not runtime-invoked.
