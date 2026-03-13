@@ -359,10 +359,11 @@ Keep the docs aligned with reality so future operations do not depend on memory.
 
 1. Keep the current production baseline stable and tag proven milestones promptly.
 2. Add a feedback-to-Git proposal workflow so agents can suggest prompt and behavior changes without directly mutating canonical files.
-3. Evaluate and choose a better memory-system direction.
-4. Clean up agent architecture so routing and identity have a clearer source of truth.
-5. Only then consider adding a treasurer bot.
-6. Tackle the deferred SSH/root/sudo hardening work near the end of this cycle.
+3. Upgrade that proposal workflow into branch-and-PR automation for the private `clawbot-agents` repo.
+4. Evaluate and choose a better memory-system direction.
+5. Clean up agent architecture so routing and identity have a clearer source of truth.
+6. Only then consider adding a treasurer bot.
+7. Tackle the deferred SSH/root/sudo hardening work near the end of this cycle.
 
 ## Definition of done for the next checkpoint
 
