@@ -96,14 +96,15 @@ PY
 
 owner="${owner_repo%/*}"
 repo="${owner_repo#*/}"
+https_remote_url="https://x-access-token:${installation_token}@github.com/${owner_repo}.git"
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
 branch="agent/${agent_id}/${topic_slug}-${timestamp}"
 commit_message="agent(${agent_id}): ${summary}"
 pr_title="${agent_id}: ${summary}"
 
-git -C "$repo_path" fetch origin "$base_branch"
-git -C "$repo_path" checkout -B "$branch" "origin/${base_branch}"
+git -C "$repo_path" fetch "$https_remote_url" "$base_branch"
+git -C "$repo_path" checkout -B "$branch" FETCH_HEAD
 
 if [ -z "$(git -C "$repo_path" status --short)" ]; then
   echo "no changes present in $repo_path" >&2
@@ -113,8 +114,7 @@ fi
 git -C "$repo_path" add -A
 git -C "$repo_path" -c user.name='clawbot-agents-pr-bot[bot]' -c user.email='clawbot-agents-pr-bot[bot]@users.noreply.github.com' commit -m "$commit_message"
 
-push_url="https://x-access-token:${installation_token}@github.com/${owner_repo}.git"
-git -C "$repo_path" push "$push_url" "$branch"
+git -C "$repo_path" push "$https_remote_url" "$branch"
 
 pr_body_file="$(mktemp)"
 cat > "$pr_body_file" <<EOF
