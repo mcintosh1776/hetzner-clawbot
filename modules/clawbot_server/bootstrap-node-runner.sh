@@ -111,8 +111,35 @@ if [ -z "$OPENCLAW_PARENT_DIR" ]; then
   OPENCLAW_PARENT_DIR="$(dirname "$OPENCLAW_DIR")"
 fi
 
+OPENCLAW_BUILD_SWAP_FILE="${OPENCLAW_BUILD_SWAP_FILE:-/swapfile.openclaw-build}"
+OPENCLAW_BUILD_SWAP_SIZE_MB="${OPENCLAW_BUILD_SWAP_SIZE_MB:-4096}"
+
 log() {
   printf '[%s] [openclaw-bootstrap] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
+}
+
+ensure_build_swap() {
+  local size_mb="${1:-4096}"
+
+  if swapon --show=NAME --noheadings | grep -qx "$OPENCLAW_BUILD_SWAP_FILE"; then
+    return 0
+  fi
+
+  if [ -f "$OPENCLAW_BUILD_SWAP_FILE" ]; then
+    rm -f "$OPENCLAW_BUILD_SWAP_FILE"
+  fi
+
+  dd if=/dev/zero of="$OPENCLAW_BUILD_SWAP_FILE" bs=1M count="$size_mb" status=none
+  chmod 600 "$OPENCLAW_BUILD_SWAP_FILE"
+  mkswap "$OPENCLAW_BUILD_SWAP_FILE" >/dev/null
+  swapon "$OPENCLAW_BUILD_SWAP_FILE"
+}
+
+cleanup_build_swap() {
+  if swapon --show=NAME --noheadings | grep -qx "$OPENCLAW_BUILD_SWAP_FILE"; then
+    swapoff "$OPENCLAW_BUILD_SWAP_FILE" || true
+  fi
+  rm -f "$OPENCLAW_BUILD_SWAP_FILE"
 }
 
 run_step() {
@@ -2990,6 +3017,8 @@ build_openclaw_image_as_openclaw() {
     return 0
   fi
 
+  ensure_build_swap "$OPENCLAW_BUILD_SWAP_SIZE_MB"
+  trap cleanup_build_swap RETURN
   run_as_openclaw_in_dir "$repo_dir" podman build -t "$image" -f Dockerfile .
 }
 
