@@ -1505,12 +1505,8 @@ def build_nostr_profile_instruction(payload: dict, revision_note: str = "", prev
 
 def approval_message(draft: str, draft_id: str, draft_type: str = "post") -> str:
   label = "Profile draft" if draft_type == "profile" else "Draft"
-  approval_target = "sign it for publish intent" if draft_type == "profile" else "publish it"
-  tail = (
-    "Profile publishing remains disabled until the profile publish transport is implemented."
-    if draft_type == "profile"
-    else "Approved posts will be signed and published to the configured relay set."
-  )
+  approval_target = "publish it"
+  tail = "Approved drafts will be signed and published to the configured relay set."
   return (
     f"{label} ready for approval ({draft_id}).\n\n"
     f"{draft}\n\n"
@@ -1524,19 +1520,22 @@ def approval_message(draft: str, draft_id: str, draft_type: str = "post") -> str
 def signed_ack_message(result: dict, draft_type: str = "post") -> str:
   nostr = result.get("nostr") or {}
   event = nostr.get("event") or {}
-  if draft_type == "profile":
-    return (
-      "Approved. The profile metadata has been signed for publish intent.\n\n"
-      f"Event ID: {event.get('id', '')}\n"
-      f"Pubkey: {nostr.get('publicKey', '')}\n\n"
-      "Profile publishing is still disabled, so nothing has been broadcast yet."
-    )
-
   published = nostr.get("published") or {}
   published_ok = published.get("published") is True
   relay_results = published.get("results") or []
   accepted_relays = [item.get("relay", "") for item in relay_results if item.get("accepted") is True]
   relay_text = ", ".join(accepted_relays) if accepted_relays else "no relay accepted the event"
+  if draft_type == "profile":
+    status_line = (
+      f"The profile update has been signed and published.\n\nRelays: {relay_text}"
+      if published_ok
+      else "The profile update was signed, but relay publishing did not succeed."
+    )
+    return (
+      f"Approved. {status_line}\n\n"
+      f"Event ID: {event.get('id', '')}\n"
+      f"Pubkey: {nostr.get('publicKey', '')}"
+    )
   status_line = (
     f"The post has been signed and published.\n\nRelays: {relay_text}"
     if published_ok
@@ -2288,7 +2287,7 @@ async def nostr_sign_event(
   unsigned_event = normalize_event(payload)
   signed_event = sign_event(unsigned_event)
   published = None
-  if signing_policy["intent"] == "publish" and signed_event.get("kind") == 1:
+  if signing_policy["intent"] == "publish" and signed_event.get("kind") in (0, 1):
     published = await publish_event(signed_event)
   return {
     "ok": True,
