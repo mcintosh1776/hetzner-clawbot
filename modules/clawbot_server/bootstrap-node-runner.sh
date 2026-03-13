@@ -1468,7 +1468,7 @@ def build_nostr_profile_instruction(payload: dict, revision_note: str = "", prev
   instruction_lines = [
     NOSTR_PROFILE_POLICY,
     "Return a JSON object only.",
-    "Allowed fields include: name, display_name, displayName, about, website, picture, banner, nip05, lud16.",
+    "Allowed fields include: name, display_name, about, website, picture, banner, nip05, lud16.",
     "Only include fields you can justify from the request and agent identity context.",
     "Do not invent picture URLs, websites, nip05 values, or lightning addresses.",
     "If a field is unknown, omit it instead of fabricating it.",
@@ -1566,14 +1566,27 @@ def normalize_profile_json(raw_text: str) -> tuple[str, str]:
   if not isinstance(payload, dict):
     raise HTTPException(status_code=502, detail="profile draft must be a JSON object")
 
+  allowed_keys = {
+    "name",
+    "display_name",
+    "about",
+    "website",
+    "picture",
+    "banner",
+    "nip05",
+    "lud16",
+  }
   normalized = {}
   for key, value in payload.items():
     if not isinstance(key, str):
       continue
     if value is None:
       continue
+    normalized_key = "display_name" if key == "displayName" else key
+    if normalized_key not in allowed_keys:
+      continue
     if isinstance(value, (str, int, float, bool)):
-      normalized[key] = value
+      normalized[normalized_key] = value
 
   canonical = json.dumps(normalized, separators=(",", ":"), sort_keys=True)
   pretty = json.dumps(normalized, indent=2, sort_keys=True)
