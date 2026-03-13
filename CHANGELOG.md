@@ -21,6 +21,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.36] - 2026-03-13
+
+### Added
+- Added relay-backed Nostr publish transport for approved post drafts so `Stacks` can draft,
+  receive operator approval, sign, and publish in one workflow while profile metadata remains
+  sign-only.
+
+### Fixed
+- Upgraded the pinned OpenClaw source build from `v2026.3.2` to `v2026.3.11` and verified the
+  control plane, bot runtimes, and signer-backed publish path on the rebuilt node.
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- Replaced the temporary build-only swap workaround with permanent `/swapfile` provisioning
+  so replacement nodes have stable memory headroom for current OpenClaw source builds.
+
 ## [0.7.35] - 2026-03-09
 
 ### Added
