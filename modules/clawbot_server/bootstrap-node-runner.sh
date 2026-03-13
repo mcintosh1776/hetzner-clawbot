@@ -111,35 +111,30 @@ if [ -z "$OPENCLAW_PARENT_DIR" ]; then
   OPENCLAW_PARENT_DIR="$(dirname "$OPENCLAW_DIR")"
 fi
 
-OPENCLAW_BUILD_SWAP_FILE="${OPENCLAW_BUILD_SWAP_FILE:-/swapfile.openclaw-build}"
-OPENCLAW_BUILD_SWAP_SIZE_MB="${OPENCLAW_BUILD_SWAP_SIZE_MB:-4096}"
+OPENCLAW_SWAP_FILE="${OPENCLAW_SWAP_FILE:-/swapfile}"
+OPENCLAW_SWAP_SIZE_MB="${OPENCLAW_SWAP_SIZE_MB:-8192}"
 
 log() {
   printf '[%s] [openclaw-bootstrap] %s\n' "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" "$*"
 }
 
-ensure_build_swap() {
-  local size_mb="${1:-4096}"
+ensure_swap() {
+  local size_mb="${1:-8192}"
+  local fstab_line="$OPENCLAW_SWAP_FILE none swap sw 0 0"
 
-  if swapon --show=NAME --noheadings | grep -qx "$OPENCLAW_BUILD_SWAP_FILE"; then
-    return 0
+  if ! [ -f "$OPENCLAW_SWAP_FILE" ]; then
+    dd if=/dev/zero of="$OPENCLAW_SWAP_FILE" bs=1M count="$size_mb" status=none
+    chmod 600 "$OPENCLAW_SWAP_FILE"
+    mkswap "$OPENCLAW_SWAP_FILE" >/dev/null
   fi
 
-  if [ -f "$OPENCLAW_BUILD_SWAP_FILE" ]; then
-    rm -f "$OPENCLAW_BUILD_SWAP_FILE"
+  if ! grep -Fqx "$fstab_line" /etc/fstab; then
+    printf '%s\n' "$fstab_line" >> /etc/fstab
   fi
 
-  dd if=/dev/zero of="$OPENCLAW_BUILD_SWAP_FILE" bs=1M count="$size_mb" status=none
-  chmod 600 "$OPENCLAW_BUILD_SWAP_FILE"
-  mkswap "$OPENCLAW_BUILD_SWAP_FILE" >/dev/null
-  swapon "$OPENCLAW_BUILD_SWAP_FILE"
-}
-
-cleanup_build_swap() {
-  if swapon --show=NAME --noheadings | grep -qx "$OPENCLAW_BUILD_SWAP_FILE"; then
-    swapoff "$OPENCLAW_BUILD_SWAP_FILE" || true
+  if ! swapon --show=NAME --noheadings | grep -qx "$OPENCLAW_SWAP_FILE"; then
+    swapon "$OPENCLAW_SWAP_FILE"
   fi
-  rm -f "$OPENCLAW_BUILD_SWAP_FILE"
 }
 
 run_step() {
@@ -3017,8 +3012,6 @@ build_openclaw_image_as_openclaw() {
     return 0
   fi
 
-  ensure_build_swap "$OPENCLAW_BUILD_SWAP_SIZE_MB"
-  trap cleanup_build_swap RETURN
   run_as_openclaw_in_dir "$repo_dir" podman build -t "$image" -f Dockerfile .
 }
 
@@ -3036,6 +3029,7 @@ OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 assert_opt_volume_mount
 run_step "Prepare bootstrap directories" prepare_bootstrap_directories
 run_step "Prepare root secret directories" prepare_root_secret_directories
+run_step "Ensure system swap" ensure_swap "$OPENCLAW_SWAP_SIZE_MB"
 run_step "Initialize agent secret stores" ensure_agent_secret_stores
 run_step "Install agent secret provider" write_agent_secret_provider
 run_step "Install agent secret sudoers policy" write_agent_secret_sudoers
