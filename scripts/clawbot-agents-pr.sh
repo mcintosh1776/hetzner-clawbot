@@ -105,7 +105,7 @@ pr_title="${agent_id}: ${summary}"
 git -C "$repo_path" fetch origin "$base_branch"
 git -C "$repo_path" checkout -B "$branch" "origin/${base_branch}"
 
-if git -C "$repo_path" diff --quiet && git -C "$repo_path" diff --cached --quiet; then
+if [ -z "$(git -C "$repo_path" status --short)" ]; then
   echo "no changes present in $repo_path" >&2
   exit 1
 fi
