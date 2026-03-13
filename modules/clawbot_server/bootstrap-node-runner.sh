@@ -1483,25 +1483,47 @@ def build_nostr_profile_instruction(payload: dict, revision_note: str = "", prev
 
 def approval_message(draft: str, draft_id: str, draft_type: str = "post") -> str:
   label = "Profile draft" if draft_type == "profile" else "Draft"
+  approval_target = "sign it for publish intent" if draft_type == "profile" else "publish it"
+  tail = (
+    "Profile publishing remains disabled until the profile publish transport is implemented."
+    if draft_type == "profile"
+    else "Approved posts will be signed and published to the configured relay set."
+  )
   return (
     f"{label} ready for approval ({draft_id}).\n\n"
     f"{draft}\n\n"
-    "Reply `approve` to sign it for publish intent. "
+    f"Reply `approve` to {approval_target}. "
     "Reply `reject` to discard it. "
     "Reply `revise: <changes>` to request a revision. "
-    "Publishing remains disabled until the publish transport is implemented."
+    f"{tail}"
   )
 
 
 def signed_ack_message(result: dict, draft_type: str = "post") -> str:
   nostr = result.get("nostr") or {}
   event = nostr.get("event") or {}
-  action = "profile metadata has" if draft_type == "profile" else "post has"
+  if draft_type == "profile":
+    return (
+      "Approved. The profile metadata has been signed for publish intent.\n\n"
+      f"Event ID: {event.get('id', '')}\n"
+      f"Pubkey: {nostr.get('publicKey', '')}\n\n"
+      "Profile publishing is still disabled, so nothing has been broadcast yet."
+    )
+
+  published = nostr.get("published") or {}
+  published_ok = published.get("published") is True
+  relay_results = published.get("results") or []
+  accepted_relays = [item.get("relay", "") for item in relay_results if item.get("accepted") is True]
+  relay_text = ", ".join(accepted_relays) if accepted_relays else "no relay accepted the event"
+  status_line = (
+    f"The post has been signed and published.\n\nRelays: {relay_text}"
+    if published_ok
+    else "The post was signed, but relay publishing did not succeed."
+  )
   return (
-    f"Approved. The {action} been signed for publish intent.\n\n"
+    f"Approved. {status_line}\n\n"
     f"Event ID: {event.get('id', '')}\n"
-    f"Pubkey: {nostr.get('publicKey', '')}\n\n"
-    "Publishing is still disabled, so nothing has been broadcast yet."
+    f"Pubkey: {nostr.get('publicKey', '')}"
   )
 
 
@@ -1957,6 +1979,7 @@ prepare_nostr_signer_directories() {
 render_nostr_signer_app() {
   local signer_dir="$1"
   cat >"${signer_dir}/app.py" <<'PY'
+import asyncio
 import base64
 import hashlib
 import json
@@ -1966,6 +1989,7 @@ import time
 from bech32 import bech32_decode, convertbits
 from coincurve import PrivateKey, PublicKeyXOnly
 from fastapi import FastAPI, Header, HTTPException, Request
+from websockets.asyncio.client import connect as ws_connect
 
 app = FastAPI()
 
@@ -1987,6 +2011,11 @@ def load_nostr_config() -> dict:
 
 
 NOSTR_CONFIG = load_nostr_config()
+DEFAULT_NOSTR_RELAYS = [
+  "wss://relay.damus.io",
+  "wss://nos.lol",
+  "wss://relay.primal.net",
+]
 
 
 def normalize_hex_key(value: str, hrp: str) -> str:
@@ -2031,6 +2060,23 @@ def resolve_public_key_hex() -> str:
   if normalized != derived:
     raise HTTPException(status_code=500, detail=f"configured public key mismatch for {RUNTIME_DISPLAY_NAME}")
   return normalized
+
+
+def resolve_relays() -> list[str]:
+  configured = NOSTR_CONFIG.get("relays")
+  if configured is None:
+    return list(DEFAULT_NOSTR_RELAYS)
+  if not isinstance(configured, list):
+    raise HTTPException(status_code=500, detail=f"invalid relay configuration for {RUNTIME_DISPLAY_NAME}")
+  relays: list[str] = []
+  for value in configured:
+    relay = str(value or "").strip()
+    if not relay:
+      continue
+    if not relay.startswith(("wss://", "ws://")):
+      raise HTTPException(status_code=500, detail=f"invalid relay URL for {RUNTIME_DISPLAY_NAME}")
+    relays.append(relay)
+  return relays
 
 
 def verify_signer_token(authorization: str | None) -> None:
@@ -2149,6 +2195,47 @@ def sign_event(unsigned_event: dict) -> dict:
   }
 
 
+async def publish_event(signed_event: dict) -> dict:
+  relays = resolve_relays()
+  if not relays:
+    raise HTTPException(status_code=409, detail=f"no relays configured for {RUNTIME_DISPLAY_NAME}")
+
+  results: list[dict] = []
+  for relay in relays:
+    try:
+      async with ws_connect(relay, open_timeout=10, close_timeout=5) as websocket:
+        await websocket.send(json.dumps(["EVENT", signed_event], ensure_ascii=False, separators=(",", ":")))
+        outcome = {"relay": relay, "accepted": None, "message": ""}
+        for _ in range(3):
+          raw = await asyncio.wait_for(websocket.recv(), timeout=10)
+          try:
+            payload = json.loads(raw)
+          except Exception:
+            continue
+          if (
+            isinstance(payload, list)
+            and len(payload) >= 4
+            and payload[0] == "OK"
+            and payload[1] == signed_event["id"]
+          ):
+            outcome["accepted"] = payload[2] is True
+            outcome["message"] = str(payload[3])
+            break
+          if isinstance(payload, list) and payload and payload[0] == "NOTICE":
+            outcome["accepted"] = False
+            outcome["message"] = str(payload[1]) if len(payload) > 1 else "relay notice"
+            break
+        results.append(outcome)
+    except Exception as exc:
+      results.append({"relay": relay, "accepted": False, "message": str(exc)})
+
+  accepted = [item for item in results if item.get("accepted") is True]
+  return {
+    "published": bool(accepted),
+    "results": results,
+  }
+
+
 @app.get("/v1/nostr/status")
 async def nostr_status(
   authorization: str | None = Header(default=None),
@@ -2163,7 +2250,7 @@ async def nostr_status(
       "publicKey": public_key,
       "signOnly": configured,
       "publishApprovalRequired": True,
-      "publishSupported": False,
+      "publishSupported": bool(resolve_relays()) if configured else False,
     },
   }
 
@@ -2178,6 +2265,9 @@ async def nostr_sign_event(
   signing_policy = normalize_signing_policy(payload)
   unsigned_event = normalize_event(payload)
   signed_event = sign_event(unsigned_event)
+  published = None
+  if signing_policy["intent"] == "publish" and signed_event.get("kind") == 1:
+    published = await publish_event(signed_event)
   return {
     "ok": True,
     "nostr": {
@@ -2186,6 +2276,8 @@ async def nostr_sign_event(
       "intent": signing_policy["intent"],
       "approval": signing_policy["approval"],
       "publishApprovalRequired": True,
+      "publishSupported": bool(resolve_relays()),
+      "published": published,
     },
   }
 PY
@@ -2207,7 +2299,7 @@ ensure_nostr_signer_venv() {
     rm -rf "$signer_venv"
     python3 -m venv "$signer_venv"
   fi
-  "${signer_venv}/bin/pip" install --upgrade --no-cache-dir fastapi uvicorn coincurve bech32 >/tmp/openclaw-nostr-signer-pip.log 2>&1
+  "${signer_venv}/bin/pip" install --upgrade --no-cache-dir fastapi uvicorn coincurve bech32 websockets >/tmp/openclaw-nostr-signer-pip.log 2>&1
 }
 
 write_nostr_signer_service() {
