@@ -1468,6 +1468,8 @@ def build_nostr_profile_instruction(payload: dict, revision_note: str = "", prev
   instruction_lines = [
     NOSTR_PROFILE_POLICY,
     "Return a JSON object only.",
+    "Do not wrap the JSON in markdown, code fences, labels, or explanation.",
+    "The first character of the response must be { and the last character must be }.",
     "Allowed fields include: name, display_name, about, website, picture, banner, nip05, lud16.",
     "Only include fields you can justify from the request and agent identity context.",
     "Do not invent picture URLs, websites, nip05 values, or lightning addresses.",
@@ -1557,14 +1559,39 @@ async def generate_nostr_draft(payload: dict, revision_note: str = "", previous_
   return await generate_reply(payload, extra_instruction=extra_instruction)
 
 
-def normalize_profile_json(raw_text: str) -> tuple[str, str]:
-  try:
-    payload = json.loads(raw_text)
-  except Exception as exc:
-    raise HTTPException(status_code=502, detail=f"profile draft is not valid JSON: {exc}") from exc
+def extract_json_object(raw_text: str) -> dict:
+  text = normalize_text(raw_text).strip()
+  candidates = [text]
 
-  if not isinstance(payload, dict):
-    raise HTTPException(status_code=502, detail="profile draft must be a JSON object")
+  if text.startswith("```"):
+    lines = text.splitlines()
+    if len(lines) >= 3 and lines[-1].strip() == "```":
+      fenced = "\n".join(lines[1:-1]).strip()
+      if fenced.lower().startswith("json"):
+        fenced = fenced[4:].lstrip()
+      candidates.append(fenced)
+
+  start = text.find("{")
+  end = text.rfind("}")
+  if start != -1 and end != -1 and end > start:
+    candidates.append(text[start:end + 1].strip())
+
+  last_exc: Exception | None = None
+  for candidate in candidates:
+    if not candidate:
+      continue
+    try:
+      payload = json.loads(candidate)
+      if isinstance(payload, dict):
+        return payload
+    except Exception as exc:
+      last_exc = exc
+
+  raise HTTPException(status_code=502, detail=f"profile draft is not valid JSON: {last_exc}")
+
+
+def normalize_profile_json(raw_text: str) -> tuple[str, str]:
+  payload = extract_json_object(raw_text)
 
   allowed_keys = {
     "name",
