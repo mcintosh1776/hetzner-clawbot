@@ -21,6 +21,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.37] - 2026-03-13
+
+### Added
+- Enabled approved Nostr profile metadata updates to publish to the configured relay set, so `Stacks` and `Jennifer` can now complete profile draft, approval, sign, and publish in the same workflow as ordinary posts.
+
+### Fixed
+- Hardened Nostr profile draft parsing so the runtime can recover JSON objects from model output that includes wrappers or formatting noise instead of failing on non-raw JSON responses.
+- Normalized published profile metadata to standard Nostr fields only, dropping the non-standard `displayName` output while preserving `display_name`, `name`, and `about`.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept approved profile publishing behind the existing signer-backed, approval-gated flow so raw private keys remain outside the bot runtimes while profile updates can still be published.
+
+### Changed
+- Extended the signer-backed publish path from approved posts to approved profile metadata without introducing a second redundant publish-approval step.
+
 ## [0.7.36] - 2026-03-13
 
 ### Added
