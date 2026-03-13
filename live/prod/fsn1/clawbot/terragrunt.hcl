@@ -35,7 +35,7 @@ inputs = {
   opt_volume_fstype = "xfs"
 
   openclaw_enable_webhook_proxy = true
-  openclaw_branch = "v2026.3.2"
+  openclaw_branch = "v2026.3.11"
   openclaw_agent_pack_repo_url = "git@github.com:mcintosh1776/clawbot-agents.git"
   openclaw_agent_pack_ref = "v0.0.8"
   openclaw_operator_telegram_user_id = "1619231777"
