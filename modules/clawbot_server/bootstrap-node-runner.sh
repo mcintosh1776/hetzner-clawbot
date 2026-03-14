@@ -1480,28 +1480,53 @@ def revision_instruction(text: str) -> str:
   return ""
 
 
-def looks_like_nostr_publish_request(text: str) -> bool:
-  lowered = normalize_text(text).lower()
-  if "nostr" not in lowered:
-    return False
-  return any(keyword in lowered for keyword in ("post", "publish", "announcement", "thread", "note", "reply", "share"))
-
-
-def looks_like_nostr_profile_request(text: str) -> bool:
-  lowered = normalize_text(text).lower()
-  if "nostr" not in lowered:
-    return False
-  return any(keyword in lowered for keyword in ("profile", "bio", "about", "metadata", "display name", "kind 0"))
+def contains_any_phrase(text: str, phrases: tuple[str, ...]) -> bool:
+  return any(phrase in text for phrase in phrases)
 
 
 def looks_like_feedback_proposal_request(text: str) -> bool:
   if RUNTIME_AGENT_ID != "podcast_media":
     return False
   lowered = normalize_text(text).lower()
-  return (
-    ("proposal" in lowered or "propose" in lowered)
-    and any(keyword in lowered for keyword in ("feedback", "guidance", "prompt", "agent", "repo", "pack"))
+  proposal_phrases = (
+    "proposal",
+    "propose",
+    "pull request",
+    "merge request",
+    "open a pr",
+    "open pr",
+    "open a proposal",
+    "repo proposal",
+    "agent-pack",
+    "agent pack",
+    "guidance",
+    "feedback file",
+    "social_posting.md",
+    "feedback.md",
+    "agent.md",
+    "update your guidance",
+    "update your prompt",
+    "update your repo",
   )
+  return contains_any_phrase(lowered, proposal_phrases)
+
+
+def looks_like_nostr_publish_request(text: str) -> bool:
+  lowered = normalize_text(text).lower()
+  if looks_like_feedback_proposal_request(lowered):
+    return False
+  social_channel_phrases = ("nostr", "social media", "twitter", "x ", " x/", "mastodon", "toot")
+  social_artifact_phrases = ("post", "publish", "announcement", "thread", "note", "reply", "share", "tweet", "toot")
+  return contains_any_phrase(lowered, social_channel_phrases) and contains_any_phrase(lowered, social_artifact_phrases)
+
+
+def looks_like_nostr_profile_request(text: str) -> bool:
+  lowered = normalize_text(text).lower()
+  if looks_like_feedback_proposal_request(lowered):
+    return False
+  social_channel_phrases = ("nostr", "social media", "twitter", "x ", " x/", "mastodon")
+  profile_phrases = ("profile", "bio", "about", "metadata", "display name", "kind 0")
+  return contains_any_phrase(lowered, social_channel_phrases) and contains_any_phrase(lowered, profile_phrases)
 
 
 def build_nostr_draft_instruction(payload: dict, revision_note: str = "", previous_draft: str = "") -> str:
@@ -2080,6 +2105,37 @@ async def inbound_telegram(
         ],
       }
 
+  if proposal_service_configured() and looks_like_feedback_proposal_request(text):
+    topic_slug, summary, body_markdown = await generate_feedback_proposal(payload)
+    pending_proposal = {
+      "id": f"{RUNTIME_AGENT_ID}-proposal-{int(time.time())}",
+      "createdAt": int(time.time()),
+      "topicSlug": topic_slug,
+      "summary": summary,
+      "bodyMarkdown": body_markdown,
+    }
+    save_pending_proposal(pending_proposal)
+    return {
+      "ok": True,
+      "actions": [
+        {
+          "type": "telegram.sendMessage",
+          "target": {
+            "chatId": chat.get("id"),
+            "replyToMessageId": event.get("messageId"),
+          },
+          "message": {
+            "text": (
+              f"Proposal draft ready for approval ({pending_proposal['id']}).\n\n"
+              f"{body_markdown}\n\n"
+              "Reply `approve` to open a PR. Reply `reject` to discard it. "
+              "Reply `revise: <changes>` to request a revision."
+            ),
+          },
+        }
+      ],
+    }
+
   if nostr_signer_configured() and looks_like_nostr_profile_request(text):
     profile_content, profile_preview = await generate_nostr_profile(payload)
     pending_nostr = build_pending_draft(
@@ -2139,37 +2195,6 @@ async def inbound_telegram(
           }
         ],
       }
-
-  if proposal_service_configured() and looks_like_feedback_proposal_request(text):
-    topic_slug, summary, body_markdown = await generate_feedback_proposal(payload)
-    pending_proposal = {
-      "id": f"{RUNTIME_AGENT_ID}-proposal-{int(time.time())}",
-      "createdAt": int(time.time()),
-      "topicSlug": topic_slug,
-      "summary": summary,
-      "bodyMarkdown": body_markdown,
-    }
-    save_pending_proposal(pending_proposal)
-    return {
-      "ok": True,
-      "actions": [
-        {
-          "type": "telegram.sendMessage",
-          "target": {
-            "chatId": chat.get("id"),
-            "replyToMessageId": event.get("messageId"),
-          },
-          "message": {
-            "text": (
-              f"Proposal draft ready for approval ({pending_proposal['id']}).\n\n"
-              f"{body_markdown}\n\n"
-              "Reply `approve` to open a PR. Reply `reject` to discard it. "
-              "Reply `revise: <changes>` to request a revision."
-            ),
-          },
-        }
-      ],
-    }
 
   reply_text = await generate_reply(payload)
   if not reply_text:
