@@ -21,6 +21,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.38] - 2026-03-13
+
+### Added
+- Added a durable clone location for the private `clawbot-agents` repo at `/opt/clawbot/repos/clawbot-agents` to support on-host proposal and PR workflows.
+- Added an operator-side GitHub App PR helper at `scripts/clawbot-agents-pr.sh` and `/usr/local/bin/clawbot-agents-pr` for creating proposal branches and pull requests against `clawbot-agents`.
+- Added documentation for the feedback-to-Git and PR automation workflow:
+  - `docs/feedback-to-git-workflow.md`
+  - `docs/proposal-template.md`
+  - `docs/pr-automation-contract.md`
+
+### Fixed
+- Fixed the PR helper to detect untracked proposal changes when building commits for new branches.
+- Fixed the PR helper to use the GitHub App installation token for both fetch and push operations so the end-to-end PR flow works without relying on local SSH auth for the repo remote.
+
+### Changed
+- Updated `docs/future-plans.md` to include the reviewed proposal/PR workflow as the next-step path for agent-driven improvements.
+
 ## [0.7.37] - 2026-03-13
 
 ### Added
