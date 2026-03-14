@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 - Fixed the runtime proposal-status endpoint so agents with proposal service wiring now report `enabled: true` consistently instead of showing a stale `podcast_media`-only flag.
 - Fixed Telegram approval reply routing so operator `approve` / `reject` / `revise:` replies are forwarded to the agent that actually owns the pending draft or proposal instead of getting stuck in a loop on the wrong webhook path.
+- Fixed proposal PR creation to use a disposable git workspace per request so old feature branches or dirty working trees on the server no longer block later proposal approvals.
 
 ### Removed
 - _None yet._

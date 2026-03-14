@@ -43,5 +43,5 @@ inputs = {
   openclaw_letsencrypt_email = "mcintosh@satoshis-plebs.com"
   openclaw_private_runtime_public_ids = ["bob", "stacks", "jennifer", "steve", "number5"]
   openclaw_bootstrap_runner_url = "https://raw.githubusercontent.com/mcintosh1776/hetzner-clawbot/main/modules/clawbot_server/bootstrap-node-runner.sh"
-  openclaw_bootstrap_runner_sha256 = "f8f6d60b01f7579d08e34ec1e5f1fa0c416d6cced0150136cf9b68e503d64276"
+  openclaw_bootstrap_runner_sha256 = "e97827cb85dacca55e529a8b89cd67beb775a318a57a662161be33254a80946d"
 }

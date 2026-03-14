@@ -2672,6 +2672,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -2738,18 +2739,28 @@ def normalize_payload(payload: dict) -> dict:
   }
 
 
-def ensure_repo_clean(repo_dir: Path) -> None:
+def prepare_proposal_workspace(source_repo_dir: Path) -> Path:
+  workspace_root = Path(tempfile.mkdtemp(prefix="clawbot-agents-pr-", dir="/tmp"))
+  workspace_dir = workspace_root / "repo"
   try:
-    result = subprocess.run(
-      ["git", "-C", str(repo_dir), "-c", f"safe.directory={repo_dir}", "status", "--short"],
+    subprocess.run(
+      [
+        "git",
+        "clone",
+        "--shared",
+        "--branch",
+        OPENCLAW_PRIVATE_PROPOSAL_BASE_BRANCH or "main",
+        str(source_repo_dir),
+        str(workspace_dir),
+      ],
       check=True,
       capture_output=True,
       text=True,
     )
   except subprocess.CalledProcessError as exc:
-    raise HTTPException(status_code=500, detail=f"unable to inspect proposal repo state: {exc.stderr.strip() or exc.stdout.strip() or exc}") from exc
-  if result.stdout.strip():
-    raise HTTPException(status_code=409, detail="proposal repo has uncommitted changes; resolve repo state before opening another proposal PR")
+    detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+    raise HTTPException(status_code=500, detail=f"unable to prepare proposal workspace: {detail}") from exc
+  return workspace_dir
 
 
 def apply_proposal_files(repo_dir: Path, payload: dict) -> list[str]:
@@ -2779,7 +2790,7 @@ def rerender_agent_config(repo_dir: Path) -> None:
     raise HTTPException(status_code=502, detail=f"render-agent-config failed: {detail}") from exc
 
 
-def open_proposal_pr(payload: dict) -> str:
+def open_proposal_pr(payload: dict, repo_dir: Path) -> str:
   helper_path = Path(OPENCLAW_PRIVATE_PROPOSAL_HELPER)
   if not helper_path.exists():
     raise HTTPException(status_code=500, detail=f"proposal helper not installed: {helper_path}")
@@ -2792,7 +2803,7 @@ def open_proposal_pr(payload: dict) -> str:
         str(helper_path),
         RUNTIME_AGENT_ID,
         payload["topicSlug"],
-        OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR,
+        str(repo_dir),
         payload["summary"],
       ],
       check=True,
@@ -2836,13 +2847,16 @@ async def proposal_open(
 ):
   verify_proposal_token(authorization)
   payload = normalize_payload(await request.json())
-  repo_dir = Path(OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR)
-  if not repo_dir.exists():
-    raise HTTPException(status_code=500, detail=f"proposal repo missing: {repo_dir}")
-  ensure_repo_clean(repo_dir)
-  changed_paths = apply_proposal_files(repo_dir, payload)
-  rerender_agent_config(repo_dir)
-  pr_url = open_proposal_pr(payload)
+  source_repo_dir = Path(OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR)
+  if not source_repo_dir.exists():
+    raise HTTPException(status_code=500, detail=f"proposal repo missing: {source_repo_dir}")
+  workspace_dir = prepare_proposal_workspace(source_repo_dir)
+  changed_paths = apply_proposal_files(workspace_dir, payload)
+  rerender_agent_config(workspace_dir)
+  try:
+    pr_url = open_proposal_pr(payload, workspace_dir)
+  finally:
+    subprocess.run(["rm", "-rf", str(workspace_dir.parent)], check=False)
   return {
     "ok": True,
     "proposal": {
