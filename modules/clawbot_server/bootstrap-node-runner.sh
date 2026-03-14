@@ -878,6 +878,8 @@ TELEGRAM_TOKEN_ENV_BY_AGENT = {
   "number5": "TELEGRAM_BOT_TOKEN_NUMBER5",
   "stacks": "TELEGRAM_BOT_TOKEN_STACKS",
 }
+OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_OPERATOR_TELEGRAM_USER_ID", "").strip()
+PENDING_STATE_BASE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR", "/opt/clawbot/state/private-runtimes").strip()
 
 
 def resolve_agent_secret(agent_id: str, secret_id: str) -> str:
@@ -941,6 +943,80 @@ def normalize_inbound_request(agent: str, update: dict) -> dict:
   }
 
 
+def normalize_text(value) -> str:
+  return str(value or "").strip()
+
+
+def is_operator_reply_command(update: dict) -> bool:
+  if not OPERATOR_TELEGRAM_USER_ID:
+    return False
+  message = (
+    update.get("message")
+    or update.get("edited_message")
+    or update.get("channel_post")
+    or update.get("edited_channel_post")
+    or {}
+  )
+  sender = message.get("from") or {}
+  sender_id = sender.get("id")
+  if sender_id in (None, ""):
+    return False
+  if str(sender_id).strip() != OPERATOR_TELEGRAM_USER_ID:
+    return False
+  text = normalize_text(message.get("text")).lower()
+  return (
+    text in {"approve", "approve publish", "publish", "approved", "reject", "cancel", "deny", "discard"}
+    or text.startswith("revise:")
+    or text.startswith("edit:")
+    or text.startswith("change:")
+  )
+
+
+def find_pending_owner(update: dict) -> str | None:
+  message = (
+    update.get("message")
+    or update.get("edited_message")
+    or update.get("channel_post")
+    or update.get("edited_channel_post")
+    or {}
+  )
+  chat = message.get("chat") or {}
+  chat_id = chat.get("id")
+  reply_to_message_id = ((message.get("reply_to_message") or {}).get("message_id"))
+  if chat_id in (None, ""):
+    return None
+
+  candidates = []
+  for public_agent in ALLOWED_AGENTS:
+    state_dir = os.path.join(PENDING_STATE_BASE_DIR, public_agent)
+    for filename in ("pending-proposal.json", "pending-nostr.json"):
+      path = os.path.join(state_dir, filename)
+      if not os.path.exists(path):
+        continue
+      try:
+        with open(path, "r", encoding="utf-8") as handle:
+          payload = json.load(handle)
+      except Exception:
+        continue
+      if not isinstance(payload, dict):
+        continue
+      if payload.get("chatId") != chat_id:
+        continue
+      score = 1
+      if reply_to_message_id not in (None, "") and payload.get("replyToMessageId") == reply_to_message_id:
+        score = 2
+      candidates.append((score, public_agent))
+
+  if not candidates:
+    return None
+  candidates.sort(reverse=True)
+  top_score = candidates[0][0]
+  top_agents = [agent for score, agent in candidates if score == top_score]
+  if len(top_agents) == 1:
+    return top_agents[0]
+  return None
+
+
 async def send_telegram_message(agent: str, action: dict):
   token_env = TELEGRAM_TOKEN_ENV_BY_AGENT.get(agent)
   if not token_env:
@@ -987,6 +1063,11 @@ async def dispatch_runtime_actions(agent: str, payload: dict):
     raise HTTPException(status_code=502, detail=f"unsupported runtime action for {agent}: {action_type}")
 
 async def forward_to_openclaw(update: dict, agent: str | None = None):
+  if is_operator_reply_command(update):
+    pending_owner = find_pending_owner(update)
+    if pending_owner:
+      agent = pending_owner
+
   if not agent:
     raise HTTPException(status_code=404, detail="agent-specific webhook path required")
 
@@ -1086,6 +1167,8 @@ EnvironmentFile=$OPENCLAW_TELEGRAM_SECRETS_FILE
 EnvironmentFile=-/opt/clawbot/config/.env
 Environment=OPENCLAW_WEBHOOK_RECEIVER_PORT=$OPENCLAW_WEBHOOK_RECEIVER_PORT
 Environment=OPENCLAW_AGENT_SECRET_PROVIDER=$OPENCLAW_AGENT_SECRET_PROVIDER
+Environment=OPENCLAW_OPERATOR_TELEGRAM_USER_ID=$OPENCLAW_OPERATOR_TELEGRAM_USER_ID
+Environment=OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR=$OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR
 Environment=OPENCLAW_STACKS_SECRET_AGENT_ID=$OPENCLAW_STACKS_RUNTIME_AGENT_ID
 ExecStart=$OPENCLAW_WEBHOOK_DIR/.venv/bin/uvicorn app:app --host 127.0.0.1 --port $OPENCLAW_WEBHOOK_RECEIVER_PORT
 Restart=always
