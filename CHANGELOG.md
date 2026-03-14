@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed proposal PR creation to use a disposable git workspace per request so old feature branches or dirty working trees on the server no longer block later proposal approvals.
 - Fixed disposable proposal workspaces to preserve the GitHub origin URL so PR creation works from temp clones instead of failing with a 500.
 - Fixed disposable proposal workspaces to read the durable repo origin with a Git safe-directory override so the root-owned proposal service can prepare temp clones.
+- Fixed disposable proposal workspaces to clone from the durable server repo with explicit Git safe-directory overrides so proposal PR creation no longer dies on the shared-clone step.
 
 ### Removed
 - _None yet._

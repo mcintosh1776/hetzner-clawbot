@@ -2761,6 +2761,10 @@ def prepare_proposal_workspace(source_repo_dir: Path) -> Path:
     subprocess.run(
       [
         "git",
+        "-c",
+        f"safe.directory={source_repo_dir}",
+        "-c",
+        f"safe.directory={source_repo_dir / '.git'}",
         "clone",
         "--shared",
         "--branch",
