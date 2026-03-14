@@ -67,7 +67,7 @@ OPENCLAW_AGENT_SECRET_SUDOERS="${OPENCLAW_AGENT_SECRET_SUDOERS:-/etc/sudoers.d/o
 OPENCLAW_OPERATOR_TELEGRAM_USER_ID="${OPENCLAW_OPERATOR_TELEGRAM_USER_ID:-}"
 OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business)
 OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS=(stacks jennifer)
-OPENCLAW_PROPOSAL_PUBLIC_IDS=(stacks)
+OPENCLAW_PROPOSAL_PUBLIC_IDS=(bob stacks jennifer steve number5)
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
@@ -1519,8 +1519,6 @@ def looks_like_meta_agent_conversation(text: str) -> bool:
 
 
 def looks_like_feedback_proposal_request(text: str) -> bool:
-  if RUNTIME_AGENT_ID != "podcast_media":
-    return False
   return looks_like_meta_agent_conversation(text)
 
 
@@ -1634,7 +1632,7 @@ def build_feedback_proposal_instruction(payload: dict, revision_note: str = "", 
     "The JSON must include exactly these keys: topicSlug, summary, bodyMarkdown.",
     "topicSlug must be lowercase letters, numbers, and hyphens only.",
     "summary must be a short one-line description.",
-    "bodyMarkdown must be a complete proposal markdown document suitable for clawbot-agents/proposals/podcast_media/.",
+    f"bodyMarkdown must be a complete proposal markdown document suitable for clawbot-agents/proposals/{RUNTIME_AGENT_ID}/.",
     "The proposal should describe the requested improvement to agent behavior, guidance, or publishing quality.",
     "Do not mention private keys, secrets, or infrastructure details.",
     "Do not emit markdown fences or extra commentary outside the JSON object.",

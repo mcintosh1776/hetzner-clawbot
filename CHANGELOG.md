@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- _None yet._
+- Expanded the approved proposal-to-PR capability from `Stacks` to all current private runtimes so each agent can propose reviewed updates to its own private agent-pack guidance.
 
 ### Fixed
 - _None yet._
