@@ -2043,7 +2043,11 @@ async def inbound_telegram(
         },
       )
       clear_pending_proposal()
-      pr_url = ((result.get("proposal") or {}).get("pullRequestUrl") or "").strip()
+      pr_url = (
+        (result.get("proposal") or {}).get("prUrl")
+        or (result.get("proposal") or {}).get("pullRequestUrl")
+        or ""
+      ).strip()
       return {
         "ok": True,
         "actions": [

@@ -7,12 +7,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
+- _None yet._
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- _None yet._
+
+## [0.7.39] - 2026-03-14
+
+### Added
 - Added a root-owned proposal service for `Stacks` that can turn approved runtime-generated feedback proposals into reviewable pull requests against the private `clawbot-agents` repo.
 - Added durable bootstrap installation of the `clawbot-agents` PR helper and durable preparation of `/opt/clawbot/repos/clawbot-agents` for on-host proposal workflows.
 
 ### Fixed
 - Tightened runtime intent routing so explicit proposal and PR language now wins over social-post routing, preventing proposal requests from being misclassified as Nostr posts.
 - Added a hard meta-conversation block for social routing so guidance, repo, workflow, and feedback discussions cannot be turned into publishable social drafts.
+- Fixed proposal approval acknowledgements to include the actual PR URL returned by the proposal service.
 
 ### Removed
 - _None yet._
