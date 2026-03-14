@@ -2743,6 +2743,12 @@ def prepare_proposal_workspace(source_repo_dir: Path) -> Path:
   workspace_root = Path(tempfile.mkdtemp(prefix="clawbot-agents-pr-", dir="/tmp"))
   workspace_dir = workspace_root / "repo"
   try:
+    source_remote = subprocess.run(
+      ["git", "-C", str(source_repo_dir), "remote", "get-url", "origin"],
+      check=True,
+      capture_output=True,
+      text=True,
+    ).stdout.strip()
     subprocess.run(
       [
         "git",
@@ -2753,6 +2759,12 @@ def prepare_proposal_workspace(source_repo_dir: Path) -> Path:
         str(source_repo_dir),
         str(workspace_dir),
       ],
+      check=True,
+      capture_output=True,
+      text=True,
+    )
+    subprocess.run(
+      ["git", "-C", str(workspace_dir), "remote", "set-url", "origin", source_remote],
       check=True,
       capture_output=True,
       text=True,
