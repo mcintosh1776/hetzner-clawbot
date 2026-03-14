@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Fixed
 - Tightened runtime intent routing so explicit proposal and PR language now wins over social-post routing, preventing proposal requests from being misclassified as Nostr posts.
+- Added a hard meta-conversation block for social routing so guidance, repo, workflow, and feedback discussions cannot be turned into publishable social drafts.
 
 ### Removed
 - _None yet._

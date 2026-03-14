@@ -1484,11 +1484,9 @@ def contains_any_phrase(text: str, phrases: tuple[str, ...]) -> bool:
   return any(phrase in text for phrase in phrases)
 
 
-def looks_like_feedback_proposal_request(text: str) -> bool:
-  if RUNTIME_AGENT_ID != "podcast_media":
-    return False
+def looks_like_meta_agent_conversation(text: str) -> bool:
   lowered = normalize_text(text).lower()
-  proposal_phrases = (
+  meta_phrases = (
     "proposal",
     "propose",
     "pull request",
@@ -1504,16 +1502,31 @@ def looks_like_feedback_proposal_request(text: str) -> bool:
     "social_posting.md",
     "feedback.md",
     "agent.md",
+    "prompt",
+    "workflow",
+    "behavior",
+    "tone",
+    "voice",
+    "private instructions",
+    "private repo",
     "update your guidance",
     "update your prompt",
     "update your repo",
+    "conversation with me",
+    "our conversation",
   )
-  return contains_any_phrase(lowered, proposal_phrases)
+  return contains_any_phrase(lowered, meta_phrases)
+
+
+def looks_like_feedback_proposal_request(text: str) -> bool:
+  if RUNTIME_AGENT_ID != "podcast_media":
+    return False
+  return looks_like_meta_agent_conversation(text)
 
 
 def looks_like_nostr_publish_request(text: str) -> bool:
   lowered = normalize_text(text).lower()
-  if looks_like_feedback_proposal_request(lowered):
+  if looks_like_meta_agent_conversation(lowered):
     return False
   social_channel_phrases = ("nostr", "social media", "twitter", "x ", " x/", "mastodon", "toot")
   social_artifact_phrases = ("post", "publish", "announcement", "thread", "note", "reply", "share", "tweet", "toot")
@@ -1522,7 +1535,7 @@ def looks_like_nostr_publish_request(text: str) -> bool:
 
 def looks_like_nostr_profile_request(text: str) -> bool:
   lowered = normalize_text(text).lower()
-  if looks_like_feedback_proposal_request(lowered):
+  if looks_like_meta_agent_conversation(lowered):
     return False
   social_channel_phrases = ("nostr", "social media", "twitter", "x ", " x/", "mastodon")
   profile_phrases = ("profile", "bio", "about", "metadata", "display name", "kind 0")
@@ -2348,6 +2361,10 @@ done
 
 [ -d "$repo_path/.git" ] || { echo "repo path is not a git working tree: $repo_path" >&2; exit 1; }
 
+safe_git() {
+  git -C "$repo_path" -c "safe.directory=$repo_path" "$@"
+}
+
 app_id="$(tr -d '[:space:]' < "$app_id_file")"
 installation_id="$(tr -d '[:space:]' < "$installation_id_file")"
 
@@ -2383,7 +2400,7 @@ installation_token="$(
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
 )"
 
-remote_url="$(git -C "$repo_path" remote get-url origin)"
+remote_url="$(safe_git remote get-url origin)"
 owner_repo="$(
   python3 - "$remote_url" <<'PY'
 import re, sys
@@ -2409,18 +2426,18 @@ branch="agent/${agent_id}/${topic_slug}-${timestamp}"
 commit_message="agent(${agent_id}): ${summary}"
 pr_title="${agent_id}: ${summary}"
 
-git -C "$repo_path" fetch "$https_remote_url" "$base_branch"
-git -C "$repo_path" checkout -B "$branch" FETCH_HEAD
+safe_git fetch "$https_remote_url" "$base_branch"
+safe_git checkout -B "$branch" FETCH_HEAD
 
-if [ -z "$(git -C "$repo_path" status --short)" ]; then
+if [ -z "$(safe_git status --short)" ]; then
   echo "no changes present in $repo_path" >&2
   exit 1
 fi
 
-git -C "$repo_path" add -A
-git -C "$repo_path" -c user.name='clawbot-agents-pr-bot[bot]' -c user.email='clawbot-agents-pr-bot[bot]@users.noreply.github.com' commit -m "$commit_message"
+safe_git add -A
+git -C "$repo_path" -c "safe.directory=$repo_path" -c user.name='clawbot-agents-pr-bot[bot]' -c user.email='clawbot-agents-pr-bot[bot]@users.noreply.github.com' commit -m "$commit_message"
 
-git -C "$repo_path" push "$https_remote_url" "$branch"
+safe_git push "$https_remote_url" "$branch"
 
 pr_body_file="$(mktemp)"
 cat > "$pr_body_file" <<PRBODY
@@ -2582,7 +2599,7 @@ def normalize_payload(payload: dict) -> dict:
 def ensure_repo_clean(repo_dir: Path) -> None:
   try:
     result = subprocess.run(
-      ["git", "-C", str(repo_dir), "status", "--short"],
+      ["git", "-C", str(repo_dir), "-c", f"safe.directory={repo_dir}", "status", "--short"],
       check=True,
       capture_output=True,
       text=True,
