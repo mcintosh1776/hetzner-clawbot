@@ -2668,6 +2668,7 @@ prepare_proposal_service_directories() {
 render_proposal_service_app() {
   local proposal_dir="$1"
   cat >"${proposal_dir}/app.py" <<'PY'
+import base64
 import json
 import os
 import re
@@ -2686,6 +2687,9 @@ OPENCLAW_PRIVATE_PROPOSAL_TOKEN = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_TOKEN", "
 OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR", "/opt/clawbot/repos/clawbot-agents").strip()
 OPENCLAW_PRIVATE_PROPOSAL_HELPER = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_HELPER", "/usr/local/bin/clawbot-agents-pr").strip()
 OPENCLAW_PRIVATE_PROPOSAL_BASE_BRANCH = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_BASE_BRANCH", "main").strip()
+OPENCLAW_PRIVATE_PROPOSAL_APP_ID_FILE = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_APP_ID_FILE", "/opt/clawbot-root/bootstrap/clawbot-agents-pr-bot.app_id").strip()
+OPENCLAW_PRIVATE_PROPOSAL_INSTALLATION_ID_FILE = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_INSTALLATION_ID_FILE", "/opt/clawbot-root/bootstrap/clawbot-agents-pr-bot.installation_id").strip()
+OPENCLAW_PRIVATE_PROPOSAL_APP_KEY_FILE = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_APP_KEY_FILE", "/opt/clawbot-root/bootstrap/clawbot-agents-pr-bot.pem").strip()
 
 TOPIC_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -2739,6 +2743,68 @@ def normalize_payload(payload: dict) -> dict:
   }
 
 
+def parse_github_owner_repo(remote_url: str) -> tuple[str, str]:
+  patterns = [
+    r"github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?$",
+  ]
+  for pattern in patterns:
+    match = re.search(pattern, remote_url)
+    if match:
+      return match.group("owner"), match.group("repo")
+  raise HTTPException(status_code=500, detail=f"unable to parse GitHub owner/repo from remote: {remote_url}")
+
+
+def github_app_installation_token() -> str:
+  try:
+    app_id = Path(OPENCLAW_PRIVATE_PROPOSAL_APP_ID_FILE).read_text(encoding="utf-8").strip()
+    installation_id = Path(OPENCLAW_PRIVATE_PROPOSAL_INSTALLATION_ID_FILE).read_text(encoding="utf-8").strip()
+  except OSError as exc:
+    raise HTTPException(status_code=500, detail=f"unable to read GitHub App credential files: {exc}") from exc
+
+  now = int(time.time())
+  header = {"alg": "RS256", "typ": "JWT"}
+  payload = {"iat": now, "exp": now + 540, "iss": app_id}
+
+  def b64url(value: bytes) -> str:
+    return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+  signing_input = f"{b64url(json.dumps(header, separators=(',', ':')).encode())}.{b64url(json.dumps(payload, separators=(',', ':')).encode())}"
+  try:
+    signature = subprocess.run(
+      ["openssl", "dgst", "-binary", "-sha256", "-sign", OPENCLAW_PRIVATE_PROPOSAL_APP_KEY_FILE],
+      input=signing_input.encode(),
+      check=True,
+      capture_output=True,
+    ).stdout
+  except subprocess.CalledProcessError as exc:
+    detail = exc.stderr.decode().strip() or str(exc)
+    raise HTTPException(status_code=500, detail=f"unable to sign GitHub App JWT: {detail}") from exc
+
+  jwt_value = f"{signing_input}.{b64url(signature)}"
+  try:
+    response = subprocess.run(
+      [
+        "curl",
+        "-fsSL",
+        "-X",
+        "POST",
+        "-H",
+        f"Authorization: Bearer {jwt_value}",
+        "-H",
+        "Accept: application/vnd.github+json",
+        f"https://api.github.com/app/installations/{installation_id}/access_tokens",
+      ],
+      check=True,
+      capture_output=True,
+      text=True,
+    )
+    token = json.loads(response.stdout)["token"]
+  except (subprocess.CalledProcessError, KeyError, json.JSONDecodeError) as exc:
+    detail = getattr(exc, "stderr", "") or getattr(exc, "stdout", "") or str(exc)
+    raise HTTPException(status_code=500, detail=f"unable to mint GitHub installation token: {detail}") from exc
+  return str(token).strip()
+
+
 def prepare_proposal_workspace(source_repo_dir: Path) -> Path:
   workspace_root = Path(tempfile.mkdtemp(prefix="clawbot-agents-pr-", dir="/tmp"))
   workspace_dir = workspace_root / "repo"
@@ -2758,18 +2824,16 @@ def prepare_proposal_workspace(source_repo_dir: Path) -> Path:
       capture_output=True,
       text=True,
     ).stdout.strip()
+    owner, repo = parse_github_owner_repo(source_remote)
+    installation_token = github_app_installation_token()
+    https_remote = f"https://x-access-token:{installation_token}@github.com/{owner}/{repo}.git"
     subprocess.run(
       [
         "git",
-        "-c",
-        f"safe.directory={source_repo_dir}",
-        "-c",
-        f"safe.directory={source_repo_dir / '.git'}",
         "clone",
-        "--shared",
         "--branch",
         OPENCLAW_PRIVATE_PROPOSAL_BASE_BRANCH or "main",
-        str(source_repo_dir),
+        https_remote,
         str(workspace_dir),
       ],
       check=True,
