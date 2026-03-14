@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed Telegram approval reply routing so operator `approve` / `reject` / `revise:` replies are forwarded to the agent that actually owns the pending draft or proposal instead of getting stuck in a loop on the wrong webhook path.
 - Fixed proposal PR creation to use a disposable git workspace per request so old feature branches or dirty working trees on the server no longer block later proposal approvals.
 - Fixed disposable proposal workspaces to preserve the GitHub origin URL so PR creation works from temp clones instead of failing with a 500.
+- Fixed disposable proposal workspaces to read the durable repo origin with a Git safe-directory override so the root-owned proposal service can prepare temp clones.
 
 ### Removed
 - _None yet._

@@ -2744,7 +2744,16 @@ def prepare_proposal_workspace(source_repo_dir: Path) -> Path:
   workspace_dir = workspace_root / "repo"
   try:
     source_remote = subprocess.run(
-      ["git", "-C", str(source_repo_dir), "remote", "get-url", "origin"],
+      [
+        "git",
+        "-c",
+        f"safe.directory={source_repo_dir}",
+        "-C",
+        str(source_repo_dir),
+        "remote",
+        "get-url",
+        "origin",
+      ],
       check=True,
       capture_output=True,
       text=True,
