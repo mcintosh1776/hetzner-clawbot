@@ -1629,11 +1629,16 @@ def build_feedback_proposal_instruction(payload: dict, revision_note: str = "", 
   instruction_lines = [
     PROPOSAL_POLICY,
     "Return a JSON object only.",
-    "The JSON must include exactly these keys: topicSlug, summary, bodyMarkdown.",
+    "The JSON must include exactly these keys: topicSlug, summary, previewMarkdown, files.",
     "topicSlug must be lowercase letters, numbers, and hyphens only.",
     "summary must be a short one-line description.",
-    f"bodyMarkdown must be a complete proposal markdown document suitable for clawbot-agents/proposals/{RUNTIME_AGENT_ID}/.",
-    "The proposal should describe the requested improvement to agent behavior, guidance, or publishing quality.",
+    "previewMarkdown must be a short markdown summary of the exact file changes for operator review.",
+    "files must be a non-empty JSON array of objects with keys path and content.",
+    f"Every files[].path must stay under agents/{RUNTIME_AGENT_ID}/ and must target a markdown file in that agent's own directory tree.",
+    "Every files[].content must be the full replacement content for that file after the change.",
+    "Do not propose edits to shared files, exports, scripts, or infrastructure files.",
+    "Prefer editing AGENT.md, SOUL.md, FEEDBACK.md, IDENTITY.md, MEMORY.md, RELATIONSHIPS.md, or markdown files under SKILLS/ for this agent.",
+    "The proposed edits should directly implement the requested improvement to agent behavior, guidance, or publishing quality.",
     "Do not mention private keys, secrets, or infrastructure details.",
     "Do not emit markdown fences or extra commentary outside the JSON object.",
   ]
@@ -1642,7 +1647,7 @@ def build_feedback_proposal_instruction(payload: dict, revision_note: str = "", 
   if revision_note:
     instruction_lines.extend([
       "Revise the existing proposal using the operator feedback below.",
-      f"Existing proposal markdown:\n{previous_body}",
+      f"Existing proposal preview:\n{previous_body}",
       f"Operator feedback:\n{revision_note}",
     ])
   return "\n\n".join(instruction_lines)
@@ -1763,19 +1768,46 @@ def normalize_profile_json(raw_text: str) -> tuple[str, str]:
   return canonical, pretty
 
 
-def normalize_proposal_json(raw_text: str) -> tuple[str, str, str]:
+def normalize_proposal_json(raw_text: str) -> tuple[str, str, str, list[dict]]:
   payload = extract_json_object(raw_text)
   topic_slug = normalize_text(payload.get("topicSlug")).lower()
   summary = normalize_text(payload.get("summary"))
-  body_markdown = normalize_text(payload.get("bodyMarkdown"))
-  if not topic_slug or not summary or not body_markdown:
-    raise HTTPException(status_code=502, detail="proposal draft is missing topicSlug, summary, or bodyMarkdown")
+  preview_markdown = normalize_text(payload.get("previewMarkdown"))
+  raw_files = payload.get("files")
+  if not topic_slug or not summary or not isinstance(raw_files, list) or not raw_files:
+    raise HTTPException(status_code=502, detail="proposal draft is missing topicSlug, summary, or files")
   normalized_slug = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in topic_slug).strip("-")
   while "--" in normalized_slug:
     normalized_slug = normalized_slug.replace("--", "-")
   if not normalized_slug:
     raise HTTPException(status_code=502, detail="proposal topicSlug is empty after normalization")
-  return normalized_slug, summary, body_markdown
+
+  normalized_files: list[dict] = []
+  for item in raw_files:
+    if not isinstance(item, dict):
+      continue
+    path = normalize_text(item.get("path"))
+    content = item.get("content")
+    if not path or not isinstance(content, str) or not content.strip():
+      continue
+    normalized_files.append({
+      "path": path,
+      "content": content.rstrip() + "\n",
+    })
+
+  if not normalized_files:
+    raise HTTPException(status_code=502, detail="proposal draft files are empty after normalization")
+
+  if not preview_markdown:
+    preview_lines = [
+      f"# Proposed file changes: {summary}",
+      "",
+      "## Files",
+    ]
+    preview_lines.extend(f"- `{item['path']}`" for item in normalized_files)
+    preview_markdown = "\n".join(preview_lines)
+
+  return normalized_slug, summary, preview_markdown, normalized_files
 
 
 async def generate_nostr_profile(payload: dict, revision_note: str = "", previous_profile: str = "") -> tuple[str, str]:
@@ -1788,7 +1820,7 @@ async def generate_nostr_profile(payload: dict, revision_note: str = "", previou
   return normalize_profile_json(raw_reply)
 
 
-async def generate_feedback_proposal(payload: dict, revision_note: str = "", previous_body: str = "") -> tuple[str, str, str]:
+async def generate_feedback_proposal(payload: dict, revision_note: str = "", previous_body: str = "") -> tuple[str, str, str, list[dict]]:
   extra_instruction = build_feedback_proposal_instruction(
     payload,
     revision_note=revision_note,
@@ -1889,7 +1921,7 @@ async def runtime_proposal_status(
     "proposals": {
       "configured": proposal_service_configured(),
       "agentId": RUNTIME_AGENT_ID,
-      "enabled": RUNTIME_AGENT_ID == "podcast_media" and proposal_service_configured(),
+      "enabled": proposal_service_configured(),
     },
   }
 
@@ -2037,7 +2069,7 @@ async def inbound_telegram(
         {
           "topicSlug": str(pending_proposal.get("topicSlug") or ""),
           "summary": str(pending_proposal.get("summary") or ""),
-          "bodyMarkdown": str(pending_proposal.get("bodyMarkdown") or ""),
+          "files": pending_proposal.get("files") or [],
         },
       )
       clear_pending_proposal()
@@ -2085,16 +2117,17 @@ async def inbound_telegram(
 
     revision_note = revision_instruction(text)
     if revision_note:
-      topic_slug, summary, body_markdown = await generate_feedback_proposal(
+      topic_slug, summary, preview_markdown, files = await generate_feedback_proposal(
         payload,
         revision_note=revision_note,
-        previous_body=str(pending_proposal.get("bodyMarkdown") or ""),
+        previous_body=str(pending_proposal.get("previewMarkdown") or ""),
       )
       pending_proposal.update(
         {
           "topicSlug": topic_slug,
           "summary": summary,
-          "bodyMarkdown": body_markdown,
+          "previewMarkdown": preview_markdown,
+          "files": files,
           "updatedAt": int(time.time()),
         }
       )
@@ -2111,7 +2144,7 @@ async def inbound_telegram(
             "message": {
               "text": (
                 f"Proposal draft ready for approval ({pending_proposal['id']}).\n\n"
-                f"{body_markdown}\n\n"
+                f"{preview_markdown}\n\n"
                 "Reply `approve` to open a PR. Reply `reject` to discard it. "
                 "Reply `revise: <changes>` to request a revision."
               ),
@@ -2121,13 +2154,14 @@ async def inbound_telegram(
       }
 
   if proposal_service_configured() and looks_like_feedback_proposal_request(text):
-    topic_slug, summary, body_markdown = await generate_feedback_proposal(payload)
+    topic_slug, summary, preview_markdown, files = await generate_feedback_proposal(payload)
     pending_proposal = {
       "id": f"{RUNTIME_AGENT_ID}-proposal-{int(time.time())}",
       "createdAt": int(time.time()),
       "topicSlug": topic_slug,
       "summary": summary,
-      "bodyMarkdown": body_markdown,
+      "previewMarkdown": preview_markdown,
+      "files": files,
     }
     save_pending_proposal(pending_proposal)
     return {
@@ -2142,7 +2176,7 @@ async def inbound_telegram(
           "message": {
             "text": (
               f"Proposal draft ready for approval ({pending_proposal['id']}).\n\n"
-              f"{body_markdown}\n\n"
+              f"{preview_markdown}\n\n"
               "Reply `approve` to open a PR. Reply `reject` to discard it. "
               "Reply `revise: <changes>` to request a revision."
             ),
@@ -2582,19 +2616,42 @@ def verify_proposal_token(authorization: str | None) -> None:
 def normalize_payload(payload: dict) -> dict:
   topic_slug = str(payload.get("topicSlug") or "").strip().lower()
   summary = str(payload.get("summary") or "").strip()
-  body_markdown = str(payload.get("bodyMarkdown") or "").strip()
+  files = payload.get("files")
 
   if not TOPIC_RE.fullmatch(topic_slug):
     raise HTTPException(status_code=400, detail="topicSlug must be lowercase kebab-case")
   if not summary:
     raise HTTPException(status_code=400, detail="summary is required")
-  if not body_markdown:
-    raise HTTPException(status_code=400, detail="bodyMarkdown is required")
+  if not isinstance(files, list) or not files:
+    raise HTTPException(status_code=400, detail="files is required")
+
+  normalized_files = []
+  allowed_prefix = f"agents/{RUNTIME_AGENT_ID}/"
+  for item in files:
+    if not isinstance(item, dict):
+      continue
+    path = str(item.get("path") or "").strip()
+    content = item.get("content")
+    if not path or not isinstance(content, str):
+      continue
+    if ".." in path.split("/"):
+      raise HTTPException(status_code=400, detail="proposal file paths may not contain parent traversal")
+    if not path.startswith(allowed_prefix):
+      raise HTTPException(status_code=400, detail=f"proposal file path must stay under {allowed_prefix}")
+    if not path.endswith(".md"):
+      raise HTTPException(status_code=400, detail="proposal file path must target a markdown file")
+    normalized_files.append({
+      "path": path,
+      "content": content.rstrip() + "\n",
+    })
+
+  if not normalized_files:
+    raise HTTPException(status_code=400, detail="proposal files are empty after normalization")
 
   return {
     "topicSlug": topic_slug,
     "summary": summary,
-    "bodyMarkdown": body_markdown.rstrip() + "\n",
+    "files": normalized_files,
   }
 
 
@@ -2612,16 +2669,34 @@ def ensure_repo_clean(repo_dir: Path) -> None:
     raise HTTPException(status_code=409, detail="proposal repo has uncommitted changes; resolve repo state before opening another proposal PR")
 
 
-def write_proposal_file(repo_dir: Path, payload: dict) -> Path:
-  timestamp = time.strftime("%Y-%m-%d-%H%M%S", time.gmtime())
-  proposal_dir = repo_dir / "proposals" / RUNTIME_AGENT_ID
-  proposal_dir.mkdir(parents=True, exist_ok=True)
-  proposal_path = proposal_dir / f"{timestamp}-{payload['topicSlug']}.md"
-  proposal_path.write_text(payload["bodyMarkdown"], encoding="utf-8")
-  return proposal_path
+def apply_proposal_files(repo_dir: Path, payload: dict) -> list[str]:
+  changed_paths: list[str] = []
+  for item in payload["files"]:
+    target = repo_dir / item["path"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(item["content"], encoding="utf-8")
+    changed_paths.append(item["path"])
+  return changed_paths
 
 
-def open_proposal_pr(payload: dict, proposal_path: Path) -> str:
+def rerender_agent_config(repo_dir: Path) -> None:
+  render_script = repo_dir / "scripts" / "render-agent-config.sh"
+  if not render_script.exists():
+    raise HTTPException(status_code=500, detail=f"render script missing: {render_script}")
+  try:
+    subprocess.run(
+      ["bash", str(render_script)],
+      cwd=repo_dir,
+      check=True,
+      capture_output=True,
+      text=True,
+    )
+  except subprocess.CalledProcessError as exc:
+    detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"render-agent-config failed: {detail}") from exc
+
+
+def open_proposal_pr(payload: dict) -> str:
   helper_path = Path(OPENCLAW_PRIVATE_PROPOSAL_HELPER)
   if not helper_path.exists():
     raise HTTPException(status_code=500, detail=f"proposal helper not installed: {helper_path}")
@@ -2682,15 +2757,16 @@ async def proposal_open(
   if not repo_dir.exists():
     raise HTTPException(status_code=500, detail=f"proposal repo missing: {repo_dir}")
   ensure_repo_clean(repo_dir)
-  proposal_path = write_proposal_file(repo_dir, payload)
-  pr_url = open_proposal_pr(payload, proposal_path)
+  changed_paths = apply_proposal_files(repo_dir, payload)
+  rerender_agent_config(repo_dir)
+  pr_url = open_proposal_pr(payload)
   return {
     "ok": True,
     "proposal": {
       "agentId": RUNTIME_AGENT_ID,
       "topicSlug": payload["topicSlug"],
       "summary": payload["summary"],
-      "path": str(proposal_path.relative_to(repo_dir)),
+      "paths": changed_paths,
       "prUrl": pr_url,
     },
   }

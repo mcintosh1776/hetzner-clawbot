@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Expanded the approved proposal-to-PR capability from `Stacks` to all current private runtimes so each agent can propose reviewed updates to its own private agent-pack guidance.
 
 ### Fixed
-- _None yet._
+- Fixed the runtime proposal-status endpoint so agents with proposal service wiring now report `enabled: true` consistently instead of showing a stale `podcast_media`-only flag.
 
 ### Removed
 - _None yet._
@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Changed agent proposal PRs from markdown proposal documents into guided patch PRs that edit allowed markdown files under each agent's own `agents/<agent-id>/...` tree and rerender exported config before opening the PR.
 
 ## [0.7.39] - 2026-03-14
 
