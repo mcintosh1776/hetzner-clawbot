@@ -55,6 +55,7 @@ OPENCLAW_OPT_VOLUME_WAIT_SECONDS="${OPENCLAW_OPT_VOLUME_WAIT_SECONDS:-180}"
 OPENCLAW_ROOT_STATE_DIR="${OPENCLAW_ROOT_STATE_DIR:-/opt/clawbot-root}"
 OPENCLAW_ROOT_SECRETS_DIR="${OPENCLAW_ROOT_SECRETS_DIR:-$OPENCLAW_ROOT_STATE_DIR/secrets}"
 OPENCLAW_NOSTR_SIGNER_SOCKET_BASE_DIR="${OPENCLAW_NOSTR_SIGNER_SOCKET_BASE_DIR:-/opt/clawbot/state/nostr-signers}"
+OPENCLAW_PROPOSAL_SOCKET_BASE_DIR="${OPENCLAW_PROPOSAL_SOCKET_BASE_DIR:-/opt/clawbot/state/proposal-services}"
 OPENCLAW_AGENT_PACK_REPO_URL="${OPENCLAW_AGENT_PACK_REPO_URL:-}"
 OPENCLAW_AGENT_PACK_REF="${OPENCLAW_AGENT_PACK_REF:-main}"
 OPENCLAW_AGENT_PACK_ROOT_DIR="${OPENCLAW_AGENT_PACK_ROOT_DIR:-$OPENCLAW_ROOT_STATE_DIR/agent-pack}"
@@ -66,6 +67,7 @@ OPENCLAW_AGENT_SECRET_SUDOERS="${OPENCLAW_AGENT_SECRET_SUDOERS:-/etc/sudoers.d/o
 OPENCLAW_OPERATOR_TELEGRAM_USER_ID="${OPENCLAW_OPERATOR_TELEGRAM_USER_ID:-}"
 OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business)
 OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS=(stacks jennifer)
+OPENCLAW_PROPOSAL_PUBLIC_IDS=(stacks)
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
@@ -82,6 +84,8 @@ OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT="${OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT
 OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
 OPENCLAW_PRIVATE_RUNTIME_IMAGE="${OPENCLAW_PRIVATE_RUNTIME_IMAGE:-localhost/clawbot-private-runtime:local}"
 OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE="${OPENCLAW_PRIVATE_RUNTIME_BASE_DIR}/Containerfile"
+OPENCLAW_AGENT_PROPOSAL_REPO_DIR="${OPENCLAW_AGENT_PROPOSAL_REPO_DIR:-/opt/clawbot/repos/clawbot-agents}"
+OPENCLAW_AGENT_PROPOSAL_HELPER="${OPENCLAW_AGENT_PROPOSAL_HELPER:-/usr/local/bin/clawbot-agents-pr}"
 OPENCLAW_TLS_BACKUP_DIR="/opt/clawbot/tls/letsencrypt"
 OPENCLAW_AGENT_FLEET_TEMPLATE_B64="${OPENCLAW_AGENT_FLEET_TEMPLATE_B64:-}"
 OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64="${OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64:-}"
@@ -363,6 +367,9 @@ if not isinstance(internal.get("apiToken"), str) or not internal["apiToken"].str
 
 if not isinstance(internal.get("signerToken"), str) or not internal["signerToken"].strip():
     internal["signerToken"] = secrets.token_urlsafe(32)
+
+if not isinstance(internal.get("proposalToken"), str) or not internal["proposalToken"].strip():
+    internal["proposalToken"] = secrets.token_urlsafe(32)
 
 diagnostics = payload.get("diagnostics")
 if not isinstance(diagnostics, dict):
@@ -1212,6 +1219,8 @@ OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TE
 OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET = os.getenv("OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN", "").strip()
+OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_SOCKET = os.getenv("OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_SOCKET", "").strip()
+OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_TOKEN", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_STATE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_DIR", "/runtime-state").strip()
 OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID", "").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
@@ -1230,6 +1239,10 @@ NOSTR_DRAFT_POLICY = (
 NOSTR_PROFILE_POLICY = (
   "Return only a valid JSON object for a Nostr kind-0 profile metadata draft. "
   "No markdown fences, no labels, no notes, and no commentary."
+)
+PROPOSAL_POLICY = (
+  "Return only a valid JSON object describing a Git-reviewed proposal for the private agent pack. "
+  "No markdown fences, no labels, no commentary, and no extra text."
 )
 
 
@@ -1287,8 +1300,37 @@ def clear_pending_nostr() -> None:
     path.unlink()
 
 
+def pending_proposal_path() -> Path:
+  return runtime_state_dir() / "pending-proposal.json"
+
+
+def load_pending_proposal() -> dict | None:
+  path = pending_proposal_path()
+  if not path.exists():
+    return None
+  try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+  except Exception:
+    return None
+  return payload if isinstance(payload, dict) else None
+
+
+def save_pending_proposal(payload: dict) -> None:
+  pending_proposal_path().write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def clear_pending_proposal() -> None:
+  path = pending_proposal_path()
+  if path.exists():
+    path.unlink()
+
+
 def nostr_signer_configured() -> bool:
   return bool(OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET and OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN)
+
+
+def proposal_service_configured() -> bool:
+  return bool(OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_SOCKET and OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_TOKEN)
 
 
 async def request_nostr_signer(method: str, path: str, payload: dict | None = None) -> dict:
@@ -1319,6 +1361,36 @@ async def request_nostr_signer(method: str, path: str, payload: dict | None = No
     return response.json()
   except Exception as exc:
     raise HTTPException(status_code=502, detail=f"invalid nostr signer response: {exc}") from exc
+
+
+async def request_proposal_service(method: str, path: str, payload: dict | None = None) -> dict:
+  if not proposal_service_configured():
+    raise HTTPException(status_code=503, detail=f"proposal service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://proposal-service",
+      timeout=30,
+    ) as client:
+      response = await client.request(
+        method,
+        path,
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_TOKEN}"},
+        json=payload,
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"proposal service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"proposal service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid proposal service response: {exc}") from exc
 
 
 def build_user_message(payload: dict) -> str:
@@ -1422,6 +1494,16 @@ def looks_like_nostr_profile_request(text: str) -> bool:
   return any(keyword in lowered for keyword in ("profile", "bio", "about", "metadata", "display name", "kind 0"))
 
 
+def looks_like_feedback_proposal_request(text: str) -> bool:
+  if RUNTIME_AGENT_ID != "podcast_media":
+    return False
+  lowered = normalize_text(text).lower()
+  return (
+    ("proposal" in lowered or "propose" in lowered)
+    and any(keyword in lowered for keyword in ("feedback", "guidance", "prompt", "agent", "repo", "pack"))
+  )
+
+
 def build_nostr_draft_instruction(payload: dict, revision_note: str = "", previous_draft: str = "") -> str:
   event = payload.get("event") or {}
   request_text = normalize_text(event.get("text"))
@@ -1502,6 +1584,31 @@ def build_nostr_profile_instruction(payload: dict, revision_note: str = "", prev
       f"Operator feedback:\n{revision_note}",
     ])
 
+  return "\n\n".join(instruction_lines)
+
+
+def build_feedback_proposal_instruction(payload: dict, revision_note: str = "", previous_body: str = "") -> str:
+  event = payload.get("event") or {}
+  request_text = normalize_text(event.get("text"))
+  instruction_lines = [
+    PROPOSAL_POLICY,
+    "Return a JSON object only.",
+    "The JSON must include exactly these keys: topicSlug, summary, bodyMarkdown.",
+    "topicSlug must be lowercase letters, numbers, and hyphens only.",
+    "summary must be a short one-line description.",
+    "bodyMarkdown must be a complete proposal markdown document suitable for clawbot-agents/proposals/podcast_media/.",
+    "The proposal should describe the requested improvement to agent behavior, guidance, or publishing quality.",
+    "Do not mention private keys, secrets, or infrastructure details.",
+    "Do not emit markdown fences or extra commentary outside the JSON object.",
+  ]
+  if request_text:
+    instruction_lines.append(f"Request context:\n{request_text}")
+  if revision_note:
+    instruction_lines.extend([
+      "Revise the existing proposal using the operator feedback below.",
+      f"Existing proposal markdown:\n{previous_body}",
+      f"Operator feedback:\n{revision_note}",
+    ])
   return "\n\n".join(instruction_lines)
 
 
@@ -1620,6 +1727,21 @@ def normalize_profile_json(raw_text: str) -> tuple[str, str]:
   return canonical, pretty
 
 
+def normalize_proposal_json(raw_text: str) -> tuple[str, str, str]:
+  payload = extract_json_object(raw_text)
+  topic_slug = normalize_text(payload.get("topicSlug")).lower()
+  summary = normalize_text(payload.get("summary"))
+  body_markdown = normalize_text(payload.get("bodyMarkdown"))
+  if not topic_slug or not summary or not body_markdown:
+    raise HTTPException(status_code=502, detail="proposal draft is missing topicSlug, summary, or bodyMarkdown")
+  normalized_slug = "".join(ch if ch.isalnum() or ch == "-" else "-" for ch in topic_slug).strip("-")
+  while "--" in normalized_slug:
+    normalized_slug = normalized_slug.replace("--", "-")
+  if not normalized_slug:
+    raise HTTPException(status_code=502, detail="proposal topicSlug is empty after normalization")
+  return normalized_slug, summary, body_markdown
+
+
 async def generate_nostr_profile(payload: dict, revision_note: str = "", previous_profile: str = "") -> tuple[str, str]:
   extra_instruction = build_nostr_profile_instruction(
     payload,
@@ -1628,6 +1750,16 @@ async def generate_nostr_profile(payload: dict, revision_note: str = "", previou
   )
   raw_reply = await generate_reply(payload, extra_instruction=extra_instruction)
   return normalize_profile_json(raw_reply)
+
+
+async def generate_feedback_proposal(payload: dict, revision_note: str = "", previous_body: str = "") -> tuple[str, str, str]:
+  extra_instruction = build_feedback_proposal_instruction(
+    payload,
+    revision_note=revision_note,
+    previous_body=previous_body,
+  )
+  raw_reply = await generate_reply(payload, extra_instruction=extra_instruction)
+  return normalize_proposal_json(raw_reply)
 
 
 def build_pending_draft(payload: dict, event_payload: dict, draft_type: str, preview_text: str) -> dict:
@@ -1704,6 +1836,28 @@ async def runtime_nostr_status(
   }
 
 
+@app.get("/v1/runtime/proposals/status")
+async def runtime_proposal_status(
+  authorization: str | None = Header(default=None),
+):
+  expected_token = resolve_internal_api_token()
+  if authorization != f"Bearer {expected_token}":
+    raise HTTPException(status_code=401, detail="invalid runtime authorization")
+
+  return {
+    "ok": True,
+    "runtime": {
+      "agentId": RUNTIME_AGENT_ID,
+      "displayName": RUNTIME_DISPLAY_NAME,
+    },
+    "proposals": {
+      "configured": proposal_service_configured(),
+      "agentId": RUNTIME_AGENT_ID,
+      "enabled": RUNTIME_AGENT_ID == "podcast_media" and proposal_service_configured(),
+    },
+  }
+
+
 @app.post("/v1/runtime/nostr/sign-event")
 async def runtime_nostr_sign_event(
   request: Request,
@@ -1734,6 +1888,7 @@ async def inbound_telegram(
     return {"ok": True, "actions": []}
 
   pending_nostr = load_pending_nostr()
+  pending_proposal = load_pending_proposal()
   if sender_is_operator(event) and pending_nostr:
     if is_approval_command(text):
       draft_type = str(pending_nostr.get("draftType") or "post")
@@ -1838,6 +1993,93 @@ async def inbound_telegram(
         ],
       }
 
+  if sender_is_operator(event) and pending_proposal:
+    if is_approval_command(text):
+      result = await request_proposal_service(
+        "POST",
+        "/v1/proposals/open",
+        {
+          "topicSlug": str(pending_proposal.get("topicSlug") or ""),
+          "summary": str(pending_proposal.get("summary") or ""),
+          "bodyMarkdown": str(pending_proposal.get("bodyMarkdown") or ""),
+        },
+      )
+      clear_pending_proposal()
+      pr_url = ((result.get("proposal") or {}).get("pullRequestUrl") or "").strip()
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": (
+                f"Approved. Proposal PR opened successfully.\n\n{pr_url}"
+                if pr_url else "Approved. Proposal PR opened successfully."
+              ),
+            },
+          }
+        ],
+      }
+
+    if is_reject_command(text):
+      clear_pending_proposal()
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": "Proposal discarded. No branch or PR was created.",
+            },
+          }
+        ],
+      }
+
+    revision_note = revision_instruction(text)
+    if revision_note:
+      topic_slug, summary, body_markdown = await generate_feedback_proposal(
+        payload,
+        revision_note=revision_note,
+        previous_body=str(pending_proposal.get("bodyMarkdown") or ""),
+      )
+      pending_proposal.update(
+        {
+          "topicSlug": topic_slug,
+          "summary": summary,
+          "bodyMarkdown": body_markdown,
+          "updatedAt": int(time.time()),
+        }
+      )
+      save_pending_proposal(pending_proposal)
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": (
+                f"Proposal draft ready for approval ({pending_proposal['id']}).\n\n"
+                f"{body_markdown}\n\n"
+                "Reply `approve` to open a PR. Reply `reject` to discard it. "
+                "Reply `revise: <changes>` to request a revision."
+              ),
+            },
+          }
+        ],
+      }
+
   if nostr_signer_configured() and looks_like_nostr_profile_request(text):
     profile_content, profile_preview = await generate_nostr_profile(payload)
     pending_nostr = build_pending_draft(
@@ -1897,6 +2139,37 @@ async def inbound_telegram(
           }
         ],
       }
+
+  if proposal_service_configured() and looks_like_feedback_proposal_request(text):
+    topic_slug, summary, body_markdown = await generate_feedback_proposal(payload)
+    pending_proposal = {
+      "id": f"{RUNTIME_AGENT_ID}-proposal-{int(time.time())}",
+      "createdAt": int(time.time()),
+      "topicSlug": topic_slug,
+      "summary": summary,
+      "bodyMarkdown": body_markdown,
+    }
+    save_pending_proposal(pending_proposal)
+    return {
+      "ok": True,
+      "actions": [
+        {
+          "type": "telegram.sendMessage",
+          "target": {
+            "chatId": chat.get("id"),
+            "replyToMessageId": event.get("messageId"),
+          },
+          "message": {
+            "text": (
+              f"Proposal draft ready for approval ({pending_proposal['id']}).\n\n"
+              f"{body_markdown}\n\n"
+              "Reply `approve` to open a PR. Reply `reject` to discard it. "
+              "Reply `revise: <changes>` to request a revision."
+            ),
+          },
+        }
+      ],
+    }
 
   reply_text = await generate_reply(payload)
   if not reply_text:
@@ -1967,6 +2240,512 @@ if not isinstance(value, str) or not value.strip():
     raise SystemExit(1)
 print(value)
 PY
+}
+
+private_proposal_enabled() {
+  local public_id="$1"
+  local enabled_id
+  for enabled_id in "${OPENCLAW_PROPOSAL_PUBLIC_IDS[@]}"; do
+    if [[ "$enabled_id" == "$public_id" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+private_proposal_service_name() {
+  printf 'clawbot-%s-proposal.service\n' "$1"
+}
+
+private_proposal_dir() {
+  printf '%s/%s\n' "$OPENCLAW_ROOT_STATE_DIR/proposal-services" "$1"
+}
+
+private_proposal_socket_dir() {
+  printf '%s/%s\n' "$OPENCLAW_PROPOSAL_SOCKET_BASE_DIR" "$1"
+}
+
+private_proposal_socket_path() {
+  printf '%s/service.sock\n' "$(private_proposal_socket_dir "$1")"
+}
+
+private_proposal_repo_branch() {
+  printf '%s\n' "${OPENCLAW_AGENT_PROPOSAL_BASE_BRANCH:-main}"
+}
+
+private_proposal_unit_name() {
+  printf 'clawbot-%s-proposal.service\n' "$1"
+}
+
+install_agent_proposal_helper() {
+  cat >"$OPENCLAW_AGENT_PROPOSAL_HELPER" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE' >&2
+usage: clawbot-agents-pr.sh <agent-id> <topic-slug> <repo-path> [summary]
+
+Creates a branch and pull request in the private clawbot-agents repo using the
+configured GitHub App credentials.
+
+Arguments:
+  agent-id     Internal agent id, e.g. podcast_media
+  topic-slug   Short branch/PR slug, e.g. social-tone
+  repo-path    Local path to a clawbot-agents working tree with changes ready
+  summary      Optional PR summary; defaults to topic-slug with dashes replaced
+               by spaces
+
+Environment overrides:
+  CLAWBOT_AGENTS_APP_ID_FILE
+  CLAWBOT_AGENTS_INSTALLATION_ID_FILE
+  CLAWBOT_AGENTS_APP_KEY_FILE
+  CLAWBOT_AGENTS_BASE_BRANCH
+USAGE
+  exit 1
+}
+
+[ "$#" -ge 3 ] || usage
+
+agent_id="$1"
+topic_slug="$2"
+repo_path="$3"
+summary="${4:-${topic_slug//-/ }}"
+
+app_id_file="${CLAWBOT_AGENTS_APP_ID_FILE:-/opt/clawbot-root/bootstrap/clawbot-agents-pr-bot.app_id}"
+installation_id_file="${CLAWBOT_AGENTS_INSTALLATION_ID_FILE:-/opt/clawbot-root/bootstrap/clawbot-agents-pr-bot.installation_id}"
+app_key_file="${CLAWBOT_AGENTS_APP_KEY_FILE:-/opt/clawbot-root/bootstrap/clawbot-agents-pr-bot.pem}"
+base_branch="${CLAWBOT_AGENTS_BASE_BRANCH:-main}"
+
+for path in "$app_id_file" "$installation_id_file" "$app_key_file"; do
+  [ -r "$path" ] || { echo "missing required credential file: $path" >&2; exit 1; }
+done
+
+[ -d "$repo_path/.git" ] || { echo "repo path is not a git working tree: $repo_path" >&2; exit 1; }
+
+app_id="$(tr -d '[:space:]' < "$app_id_file")"
+installation_id="$(tr -d '[:space:]' < "$installation_id_file")"
+
+base64url() {
+  openssl base64 -A | tr '+/' '-_' | tr -d '='
+}
+
+create_jwt() {
+  local now exp header payload header_b64 payload_b64 signing_input sig
+  now="$(date +%s)"
+  exp="$((now + 540))"
+  header='{"alg":"RS256","typ":"JWT"}'
+  payload="$(printf '{"iat":%s,"exp":%s,"iss":"%s"}' "$now" "$exp" "$app_id")"
+  header_b64="$(printf '%s' "$header" | base64url)"
+  payload_b64="$(printf '%s' "$payload" | base64url)"
+  signing_input="${header_b64}.${payload_b64}"
+  sig="$(
+    printf '%s' "$signing_input" \
+      | openssl dgst -binary -sha256 -sign "$app_key_file" \
+      | base64url
+  )"
+  printf '%s.%s' "$signing_input" "$sig"
+}
+
+app_jwt="$(create_jwt)"
+
+installation_token="$(
+  curl -fsSL \
+    -X POST \
+    -H "Authorization: Bearer ${app_jwt}" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/app/installations/${installation_id}/access_tokens" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'
+)"
+
+remote_url="$(git -C "$repo_path" remote get-url origin)"
+owner_repo="$(
+  python3 - "$remote_url" <<'PY'
+import re, sys
+url = sys.argv[1]
+patterns = [
+    r'github\.com[:/](?P<owner>[^/]+)/(?P<repo>[^/.]+)(?:\.git)?$',
+]
+for pattern in patterns:
+    m = re.search(pattern, url)
+    if m:
+        print(f'{m.group("owner")}/{m.group("repo")}')
+        sys.exit(0)
+raise SystemExit(f"could not parse GitHub owner/repo from remote URL: {url}")
+PY
+)"
+
+owner="${owner_repo%/*}"
+repo="${owner_repo#*/}"
+https_remote_url="https://x-access-token:${installation_token}@github.com/${owner_repo}.git"
+
+timestamp="$(date +%Y%m%d-%H%M%S)"
+branch="agent/${agent_id}/${topic_slug}-${timestamp}"
+commit_message="agent(${agent_id}): ${summary}"
+pr_title="${agent_id}: ${summary}"
+
+git -C "$repo_path" fetch "$https_remote_url" "$base_branch"
+git -C "$repo_path" checkout -B "$branch" FETCH_HEAD
+
+if [ -z "$(git -C "$repo_path" status --short)" ]; then
+  echo "no changes present in $repo_path" >&2
+  exit 1
+fi
+
+git -C "$repo_path" add -A
+git -C "$repo_path" -c user.name='clawbot-agents-pr-bot[bot]' -c user.email='clawbot-agents-pr-bot[bot]@users.noreply.github.com' commit -m "$commit_message"
+
+git -C "$repo_path" push "$https_remote_url" "$branch"
+
+pr_body_file="$(mktemp)"
+cat > "$pr_body_file" <<PRBODY
+## Reason
+
+Agent-authored proposal for \`${agent_id}\`.
+
+## Observed behavior
+
+- See commit diff
+
+## Files changed
+
+- See commit diff
+
+## Expected outcome
+
+- Improves \`${agent_id}\` behavior without directly mutating protected \`${base_branch}\`
+
+## Risks
+
+- Prompt drift or overcorrection if merged without review
+PRBODY
+
+pr_url="$(
+  curl -fsSL \
+    -X POST \
+    -H "Authorization: Bearer ${installation_token}" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com/repos/${owner}/${repo}/pulls" \
+    -d @- <<PRJSON
+{
+  "title": $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$pr_title"),
+  "head": $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$branch"),
+  "base": $(python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$base_branch"),
+  "body": $(python3 -c 'import json,sys; print(json.dumps(open(sys.argv[1]).read()))' "$pr_body_file")
+}
+PRJSON
+)"
+
+rm -f "$pr_body_file"
+
+printf '%s\n' "$pr_url" | python3 -c 'import json,sys; print(json.load(sys.stdin)["html_url"])'
+EOF
+  chown root:root "$OPENCLAW_AGENT_PROPOSAL_HELPER"
+  chmod 0700 "$OPENCLAW_AGENT_PROPOSAL_HELPER"
+}
+
+prepare_agent_proposal_repo() {
+  local repo_dir="$OPENCLAW_AGENT_PROPOSAL_REPO_DIR"
+  local repo_parent
+  local clone_url="$OPENCLAW_AGENT_PACK_REPO_URL"
+  local branch
+  local -a git_prefix=()
+
+  if [[ -z "$clone_url" ]]; then
+    echo "OPENCLAW_AGENT_PACK_REPO_URL must be set to prepare proposal repo" >&2
+    return 1
+  fi
+
+  repo_parent="$(dirname "$repo_dir")"
+  branch="$(private_proposal_repo_branch)"
+  install -d -m 0750 -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" "$repo_parent"
+
+  if [[ "$clone_url" == git@* || "$clone_url" == ssh://* ]]; then
+    if [[ ! -f "$OPENCLAW_AGENT_PACK_SSH_KEY_FILE" ]]; then
+      echo "Proposal repo clone requires deploy key at $OPENCLAW_AGENT_PACK_SSH_KEY_FILE" >&2
+      return 1
+    fi
+    chmod 600 "$OPENCLAW_AGENT_PACK_SSH_KEY_FILE"
+    git_prefix=(
+      env
+      "GIT_SSH_COMMAND=ssh -i $OPENCLAW_AGENT_PACK_SSH_KEY_FILE -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    )
+  fi
+
+  if [[ ! -d "$repo_dir/.git" ]]; then
+    rm -rf "$repo_dir"
+    "${git_prefix[@]}" git clone --branch "$branch" "$clone_url" "$repo_dir"
+    chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$repo_dir"
+  fi
+
+  git config --global --add safe.directory "$repo_dir" >/dev/null 2>&1 || true
+}
+
+prepare_proposal_service_directories() {
+  local public_id
+  local proposal_dir
+  local socket_dir
+
+  mkdir -p "$OPENCLAW_ROOT_STATE_DIR/proposal-services"
+  chown root:root "$OPENCLAW_ROOT_STATE_DIR/proposal-services"
+  chmod 700 "$OPENCLAW_ROOT_STATE_DIR/proposal-services"
+  mkdir -p "$OPENCLAW_PROPOSAL_SOCKET_BASE_DIR"
+  chown root:"$OPENCLAW_USER" "$OPENCLAW_PROPOSAL_SOCKET_BASE_DIR"
+  chmod 750 "$OPENCLAW_PROPOSAL_SOCKET_BASE_DIR"
+
+  for public_id in "${OPENCLAW_PROPOSAL_PUBLIC_IDS[@]}"; do
+    proposal_dir="$(private_proposal_dir "$public_id")"
+    socket_dir="$(private_proposal_socket_dir "$public_id")"
+    mkdir -p "$proposal_dir" "$socket_dir"
+    chown -R root:root "$proposal_dir"
+    chmod 700 "$proposal_dir"
+    chown root:"$OPENCLAW_USER" "$socket_dir"
+    chmod 750 "$socket_dir"
+  done
+}
+
+render_proposal_service_app() {
+  local proposal_dir="$1"
+  cat >"${proposal_dir}/app.py" <<'PY'
+import json
+import os
+import re
+import subprocess
+import time
+from pathlib import Path
+
+from fastapi import FastAPI, Header, HTTPException, Request
+
+app = FastAPI()
+
+RUNTIME_AGENT_ID = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_AGENT_ID", "podcast_media").strip()
+RUNTIME_DISPLAY_NAME = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_DISPLAY_NAME", "Stacks").strip()
+OPENCLAW_PRIVATE_PROPOSAL_TOKEN = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_TOKEN", "").strip()
+OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR", "/opt/clawbot/repos/clawbot-agents").strip()
+OPENCLAW_PRIVATE_PROPOSAL_HELPER = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_HELPER", "/usr/local/bin/clawbot-agents-pr").strip()
+OPENCLAW_PRIVATE_PROPOSAL_BASE_BRANCH = os.getenv("OPENCLAW_PRIVATE_PROPOSAL_BASE_BRANCH", "main").strip()
+
+TOPIC_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+
+def verify_proposal_token(authorization: str | None) -> None:
+  if not OPENCLAW_PRIVATE_PROPOSAL_TOKEN:
+    raise HTTPException(status_code=500, detail=f"proposal token missing for {RUNTIME_DISPLAY_NAME}")
+  if authorization != f"Bearer {OPENCLAW_PRIVATE_PROPOSAL_TOKEN}":
+    raise HTTPException(status_code=401, detail="invalid proposal authorization")
+
+
+def normalize_payload(payload: dict) -> dict:
+  topic_slug = str(payload.get("topicSlug") or "").strip().lower()
+  summary = str(payload.get("summary") or "").strip()
+  body_markdown = str(payload.get("bodyMarkdown") or "").strip()
+
+  if not TOPIC_RE.fullmatch(topic_slug):
+    raise HTTPException(status_code=400, detail="topicSlug must be lowercase kebab-case")
+  if not summary:
+    raise HTTPException(status_code=400, detail="summary is required")
+  if not body_markdown:
+    raise HTTPException(status_code=400, detail="bodyMarkdown is required")
+
+  return {
+    "topicSlug": topic_slug,
+    "summary": summary,
+    "bodyMarkdown": body_markdown.rstrip() + "\n",
+  }
+
+
+def ensure_repo_clean(repo_dir: Path) -> None:
+  try:
+    result = subprocess.run(
+      ["git", "-C", str(repo_dir), "status", "--short"],
+      check=True,
+      capture_output=True,
+      text=True,
+    )
+  except subprocess.CalledProcessError as exc:
+    raise HTTPException(status_code=500, detail=f"unable to inspect proposal repo state: {exc.stderr.strip() or exc.stdout.strip() or exc}") from exc
+  if result.stdout.strip():
+    raise HTTPException(status_code=409, detail="proposal repo has uncommitted changes; resolve repo state before opening another proposal PR")
+
+
+def write_proposal_file(repo_dir: Path, payload: dict) -> Path:
+  timestamp = time.strftime("%Y-%m-%d-%H%M%S", time.gmtime())
+  proposal_dir = repo_dir / "proposals" / RUNTIME_AGENT_ID
+  proposal_dir.mkdir(parents=True, exist_ok=True)
+  proposal_path = proposal_dir / f"{timestamp}-{payload['topicSlug']}.md"
+  proposal_path.write_text(payload["bodyMarkdown"], encoding="utf-8")
+  return proposal_path
+
+
+def open_proposal_pr(payload: dict, proposal_path: Path) -> str:
+  helper_path = Path(OPENCLAW_PRIVATE_PROPOSAL_HELPER)
+  if not helper_path.exists():
+    raise HTTPException(status_code=500, detail=f"proposal helper not installed: {helper_path}")
+
+  env = os.environ.copy()
+  env["CLAWBOT_AGENTS_BASE_BRANCH"] = OPENCLAW_PRIVATE_PROPOSAL_BASE_BRANCH or "main"
+  try:
+    result = subprocess.run(
+      [
+        str(helper_path),
+        RUNTIME_AGENT_ID,
+        payload["topicSlug"],
+        OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR,
+        payload["summary"],
+      ],
+      check=True,
+      capture_output=True,
+      text=True,
+      env=env,
+    )
+  except subprocess.CalledProcessError as exc:
+    detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"proposal PR helper failed: {detail}") from exc
+
+  lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+  if not lines:
+    raise HTTPException(status_code=502, detail="proposal PR helper did not return a PR URL")
+  return lines[-1]
+
+
+@app.get("/v1/proposals/status")
+async def proposal_status(
+  authorization: str | None = Header(default=None),
+):
+  verify_proposal_token(authorization)
+  repo_dir = Path(OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR)
+  helper_path = Path(OPENCLAW_PRIVATE_PROPOSAL_HELPER)
+  return {
+    "ok": True,
+    "proposal": {
+      "configured": bool(OPENCLAW_PRIVATE_PROPOSAL_TOKEN and repo_dir.exists() and helper_path.exists()),
+      "agentId": RUNTIME_AGENT_ID,
+      "displayName": RUNTIME_DISPLAY_NAME,
+      "repoPath": str(repo_dir),
+      "baseBranch": OPENCLAW_PRIVATE_PROPOSAL_BASE_BRANCH or "main",
+    },
+  }
+
+
+@app.post("/v1/proposals/open")
+async def proposal_open(
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  verify_proposal_token(authorization)
+  payload = normalize_payload(await request.json())
+  repo_dir = Path(OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR)
+  if not repo_dir.exists():
+    raise HTTPException(status_code=500, detail=f"proposal repo missing: {repo_dir}")
+  ensure_repo_clean(repo_dir)
+  proposal_path = write_proposal_file(repo_dir, payload)
+  pr_url = open_proposal_pr(payload, proposal_path)
+  return {
+    "ok": True,
+    "proposal": {
+      "agentId": RUNTIME_AGENT_ID,
+      "topicSlug": payload["topicSlug"],
+      "summary": payload["summary"],
+      "path": str(proposal_path.relative_to(repo_dir)),
+      "prUrl": pr_url,
+    },
+  }
+PY
+  chown root:root "${proposal_dir}/app.py"
+  chmod 700 "${proposal_dir}/app.py"
+}
+
+ensure_proposal_service_venv() {
+  local proposal_venv="$OPENCLAW_ROOT_STATE_DIR/proposal-services/.venv"
+  if [[ ! -x "${proposal_venv}/bin/python" ]]; then
+    python3 -m venv "$proposal_venv"
+  fi
+  if [[ ! -x "${proposal_venv}/bin/pip" ]]; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      python3-venv \
+      python3-pip \
+      python3-setuptools
+    rm -rf "$proposal_venv"
+    python3 -m venv "$proposal_venv"
+  fi
+  "${proposal_venv}/bin/pip" install --upgrade --no-cache-dir fastapi uvicorn >/tmp/openclaw-proposal-service-pip.log 2>&1
+}
+
+write_proposal_service_unit() {
+  local public_id="$1"
+  local agent_id="$2"
+  local display_name="$3"
+  local proposal_unit="/etc/systemd/system/$(private_proposal_unit_name "$public_id")"
+  local proposal_dir
+  local proposal_socket_dir
+  local proposal_socket_path
+  local proposal_token
+  proposal_dir="$(private_proposal_dir "$public_id")"
+  proposal_socket_dir="$(private_proposal_socket_dir "$public_id")"
+  proposal_socket_path="$(private_proposal_socket_path "$public_id")"
+  proposal_token="$(read_agent_secret_value "$agent_id" internal proposalToken)"
+  cat >"$proposal_unit" <<EOF
+[Unit]
+Description=Clawbot ${display_name} proposal service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=$OPENCLAW_USER
+UMask=0007
+WorkingDirectory=$proposal_dir
+ExecStartPre=/usr/bin/install -d -o root -g $OPENCLAW_USER -m 0750 $proposal_socket_dir
+ExecStartPre=/usr/bin/rm -f $proposal_socket_path
+ExecStart=$OPENCLAW_ROOT_STATE_DIR/proposal-services/.venv/bin/uvicorn app:app --uds $proposal_socket_path
+Environment=OPENCLAW_PRIVATE_PROPOSAL_AGENT_ID=$agent_id
+Environment=OPENCLAW_PRIVATE_PROPOSAL_DISPLAY_NAME=$display_name
+Environment=OPENCLAW_PRIVATE_PROPOSAL_TOKEN=$proposal_token
+Environment=OPENCLAW_PRIVATE_PROPOSAL_REPO_DIR=$OPENCLAW_AGENT_PROPOSAL_REPO_DIR
+Environment=OPENCLAW_PRIVATE_PROPOSAL_HELPER=$OPENCLAW_AGENT_PROPOSAL_HELPER
+Environment=OPENCLAW_PRIVATE_PROPOSAL_BASE_BRANCH=$(private_proposal_repo_branch)
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chown root:root "$proposal_unit"
+  chmod 0644 "$proposal_unit"
+}
+
+configure_proposal_services() {
+  local public_id
+  local agent_id
+  local display_name
+  local proposal_dir
+  local proposal_unit
+
+  if [[ "${#OPENCLAW_PROPOSAL_PUBLIC_IDS[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  install_agent_proposal_helper
+  prepare_agent_proposal_repo
+  prepare_proposal_service_directories
+  ensure_proposal_service_venv
+
+  for public_id in "${OPENCLAW_PROPOSAL_PUBLIC_IDS[@]}"; do
+    agent_id="$(private_runtime_agent_id "$public_id")"
+    display_name="$(private_runtime_display_name "$public_id")"
+    proposal_dir="$(private_proposal_dir "$public_id")"
+    render_proposal_service_app "$proposal_dir"
+    write_proposal_service_unit "$public_id" "$agent_id" "$display_name"
+  done
+
+  run_step "Reload systemd for proposal services" systemctl daemon-reload
+
+  for public_id in "${OPENCLAW_PROPOSAL_PUBLIC_IDS[@]}"; do
+    proposal_unit="$(private_proposal_unit_name "$public_id")"
+    run_step "Enable ${public_id} proposal service" systemctl enable "$proposal_unit"
+    run_step "Restart ${public_id} proposal service" systemctl restart "$proposal_unit"
+  done
 }
 
 read_agent_nostr_store_b64() {
@@ -2488,6 +3267,17 @@ EOF
 Volume=$signer_socket_dir:/run/clawbot/nostr-signer:rw
 Environment=OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET=/run/clawbot/nostr-signer/service.sock
 Environment=OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN=$signer_token
+EOF
+  fi
+  if private_proposal_enabled "$public_id"; then
+    local proposal_token
+    local proposal_socket_dir
+    proposal_token="$(read_agent_secret_value "$agent_id" internal proposalToken)"
+    proposal_socket_dir="$(private_proposal_socket_dir "$public_id")"
+    cat >>"$runtime_quadlet" <<EOF
+Volume=$proposal_socket_dir:/run/clawbot/proposal-service:rw
+Environment=OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_SOCKET=/run/clawbot/proposal-service/service.sock
+Environment=OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_TOKEN=$proposal_token
 EOF
   fi
   cat >>"$runtime_quadlet" <<EOF
@@ -3073,6 +3863,7 @@ run_step "Initialize agent secret stores" ensure_agent_secret_stores
 run_step "Install agent secret provider" write_agent_secret_provider
 run_step "Install agent secret sudoers policy" write_agent_secret_sudoers
 run_step "Configure nostr signer services" configure_nostr_signers
+run_step "Configure proposal services" configure_proposal_services
 run_step "Prepare bootstrap runtime directory" prepare_runtime_config_directory
 ensure_gateway_token
 

@@ -7,7 +7,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- _None yet._
+- Added a root-owned proposal service for `Stacks` that can turn approved runtime-generated feedback proposals into reviewable pull requests against the private `clawbot-agents` repo.
+- Added durable bootstrap installation of the `clawbot-agents` PR helper and durable preparation of `/opt/clawbot/repos/clawbot-agents` for on-host proposal workflows.
 
 ### Fixed
 - _None yet._
@@ -19,7 +20,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Extended the isolated runtime wiring so `Stacks` can reach the new proposal service over a private Unix socket with a dedicated per-agent bearer token.
 
 ## [0.7.38] - 2026-03-13
 
