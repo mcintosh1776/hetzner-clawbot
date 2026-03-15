@@ -99,8 +99,109 @@ function deriveTitle(filePath, body) {
   return path.basename(filePath, path.extname(filePath));
 }
 
-function frontmatter({ id, tenantId, title, sourceFile }) {
-  return [
+function extractHeaderValue(raw, label) {
+  return sanitizeTitle(raw.match(new RegExp("^" + label + ":\\s*(.+)$", "mi"))?.[1] || "");
+}
+
+function toIsoDate(value) {
+  if (!value) {
+    return "";
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString();
+}
+
+function parseEpisodeNumber(title) {
+  const match = String(title || "").match(/^(\d+)\b/);
+  return match ? Number(match[1]) : null;
+}
+
+function parseSpeakers(body) {
+  const speakers = [];
+  const seen = new Set();
+  const knownHosts = new Set(["McIntosh", "Kenshin"]);
+
+  for (const line of String(body || "").split("\n")) {
+    const speaker = line.match(/^\[[^\]]+\]\s+([^:]+):/)?.[1]?.trim();
+    if (!speaker || seen.has(speaker)) {
+      continue;
+    }
+    seen.add(speaker);
+    speakers.push(speaker);
+  }
+
+  return {
+    speakers,
+    hosts: speakers.filter((speaker) => knownHosts.has(speaker)),
+    guests: speakers.filter((speaker) => !knownHosts.has(speaker)),
+  };
+}
+
+function parseNumber(value) {
+  const cleaned = String(value || "").replace(/,/g, "");
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function extractTranscriptMetadata(raw, body, fallbackTitle) {
+  const title = extractHeaderValue(raw, "Title") || fallbackTitle;
+  const publishedAt = toIsoDate(extractHeaderValue(raw, "Published"));
+  const transcriptUrl = extractHeaderValue(raw, "Transcript URL");
+  const episodeUrl = extractHeaderValue(raw, "Episode URL");
+  const { speakers, hosts, guests } = parseSpeakers(body);
+
+  const blockHeight =
+    parseNumber(body.match(/block heights?[^0-9]{0,40}([0-9][0-9,]{4,})/i)?.[1]) ||
+    parseNumber(body.match(/\b(9[0-9]{2},?[0-9]{3})\b/)?.[1]);
+
+  const bitcoinPriceUsd =
+    parseNumber(body.match(/our price[^0-9]{0,40}([0-9][0-9,]{3,}(?:\.\d+)?)/i)?.[1]) ||
+    parseNumber(body.match(/price[^0-9]{0,20}([0-9][0-9,]{3,}(?:\.\d+)?)\s+US\b/i)?.[1]);
+
+  const bitcoinPriceEur =
+    parseNumber(body.match(/([0-9][0-9,]{3,}(?:\.\d+)?)\s+euros?\b/i)?.[1]) ||
+    parseNumber(body.match(/price[^0-9]{0,20}([0-9][0-9,]{3,}(?:\.\d+)?)\s+EUR\b/i)?.[1]);
+
+  const musicMatch =
+    body.match(/This week's music.*?It's\s+(.+?)\s+by\s+(.+?)\./is) ||
+    body.match(/music.*?is\s+(.+?)\s+by\s+(.+?)\./is);
+
+  return {
+    title,
+    episodeNumber: parseEpisodeNumber(title),
+    publishedAt,
+    transcriptUrl,
+    episodeUrl,
+    speakers,
+    hosts,
+    guests,
+    blockHeight,
+    bitcoinPriceUsd,
+    bitcoinPriceEur,
+    musicTitle: musicMatch?.[1]?.trim() || "",
+    musicArtist: musicMatch?.[2]?.trim() || "",
+  };
+}
+
+function frontmatter({
+  id,
+  tenantId,
+  title,
+  sourceFile,
+  episodeNumber,
+  publishedAt,
+  transcriptUrl,
+  episodeUrl,
+  speakers,
+  hosts,
+  guests,
+  blockHeight,
+  bitcoinPriceUsd,
+  bitcoinPriceEur,
+  musicTitle,
+  musicArtist,
+}) {
+  const lines = [
     "---",
     `id: ${id}`,
     `tenant_id: ${tenantId}`,
@@ -114,16 +215,63 @@ function frontmatter({ id, tenantId, title, sourceFile }) {
     "  - podcast",
     `title: ${JSON.stringify(title)}`,
     `source_file: ${JSON.stringify(sourceFile)}`,
-    "---",
-    "",
-  ].join("\n");
+  ];
+
+  if (episodeNumber !== null) {
+    lines.push(`episode_number: ${episodeNumber}`);
+  }
+  if (publishedAt) {
+    lines.push(`published_at: ${JSON.stringify(publishedAt)}`);
+  }
+  if (episodeUrl) {
+    lines.push(`episode_url: ${JSON.stringify(episodeUrl)}`);
+  }
+  if (transcriptUrl) {
+    lines.push(`transcript_url: ${JSON.stringify(transcriptUrl)}`);
+  }
+  if (speakers.length > 0) {
+    lines.push("speakers:");
+    for (const speaker of speakers) {
+      lines.push(`  - ${JSON.stringify(speaker)}`);
+    }
+  }
+  if (hosts.length > 0) {
+    lines.push("hosts:");
+    for (const host of hosts) {
+      lines.push(`  - ${JSON.stringify(host)}`);
+    }
+  }
+  if (guests.length > 0) {
+    lines.push("guests:");
+    for (const guest of guests) {
+      lines.push(`  - ${JSON.stringify(guest)}`);
+    }
+  }
+  if (blockHeight !== null) {
+    lines.push(`block_height: ${blockHeight}`);
+  }
+  if (bitcoinPriceUsd !== null) {
+    lines.push(`bitcoin_price_usd: ${bitcoinPriceUsd}`);
+  }
+  if (bitcoinPriceEur !== null) {
+    lines.push(`bitcoin_price_eur: ${bitcoinPriceEur}`);
+  }
+  if (musicTitle) {
+    lines.push(`music_title: ${JSON.stringify(musicTitle)}`);
+  }
+  if (musicArtist) {
+    lines.push(`music_artist: ${JSON.stringify(musicArtist)}`);
+  }
+
+  lines.push("---", "");
+  return lines.join("\n");
 }
 
 function writeTranscriptChunk({
   outputDir,
   tenantId,
   baseId,
-  title,
+  metadata,
   sourceFile,
   chunkIndex,
   lines,
@@ -138,8 +286,20 @@ function writeTranscriptChunk({
     frontmatter({
       id,
       tenantId,
-      title: `${title} (chunk ${chunkIndex})`,
+      title: `${metadata.title} (chunk ${chunkIndex})`,
       sourceFile,
+      episodeNumber: metadata.episodeNumber,
+      publishedAt: metadata.publishedAt,
+      transcriptUrl: metadata.transcriptUrl,
+      episodeUrl: metadata.episodeUrl,
+      speakers: metadata.speakers,
+      hosts: metadata.hosts,
+      guests: metadata.guests,
+      blockHeight: metadata.blockHeight,
+      bitcoinPriceUsd: metadata.bitcoinPriceUsd,
+      bitcoinPriceEur: metadata.bitcoinPriceEur,
+      musicTitle: metadata.musicTitle,
+      musicArtist: metadata.musicArtist,
     }) + lines.join("\n").trim() + "\n",
     "utf8",
   );
@@ -185,9 +345,10 @@ function importDir(tenantId, inputDir) {
   for (const filePath of files) {
     const raw = fs.readFileSync(filePath, "utf8");
     const body = normalizeTranscriptBody(raw);
-    const title =
+    const fallbackTitle =
       sanitizeTitle(raw.match(/^Title:\s*(.+)$/m)?.[1] || "") ||
       deriveTitle(filePath, body);
+    const metadata = extractTranscriptMetadata(raw, body, fallbackTitle);
     const baseId = slugify(path.basename(filePath, path.extname(filePath)));
     const chunks = chunkTranscript(body);
     for (let i = 0; i < chunks.length; i += 1) {
@@ -195,7 +356,7 @@ function importDir(tenantId, inputDir) {
         outputDir,
         tenantId,
         baseId,
-        title,
+        metadata,
         sourceFile: path.basename(filePath),
         chunkIndex: i + 1,
         lines: chunks[i],
@@ -244,6 +405,7 @@ function parseFeed(feedXml) {
     const title = sanitizeTitle(itemXml.match(/<title>([\s\S]*?)<\/title>/i)?.[1] || "");
     const pubDate = sanitizeTitle(itemXml.match(/<pubDate>([\s\S]*?)<\/pubDate>/i)?.[1] || "");
     const guid = sanitizeTitle(itemXml.match(/<guid[^>]*>([\s\S]*?)<\/guid>/i)?.[1] || "");
+    const link = sanitizeTitle(itemXml.match(/<link>([\s\S]*?)<\/link>/i)?.[1] || "");
     const transcripts = [];
 
     for (const transcriptMatch of itemXml.matchAll(transcriptRegex)) {
@@ -257,7 +419,7 @@ function parseFeed(feedXml) {
     }
 
     if (transcripts.length > 0) {
-      items.push({ title, pubDate, guid, transcripts });
+      items.push({ title, pubDate, guid, link, transcripts });
     }
   }
 
@@ -292,6 +454,7 @@ async function commandFetchFeed(tenantId, feedUrl, limit) {
     const header = [
       item.title ? `Title: ${item.title}` : "",
       item.pubDate ? `Published: ${item.pubDate}` : "",
+      item.link ? `Episode URL: ${item.link}` : "",
       transcript.url ? `Transcript URL: ${transcript.url}` : "",
       "",
     ]
