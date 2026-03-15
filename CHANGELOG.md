@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- Added the first tenant-local `QMD` pilot tooling, installing the upstream `qmd` CLI and a host-side `clawbot-qmd-tenant` wrapper for scoped rebuild and query operations against `tenant_0` canonical memory.
+- _None yet._
 
 ### Fixed
 - _None yet._
@@ -19,7 +19,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- Kept the initial `QMD` pilot out of bot runtimes and behind a host-side wrapper so tenant and bot scope policy stays enforced by the platform instead of raw direct access.
+- _None yet._
+
+## [0.7.43] - 2026-03-15
+
+### Added
+- Added the first tenant-local `QMD` pilot tooling, installing the upstream `qmd` CLI and a host-side `clawbot-qmd-tenant` wrapper for scoped rebuild and query operations against `tenant_0` canonical memory.
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+### Security
+- Kept the initial `QMD` pilot behind a host-side wrapper so tenant and bot scope policy remains enforced by the platform instead of giving bots raw direct access to `qmd`.
+
+### Changed
+- Changed the initial retrieval plan from an unverified SDK wrapper to the upstream `qmd` CLI, keeping the pilot aligned with the documented OpenClaw memory backend direction.
 
 ## [0.7.42] - 2026-03-15
 
