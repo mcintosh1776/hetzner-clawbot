@@ -10,8 +10,12 @@ Script:
 The harness exists to catch regressions in:
 - tenant-local `QMD` status and rebuild flow
 - bot-scope isolation inside `tenant_0`
-- read-only memory retrieval for `Stacks`
-- read-only memory retrieval for `Jennifer`
+- read-only memory retrieval for the full current fleet:
+  - `Bob`
+  - `Stacks`
+  - `Jennifer`
+  - `Steve`
+  - `Number5`
 
 It is a live-node harness, not a unit test suite.
 
@@ -27,24 +31,35 @@ It is a live-node harness, not a unit test suite.
 - verifies the wrapper rebuild path still succeeds
 
 3. Positive scoped wrapper queries
+- `Bob` can retrieve `bob-coordination-boundaries-001`
 - `Stacks` can retrieve `stacks-social-warmth-001`
 - `Jennifer` can retrieve `jennifer-editorial-discipline-001`
+- `Steve` can retrieve `steve-engineering-discipline-001`
+- `Number5` can retrieve `number5-business-boundaries-001`
 
 4. Negative scoped wrapper queries
 - `Stacks` cannot retrieve `Jennifer` bot-private memory
 - `Jennifer` cannot retrieve `Stacks` bot-private memory
+- `Steve` cannot retrieve `Number5` bot-private memory
+- `Number5` cannot retrieve `Steve` bot-private memory
 
 The negative checks assert that no result file comes from the other bot's private
 collection. They do not require an empty result set, because scoped semantic
 search can still legitimately return same-bot or shared-memory hits.
 
 5. Runtime memory services
+- `clawbot-bob-memory.service` is active
 - `clawbot-stacks-memory.service` is active
 - `clawbot-jennifer-memory.service` is active
+- `clawbot-steve-memory.service` is active
+- `clawbot-number5-memory.service` is active
 
 6. End-to-end runtime lookup behavior
+- `Bob` answers a natural-language memory question from memory
 - `Stacks` answers a natural-language memory question from memory
 - `Jennifer` answers a natural-language memory question from memory
+- `Steve` answers a natural-language memory question from memory
+- `Number5` answers a natural-language memory question from memory
 
 ## Usage
 
