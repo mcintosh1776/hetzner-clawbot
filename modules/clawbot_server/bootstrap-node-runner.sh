@@ -88,9 +88,13 @@ OPENCLAW_TENANT_CANONICAL_MEMORY_DIR="${OPENCLAW_TENANT_CANONICAL_MEMORY_DIR:-$O
 OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR="${OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/observations}"
 OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR="${OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/retrieval}"
 OPENCLAW_TENANT_SESSION_MEMORY_DIR="${OPENCLAW_TENANT_SESSION_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/session}"
+OPENCLAW_TENANT_SOURCE_MEMORY_DIR="${OPENCLAW_TENANT_SOURCE_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/sources}"
+OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR="${OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR:-$OPENCLAW_TENANT_SOURCE_MEMORY_DIR/transcripts}"
 OPENCLAW_QMD_WRAPPER="${OPENCLAW_QMD_WRAPPER:-/usr/local/bin/clawbot-qmd-tenant}"
+OPENCLAW_TRANSCRIPT_IMPORTER="${OPENCLAW_TRANSCRIPT_IMPORTER:-/usr/local/bin/clawbot-import-podcast-transcripts}"
 OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
 OPENCLAW_QMD_NODE_MAJOR="${OPENCLAW_QMD_NODE_MAJOR:-22}"
+OPENCLAW_PODCAST_RSS_FEED="${OPENCLAW_PODCAST_RSS_FEED:-https://serve.podhome.fm/rss/3d1d205b-b9f7-5253-b09d-df1c8ec4fc25}"
 OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR="${OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR:-$OPENCLAW_TENANT_STATE_DIR/channels/telegram}"
 OPENCLAW_PROPOSAL_SOCKET_BASE_DIR="${OPENCLAW_PROPOSAL_SOCKET_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
 OPENCLAW_MEMORY_SOCKET_BASE_DIR="${OPENCLAW_MEMORY_SOCKET_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
@@ -3786,6 +3790,7 @@ configure_tenant_memory_roots() {
     "$bots_dir/number5" \
     "$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR/shared" \
     "$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR/bots" \
+    "$OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR" \
     "$OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR" \
     "$OPENCLAW_TENANT_SESSION_MEMORY_DIR"
 
@@ -4075,7 +4080,8 @@ EOF
   chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_TENANT_MEMORY_DIR"
   chmod 750 "$OPENCLAW_TENANT_MEMORY_DIR" "$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR" \
     "$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR" "$OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR" \
-    "$OPENCLAW_TENANT_SESSION_MEMORY_DIR"
+    "$OPENCLAW_TENANT_SESSION_MEMORY_DIR" "$OPENCLAW_TENANT_SOURCE_MEMORY_DIR" \
+    "$OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR"
 }
 
 read_agent_nostr_store_b64() {
@@ -4963,6 +4969,10 @@ function canonicalRoot(tenantId) {
   return path.join(tenantRoot(tenantId), "memory", "canonical");
 }
 
+function sourcesRoot(tenantId) {
+  return path.join(tenantRoot(tenantId), "memory", "sources");
+}
+
 function retrievalRoot(tenantId) {
   return path.join(tenantRoot(tenantId), "memory", "retrieval", "qmd");
 }
@@ -5003,16 +5013,15 @@ function runQmd(tenantId, args) {
   });
 }
 
-function canonicalCollections(tenantId) {
-  const root = canonicalRoot(tenantId);
+function tenantCollections(tenantId) {
   const collections = [];
 
-  const sharedDir = path.join(root, "shared");
+  const sharedDir = path.join(canonicalRoot(tenantId), "shared");
   if (fs.existsSync(sharedDir)) {
     collections.push({ name: "shared", dir: sharedDir });
   }
 
-  const botsDir = path.join(root, "bots");
+  const botsDir = path.join(canonicalRoot(tenantId), "bots");
   if (fs.existsSync(botsDir)) {
     for (const entry of fs.readdirSync(botsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) {
@@ -5025,11 +5034,16 @@ function canonicalCollections(tenantId) {
     }
   }
 
+  const transcriptDir = path.join(sourcesRoot(tenantId), "transcripts");
+  if (fs.existsSync(transcriptDir)) {
+    collections.push({ name: "source-transcripts", dir: transcriptDir });
+  }
+
   return collections.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function knownBotIdsForTenant(tenantId) {
-  return canonicalCollections(tenantId)
+  return tenantCollections(tenantId)
     .filter((collection) => collection.name.startsWith("bot-"))
     .map((collection) => collection.name.replace(/^bot-/, ""));
 }
@@ -5039,13 +5053,20 @@ function allowedCollectionsForBot(tenantId, botId) {
   if (!known.has(botId)) {
     throw new Error(`unknown bot id for tenant ${tenantId}: ${botId}`);
   }
-  return ["shared", `bot-${botId}`];
+  const allowed = ["shared", `bot-${botId}`];
+  const collections = new Set(tenantCollections(tenantId).map((collection) => collection.name));
+  if (botId === "steve" && collections.has("source-transcripts")) {
+    allowed.push("source-transcripts");
+  }
+  return allowed;
 }
 
 function desiredContextsForTenant(tenantId) {
   const contexts = {
     shared:
       "Shared tenant_0 brand voice and cross-fleet operating guidance. Bitcoin-first, credible, human, anti-hype, and useful for all tenant_0 bots.",
+    "source-transcripts":
+      "Tenant_0 podcast transcript corpus. Retrieval source material from normalized episode transcripts; useful for Steve when recalling what was said in past episodes.",
   };
 
   for (const botId of knownBotIdsForTenant(tenantId)) {
@@ -5092,9 +5113,9 @@ function ensureCollectionContexts(tenantId, collections) {
 }
 
 function ensureCollections(tenantId) {
-  const collections = canonicalCollections(tenantId);
+  const collections = tenantCollections(tenantId);
   if (collections.length === 0) {
-    throw new Error(`no canonical collections found for tenant ${tenantId}`);
+    throw new Error(`no memory collections found for tenant ${tenantId}`);
   }
 
   for (const collection of collections) {
@@ -5243,11 +5264,278 @@ EOF
   chmod 0755 "$OPENCLAW_QMD_WRAPPER"
 }
 
+write_transcript_importer() {
+  cat >"$OPENCLAW_TRANSCRIPT_IMPORTER" <<EOF
+#!/usr/bin/env node
+
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+const DEFAULT_FEED_URL = process.env.CLAWBOT_PODCAST_RSS_FEED || ${OPENCLAW_PODCAST_RSS_FEED@Q};
+
+function usage() {
+  console.error(
+    [
+      "usage:",
+      "  clawbot-import-podcast-transcripts import-dir <tenant-id> <input-dir>",
+      "  clawbot-import-podcast-transcripts fetch-feed <tenant-id> [feed-url] [--limit N]",
+    ].join("\\n"),
+  );
+}
+
+function tenantTranscriptRoot(tenantId) {
+  return \`/opt/clawbot/tenants/\${tenantId}/memory/sources/transcripts\`;
+}
+
+function slugify(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "transcript";
+}
+
+function normalizeTranscriptBody(raw) {
+  const lines = String(raw || "")
+    .replace(/\\r\\n/g, "\\n")
+    .split("\\n")
+    .map((line) => line.trimEnd());
+
+  const out = [];
+  let previousBlank = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      if (!previousBlank) {
+        out.push("");
+      }
+      previousBlank = true;
+      continue;
+    }
+    previousBlank = false;
+    out.push(trimmed);
+  }
+
+  return out.join("\\n").trim() + "\\n";
+}
+
+function decodeXml(value) {
+  return String(value || "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function sanitizeTitle(value) {
+  return decodeXml(String(value || "").replace(/<!\\[CDATA\\[|\\]\\]>/g, "")).trim();
+}
+
+function deriveTitle(filePath, body) {
+  const firstLine = body.split("\\n").find((line) => line.trim());
+  if (firstLine && firstLine.length <= 120) {
+    return firstLine.replace(/^\\[[^\\]]+\\]\\s*/, "").slice(0, 120);
+  }
+  return path.basename(filePath, path.extname(filePath));
+}
+
+function frontmatter({ id, tenantId, title, sourceFile }) {
+  return [
+    "---",
+    \`id: \${id}\`,
+    \`tenant_id: \${tenantId}\`,
+    \`scope: tenant/\${tenantId}/source/transcripts\`,
+    "type: transcript",
+    "status: active",
+    "visibility: bot",
+    "source: transcript_import",
+    "tags:",
+    "  - transcript",
+    "  - podcast",
+    \`title: \${JSON.stringify(title)}\`,
+    \`source_file: \${JSON.stringify(sourceFile)}\`,
+    "---",
+    "",
+  ].join("\\n");
+}
+
+function importDir(tenantId, inputDir) {
+  const outputDir = tenantTranscriptRoot(tenantId);
+  fs.mkdirSync(outputDir, { recursive: true });
+
+  const files = fs
+    .readdirSync(inputDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.join(inputDir, entry.name))
+    .filter((filePath) => /\\.(txt|md)\$/i.test(filePath))
+    .sort();
+
+  const imported = [];
+
+  for (const filePath of files) {
+    const raw = fs.readFileSync(filePath, "utf8");
+    const body = normalizeTranscriptBody(raw);
+    const title = deriveTitle(filePath, body);
+    const id = slugify(path.basename(filePath, path.extname(filePath)));
+    const targetPath = path.join(outputDir, \`\${id}.md\`);
+    fs.writeFileSync(
+      targetPath,
+      frontmatter({
+        id,
+        tenantId,
+        title,
+        sourceFile: path.basename(filePath),
+      }) + body,
+      "utf8",
+    );
+    imported.push(targetPath);
+  }
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        tenantId,
+        inputDir,
+        outputDir,
+        imported,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function parseFeed(feedXml) {
+  const items = [];
+  const itemRegex = /<item\\b[\\s\\S]*?<\\/item>/gi;
+  const transcriptRegex = /<(?:podcast:)?transcript\\b([^>]*)\\/?>/gi;
+
+  for (const itemMatch of String(feedXml || "").matchAll(itemRegex)) {
+    const itemXml = itemMatch[0];
+    const title = sanitizeTitle(itemXml.match(/<title>([\\s\\S]*?)<\\/title>/i)?.[1] || "");
+    const pubDate = sanitizeTitle(itemXml.match(/<pubDate>([\\s\\S]*?)<\\/pubDate>/i)?.[1] || "");
+    const guid = sanitizeTitle(itemXml.match(/<guid[^>]*>([\\s\\S]*?)<\\/guid>/i)?.[1] || "");
+    const transcripts = [];
+
+    for (const transcriptMatch of itemXml.matchAll(transcriptRegex)) {
+      const attrs = transcriptMatch[1] || "";
+      const url = attrs.match(/\\burl=\"([^\"]+)\"/i)?.[1] || attrs.match(/\\burl='([^']+)'/i)?.[1] || "";
+      const type = attrs.match(/\\btype=\"([^\"]+)\"/i)?.[1] || attrs.match(/\\btype='([^']+)'/i)?.[1] || "";
+      const language = attrs.match(/\\blanguage=\"([^\"]+)\"/i)?.[1] || attrs.match(/\\blanguage='([^']+)'/i)?.[1] || "";
+      if (url) {
+        transcripts.push({ url: decodeXml(url), type: decodeXml(type), language: decodeXml(language) });
+      }
+    }
+
+    if (transcripts.length > 0) {
+      items.push({ title, pubDate, guid, transcripts });
+    }
+  }
+
+  return items;
+}
+
+async function fetchText(url) {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "clawbot-transcript-import/1.0",
+      "Accept": "application/rss+xml, application/xml, text/plain, text/vtt, */*",
+    },
+  });
+  if (!response.ok) {
+    throw new Error(\`fetch failed for \${url}: \${response.status} \${response.statusText}\`);
+  }
+  return await response.text();
+}
+
+async function commandFetchFeed(tenantId, feedUrl, limit) {
+  const xml = await fetchText(feedUrl);
+  const items = parseFeed(xml);
+  const selected = items.slice(0, limit > 0 ? limit : items.length);
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), \`clawbot-transcripts-\${tenantId}-\`));
+
+  for (let index = 0; index < selected.length; index += 1) {
+    const item = selected[index];
+    const transcript = item.transcripts.find((entry) => !entry.language || entry.language.toLowerCase().startsWith("en")) || item.transcripts[0];
+    const rawText = await fetchText(transcript.url);
+    const fileBase = slugify(item.guid || item.title || \`episode-\${index + 1}\`);
+    const sourcePath = path.join(tempDir, \`\${fileBase}.txt\`);
+    const header = [
+      item.title ? \`Title: \${item.title}\` : "",
+      item.pubDate ? \`Published: \${item.pubDate}\` : "",
+      transcript.url ? \`Transcript URL: \${transcript.url}\` : "",
+      "",
+    ]
+      .filter(Boolean)
+      .join("\\n");
+    fs.writeFileSync(sourcePath, \`\${header}\${rawText}\`, "utf8");
+  }
+
+  importDir(tenantId, tempDir);
+}
+
+async function main() {
+  const [, , command, tenantId, ...rest] = process.argv;
+
+  if (!tenantId) {
+    usage();
+    process.exit(1);
+  }
+
+  if (command === "import-dir") {
+    const [inputDir] = rest;
+    if (!inputDir) {
+      usage();
+      process.exit(1);
+    }
+    importDir(tenantId, inputDir);
+    return;
+  }
+
+  if (command === "fetch-feed") {
+    let feedUrl = DEFAULT_FEED_URL;
+    let limit = 25;
+
+    for (let i = 0; i < rest.length; i += 1) {
+      const arg = rest[i];
+      if (arg === "--limit") {
+        limit = Number(rest[i + 1] || "25");
+        i += 1;
+        continue;
+      }
+      if (!arg.startsWith("--")) {
+        feedUrl = arg;
+      }
+    }
+
+    await commandFetchFeed(tenantId, feedUrl, limit);
+    return;
+  }
+
+  usage();
+  process.exit(1);
+}
+
+main().catch((error) => {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(detail);
+  process.exit(1);
+});
+EOF
+
+  chmod 0755 "$OPENCLAW_TRANSCRIPT_IMPORTER"
+}
+
 install_qmd_cli() {
   ensure_qmd_node_runtime
   npm install -g "$OPENCLAW_QMD_NPM_PACKAGE"
   command -v qmd >/dev/null 2>&1
   write_qmd_tenant_wrapper
+  write_transcript_importer
 }
 
 configure_ufw() {

@@ -24,6 +24,10 @@ function canonicalRoot(tenantId) {
   return path.join(tenantRoot(tenantId), "memory", "canonical");
 }
 
+function sourcesRoot(tenantId) {
+  return path.join(tenantRoot(tenantId), "memory", "sources");
+}
+
 function retrievalRoot(tenantId) {
   return path.join(tenantRoot(tenantId), "memory", "retrieval", "qmd");
 }
@@ -65,16 +69,15 @@ function runQmd(tenantId, args, options = {}) {
   });
 }
 
-function canonicalCollections(tenantId) {
-  const root = canonicalRoot(tenantId);
+function tenantCollections(tenantId) {
   const collections = [];
 
-  const sharedDir = path.join(root, "shared");
+  const sharedDir = path.join(canonicalRoot(tenantId), "shared");
   if (fs.existsSync(sharedDir)) {
     collections.push({ name: "shared", dir: sharedDir });
   }
 
-  const botsDir = path.join(root, "bots");
+  const botsDir = path.join(canonicalRoot(tenantId), "bots");
   if (fs.existsSync(botsDir)) {
     for (const entry of fs.readdirSync(botsDir, { withFileTypes: true })) {
       if (!entry.isDirectory()) {
@@ -87,11 +90,16 @@ function canonicalCollections(tenantId) {
     }
   }
 
+  const transcriptDir = path.join(sourcesRoot(tenantId), "transcripts");
+  if (fs.existsSync(transcriptDir)) {
+    collections.push({ name: "source-transcripts", dir: transcriptDir });
+  }
+
   return collections.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function knownBotIdsForTenant(tenantId) {
-  return canonicalCollections(tenantId)
+  return tenantCollections(tenantId)
     .filter((collection) => collection.name.startsWith("bot-"))
     .map((collection) => collection.name.replace(/^bot-/, ""));
 }
@@ -101,13 +109,20 @@ function allowedCollectionsForBot(tenantId, botId) {
   if (!known.has(botId)) {
     throw new Error(`unknown bot id for tenant ${tenantId}: ${botId}`);
   }
-  return ["shared", `bot-${botId}`];
+  const allowed = ["shared", `bot-${botId}`];
+  const collections = new Set(tenantCollections(tenantId).map((collection) => collection.name));
+  if (botId === "steve" && collections.has("source-transcripts")) {
+    allowed.push("source-transcripts");
+  }
+  return allowed;
 }
 
 function desiredContextsForTenant(tenantId) {
   const contexts = {
     shared:
       "Shared tenant_0 brand voice and cross-fleet operating guidance. Bitcoin-first, credible, human, anti-hype, and useful for all tenant_0 bots.",
+    "source-transcripts":
+      "Tenant_0 podcast transcript corpus. Retrieval source material from normalized episode transcripts; useful for Steve when recalling what was said in past episodes.",
   };
 
   for (const botId of knownBotIdsForTenant(tenantId)) {
@@ -154,9 +169,9 @@ function ensureCollectionContexts(tenantId, collections) {
 }
 
 function ensureCollections(tenantId) {
-  const collections = canonicalCollections(tenantId);
+  const collections = tenantCollections(tenantId);
   if (collections.length === 0) {
-    throw new Error(`no canonical collections found for tenant ${tenantId}`);
+    throw new Error(`no memory collections found for tenant ${tenantId}`);
   }
 
   for (const collection of collections) {
