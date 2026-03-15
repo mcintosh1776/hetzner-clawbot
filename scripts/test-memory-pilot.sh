@@ -73,15 +73,15 @@ if not any("jennifer-editorial-discipline-001" in str(item.get("file", "")) for 
 PY
 pass "jennifer positive scoped query returns jennifer memory"
 
-stacks_negative="$(clawbot-qmd-tenant query "$tenant_id" stacks "editorial discipline")"
+stacks_negative="$(clawbot-qmd-tenant query "$tenant_id" stacks "evidence-minded framing")"
 STACKS_NEGATIVE="$stacks_negative" python3 - <<'PY'
 import json
 import os
 
 payload = json.loads(os.environ["STACKS_NEGATIVE"])
 results = payload.get("results") or []
-if results:
-    raise SystemExit(f"expected empty stacks negative results, got: {results}")
+if any("qmd://bot-jennifer/" in str(item.get("file", "")) for item in results):
+    raise SystemExit(f"stacks negative query leaked jennifer memory: {results}")
 PY
 pass "stacks cannot retrieve jennifer bot-private memory"
 
@@ -92,8 +92,8 @@ import os
 
 payload = json.loads(os.environ["JENNIFER_NEGATIVE"])
 results = payload.get("results") or []
-if results:
-    raise SystemExit(f"expected empty jennifer negative results, got: {results}")
+if any("qmd://bot-stacks/" in str(item.get("file", "")) for item in results):
+    raise SystemExit(f"jennifer negative query leaked stacks memory: {results}")
 PY
 pass "jennifer cannot retrieve stacks bot-private memory"
 

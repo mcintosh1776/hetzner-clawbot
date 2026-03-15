@@ -34,6 +34,10 @@ It is a live-node harness, not a unit test suite.
 - `Stacks` cannot retrieve `Jennifer` bot-private memory
 - `Jennifer` cannot retrieve `Stacks` bot-private memory
 
+The negative checks assert that no result file comes from the other bot's private
+collection. They do not require an empty result set, because scoped semantic
+search can still legitimately return same-bot or shared-memory hits.
+
 5. Runtime memory services
 - `clawbot-stacks-memory.service` is active
 - `clawbot-jennifer-memory.service` is active
