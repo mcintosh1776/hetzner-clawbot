@@ -5401,6 +5401,56 @@ function frontmatter({ id, tenantId, title, sourceFile }) {
   ].join("\\n");
 }
 
+function writeTranscriptChunk({
+  outputDir,
+  tenantId,
+  baseId,
+  title,
+  sourceFile,
+  chunkIndex,
+  lines,
+}) {
+  if (!lines.length) {
+    return null;
+  }
+  const id = `${baseId}-chunk-${String(chunkIndex).padStart(3, "0")}`;
+  const targetPath = path.join(outputDir, `${id}.md`);
+  fs.writeFileSync(
+    targetPath,
+    frontmatter({
+      id,
+      tenantId,
+      title: `${title} (chunk ${chunkIndex})`,
+      sourceFile,
+    }) + lines.join("\\n").trim() + "\\n",
+    "utf8",
+  );
+  return targetPath;
+}
+
+function chunkTranscript(body) {
+  const lines = body
+    .split("\\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const chunks = [];
+  let current = [];
+
+  for (const line of lines) {
+    current.push(line);
+    if (current.length >= 80) {
+      chunks.push(current);
+      current = [];
+    }
+  }
+
+  if (current.length > 0) {
+    chunks.push(current);
+  }
+
+  return chunks;
+}
+
 function importDir(tenantId, inputDir) {
   const outputDir = tenantTranscriptRoot(tenantId);
   fs.mkdirSync(outputDir, { recursive: true });
@@ -5417,20 +5467,25 @@ function importDir(tenantId, inputDir) {
   for (const filePath of files) {
     const raw = fs.readFileSync(filePath, "utf8");
     const body = normalizeTranscriptBody(raw);
-    const title = deriveTitle(filePath, body);
-    const id = slugify(path.basename(filePath, path.extname(filePath)));
-    const targetPath = path.join(outputDir, \`\${id}.md\`);
-    fs.writeFileSync(
-      targetPath,
-      frontmatter({
-        id,
+    const title =
+      sanitizeTitle(raw.match(/^Title:\\s*(.+)$/m)?.[1] || "") ||
+      deriveTitle(filePath, body);
+    const baseId = slugify(path.basename(filePath, path.extname(filePath)));
+    const chunks = chunkTranscript(body);
+    for (let i = 0; i < chunks.length; i += 1) {
+      const targetPath = writeTranscriptChunk({
+        outputDir,
         tenantId,
+        baseId,
         title,
         sourceFile: path.basename(filePath),
-      }) + body,
-      "utf8",
-    );
-    imported.push(targetPath);
+        chunkIndex: i + 1,
+        lines: chunks[i],
+      });
+      if (targetPath) {
+        imported.push(targetPath);
+      }
+    }
   }
 
   console.log(
