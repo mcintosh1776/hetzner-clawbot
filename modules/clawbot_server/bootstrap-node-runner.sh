@@ -87,6 +87,8 @@ OPENCLAW_TENANT_CANONICAL_MEMORY_DIR="${OPENCLAW_TENANT_CANONICAL_MEMORY_DIR:-$O
 OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR="${OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/observations}"
 OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR="${OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/retrieval}"
 OPENCLAW_TENANT_SESSION_MEMORY_DIR="${OPENCLAW_TENANT_SESSION_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/session}"
+OPENCLAW_QMD_WRAPPER="${OPENCLAW_QMD_WRAPPER:-/usr/local/bin/clawbot-qmd-tenant}"
+OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
 OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR="${OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR:-$OPENCLAW_TENANT_STATE_DIR/channels/telegram}"
 OPENCLAW_PROPOSAL_SOCKET_BASE_DIR="${OPENCLAW_PROPOSAL_SOCKET_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
 OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY:-/opt/clawbot/state/private-runtimes}"
@@ -4230,6 +4232,270 @@ install_webhook_packages() {
     python3-setuptools
 }
 
+write_qmd_tenant_wrapper() {
+  cat >"$OPENCLAW_QMD_WRAPPER" <<'EOF'
+#!/usr/bin/env node
+
+const fs = require("node:fs");
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
+
+function usage() {
+  console.error(
+    [
+      "usage:",
+      "  clawbot-qmd-tenant status <tenant-id>",
+      "  clawbot-qmd-tenant rebuild <tenant-id> [--embed]",
+      "  clawbot-qmd-tenant query <tenant-id> <bot-id> <query...>",
+    ].join("\n"),
+  );
+}
+
+function tenantRoot(tenantId) {
+  return `/opt/clawbot/tenants/${tenantId}`;
+}
+
+function canonicalRoot(tenantId) {
+  return path.join(tenantRoot(tenantId), "memory", "canonical");
+}
+
+function retrievalRoot(tenantId) {
+  return path.join(tenantRoot(tenantId), "memory", "retrieval", "qmd");
+}
+
+function qmdHome(tenantId) {
+  return path.join(retrievalRoot(tenantId), "home");
+}
+
+function qmdEnv(tenantId) {
+  const home = qmdHome(tenantId);
+  return {
+    ...process.env,
+    HOME: home,
+    XDG_CONFIG_HOME: path.join(home, ".config"),
+    XDG_CACHE_HOME: path.join(home, ".cache"),
+    XDG_DATA_HOME: path.join(home, ".local", "share"),
+  };
+}
+
+function ensureQmdDirs(tenantId) {
+  for (const dir of [
+    retrievalRoot(tenantId),
+    qmdHome(tenantId),
+    path.join(qmdHome(tenantId), ".config"),
+    path.join(qmdHome(tenantId), ".cache"),
+    path.join(qmdHome(tenantId), ".local", "share"),
+  ]) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+function runQmd(tenantId, args) {
+  ensureQmdDirs(tenantId);
+  return execFileSync("qmd", args, {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+    env: qmdEnv(tenantId),
+  });
+}
+
+function canonicalCollections(tenantId) {
+  const root = canonicalRoot(tenantId);
+  const collections = [];
+
+  const sharedDir = path.join(root, "shared");
+  if (fs.existsSync(sharedDir)) {
+    collections.push({ name: "shared", dir: sharedDir });
+  }
+
+  const botsDir = path.join(root, "bots");
+  if (fs.existsSync(botsDir)) {
+    for (const entry of fs.readdirSync(botsDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      collections.push({
+        name: `bot-${entry.name}`,
+        dir: path.join(botsDir, entry.name),
+      });
+    }
+  }
+
+  return collections.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function knownBotIdsForTenant(tenantId) {
+  return canonicalCollections(tenantId)
+    .filter((collection) => collection.name.startsWith("bot-"))
+    .map((collection) => collection.name.replace(/^bot-/, ""));
+}
+
+function allowedCollectionsForBot(tenantId, botId) {
+  const known = new Set(knownBotIdsForTenant(tenantId));
+  if (!known.has(botId)) {
+    throw new Error(`unknown bot id for tenant ${tenantId}: ${botId}`);
+  }
+  return ["shared", `bot-${botId}`];
+}
+
+function ensureCollections(tenantId) {
+  const collections = canonicalCollections(tenantId);
+  if (collections.length === 0) {
+    throw new Error(`no canonical collections found for tenant ${tenantId}`);
+  }
+
+  for (const collection of collections) {
+    try {
+      runQmd(tenantId, ["collection", "add", collection.dir, "--name", collection.name]);
+    } catch (error) {
+      const stderr = error && error.stderr ? String(error.stderr) : "";
+      if (!/already exists/i.test(stderr)) {
+        throw new Error(
+          `failed to register qmd collection ${collection.name}: ${stderr || error.message}`,
+        );
+      }
+    }
+  }
+
+  return collections;
+}
+
+function parseJsonOrText(output) {
+  try {
+    return JSON.parse(output);
+  } catch (_error) {
+    return output.trim();
+  }
+}
+
+function commandStatus(tenantId) {
+  const collections = ensureCollections(tenantId);
+  const output = runQmd(tenantId, ["status", "--json"]);
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        tenantId,
+        retrievalRoot: retrievalRoot(tenantId),
+        collections: collections.map((collection) => collection.name),
+        status: parseJsonOrText(output),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function commandRebuild(tenantId, args) {
+  const doEmbed = args.includes("--embed");
+  const collections = ensureCollections(tenantId);
+  const update = parseJsonOrText(runQmd(tenantId, ["update", "--json"]));
+  const embed = doEmbed ? parseJsonOrText(runQmd(tenantId, ["embed", "--json"])) : null;
+
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        tenantId,
+        retrievalRoot: retrievalRoot(tenantId),
+        collections: collections.map((collection) => collection.name),
+        update,
+        embed,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function commandQuery(tenantId, botId, queryText) {
+  ensureCollections(tenantId);
+  const allowedCollections = allowedCollectionsForBot(tenantId, botId);
+  const args = ["query", queryText, "--json", "--limit", "5"];
+
+  for (const collection of allowedCollections) {
+    args.push("--collection", collection);
+  }
+
+  const results = parseJsonOrText(runQmd(tenantId, args));
+  console.log(
+    JSON.stringify(
+      {
+        ok: true,
+        tenantId,
+        botId,
+        query: queryText,
+        allowedCollections,
+        retrievalRoot: retrievalRoot(tenantId),
+        results,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function main() {
+  const [, , command, ...args] = process.argv;
+
+  if (!command) {
+    usage();
+    process.exit(1);
+  }
+
+  if (command === "status") {
+    const [tenantId] = args;
+    if (!tenantId) {
+      usage();
+      process.exit(1);
+    }
+    commandStatus(tenantId);
+    return;
+  }
+
+  if (command === "rebuild") {
+    const [tenantId, ...rest] = args;
+    if (!tenantId) {
+      usage();
+      process.exit(1);
+    }
+    commandRebuild(tenantId, rest);
+    return;
+  }
+
+  if (command === "query") {
+    const [tenantId, botId, ...queryParts] = args;
+    if (!tenantId || !botId || queryParts.length === 0) {
+      usage();
+      process.exit(1);
+    }
+    commandQuery(tenantId, botId, queryParts.join(" "));
+    return;
+  }
+
+  usage();
+  process.exit(1);
+}
+
+try {
+  main();
+} catch (error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(detail);
+  process.exit(1);
+}
+EOF
+
+  chmod 0755 "$OPENCLAW_QMD_WRAPPER"
+}
+
+install_qmd_cli() {
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm
+  npm install -g "$OPENCLAW_QMD_NPM_PACKAGE"
+  write_qmd_tenant_wrapper
+}
+
 configure_ufw() {
   if ! command -v ufw >/dev/null 2>&1; then
     apt-get update
@@ -4535,6 +4801,7 @@ assert_opt_volume_mount
 run_step "Prepare bootstrap directories" prepare_bootstrap_directories
 run_step "Prepare root secret directories" prepare_root_secret_directories
 run_step "Prepare tenant memory roots" configure_tenant_memory_roots
+run_step "Install tenant QMD pilot tooling" install_qmd_cli
 run_step "Ensure system swap" ensure_swap "$OPENCLAW_SWAP_SIZE_MB"
 run_step "Initialize agent secret stores" ensure_agent_secret_stores
 run_step "Install agent secret provider" write_agent_secret_provider

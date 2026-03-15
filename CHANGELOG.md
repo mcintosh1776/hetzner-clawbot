@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- _None yet._
+- Added the first tenant-local `QMD` pilot tooling, installing the upstream `qmd` CLI and a host-side `clawbot-qmd-tenant` wrapper for scoped rebuild and query operations against `tenant_0` canonical memory.
 
 ### Fixed
 - _None yet._
@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Kept the initial `QMD` pilot out of bot runtimes and behind a host-side wrapper so tenant and bot scope policy stays enforced by the platform instead of raw direct access.
 
 ## [0.7.42] - 2026-03-15
 
