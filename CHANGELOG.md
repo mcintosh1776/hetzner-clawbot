@@ -21,6 +21,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.42] - 2026-03-15
+
+### Added
+- Added the first live `tenant_0` canonical memory root under `/opt/clawbot/tenants/tenant_0/memory/`, including canonical, observation, retrieval, and session directories.
+- Seeded `tenant_0` canonical memory with initial shared and bot-scoped entries for `Bob`, `Stacks`, `Jennifer`, `Steve`, and `Number5`.
+
+### Fixed
+- Migrated the durable private agent-pack repo path to `/opt/clawbot/tenants/tenant_0/repos/clawbot-agents` with continuity-safe bootstrap move logic from the legacy repo location.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept tenantization continuity-safe by moving the durable proposal repo and canonical memory roots into tenant-owned paths without widening secret or signer access.
+
+### Changed
+- Changed the platform layout so the first durable repo and memory roots now live under explicit `tenant_0` paths instead of global `/opt/clawbot/...` roots.
+
 ## [0.7.41] - 2026-03-15
 
 ### Added
