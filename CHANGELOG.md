@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 - Added tenant-local `QMD` collection context seeding for the first `tenant_0` collections so shared and bot-private memory indexes carry human-written summaries to improve retrieval quality.
+- Added a first read-only memory-service pilot for `Stacks`, exposing scoped `tenant_0` retrieval through a root-side Unix-socket service instead of direct bot access to raw `QMD`.
 
 ### Fixed
 - _None yet._
@@ -16,7 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Security
-- _None yet._
+- Kept the first bot retrieval integration limited to `Stacks`, read-only, and restricted to `shared` plus `bot-stacks` memory via a host-side service boundary.
 
 ### Changed
 - Changed `clawbot-qmd-tenant` collection setup to seed context alongside collection registration, keeping the `QMD` pilot corpus self-describing on rebuilds.

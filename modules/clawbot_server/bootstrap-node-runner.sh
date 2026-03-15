@@ -68,6 +68,7 @@ OPENCLAW_TENANT_ID="${OPENCLAW_TENANT_ID:-tenant_0}"
 OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business)
 OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS=(stacks jennifer)
 OPENCLAW_PROPOSAL_PUBLIC_IDS=(bob stacks jennifer steve number5)
+OPENCLAW_MEMORY_PUBLIC_IDS=(stacks)
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
@@ -92,6 +93,7 @@ OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
 OPENCLAW_QMD_NODE_MAJOR="${OPENCLAW_QMD_NODE_MAJOR:-22}"
 OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR="${OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR:-$OPENCLAW_TENANT_STATE_DIR/channels/telegram}"
 OPENCLAW_PROPOSAL_SOCKET_BASE_DIR="${OPENCLAW_PROPOSAL_SOCKET_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
+OPENCLAW_MEMORY_SOCKET_BASE_DIR="${OPENCLAW_MEMORY_SOCKET_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
 OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY:-/opt/clawbot/state/private-runtimes}"
 OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
 OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT="${OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT:-$OPENCLAW_STACKS_RUNTIME_MODEL}"
@@ -1385,6 +1387,8 @@ OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET = os.getenv("OPENCLAW_PRIVATE_RUNTI
 OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_SOCKET = os.getenv("OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_SOCKET", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_TOKEN", "").strip()
+OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET", "").strip()
+OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_STATE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_DIR", "/runtime-state").strip()
 OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID", "").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
@@ -1516,6 +1520,10 @@ def proposal_service_configured() -> bool:
   return bool(OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_SOCKET and OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_TOKEN)
 
 
+def memory_service_configured() -> bool:
+  return bool(OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET and OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN)
+
+
 async def request_nostr_signer(method: str, path: str, payload: dict | None = None) -> dict:
   if not nostr_signer_configured():
     raise HTTPException(status_code=503, detail=f"nostr signer not configured for {RUNTIME_DISPLAY_NAME}")
@@ -1574,6 +1582,35 @@ async def request_proposal_service(method: str, path: str, payload: dict | None 
     return response.json()
   except Exception as exc:
     raise HTTPException(status_code=502, detail=f"invalid proposal service response: {exc}") from exc
+
+
+async def request_memory_service(query_text: str) -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"memory service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      response = await client.post(
+        "/v1/memory/query",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+        json={"query": query_text},
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"memory service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"memory service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid memory service response: {exc}") from exc
 
 
 def build_user_message(payload: dict) -> str:
@@ -1703,6 +1740,22 @@ def looks_like_meta_agent_conversation(text: str) -> bool:
 
 def looks_like_feedback_proposal_request(text: str) -> bool:
   return looks_like_meta_agent_conversation(text)
+
+
+def looks_like_memory_lookup_request(text: str) -> bool:
+  if RUNTIME_AGENT_ID != "podcast_media":
+    return False
+  lowered = normalize_text(text).lower()
+  phrases = (
+    "search memory",
+    "check memory",
+    "look in memory",
+    "memory lookup",
+    "what do you remember",
+    "from memory",
+    "recall from memory",
+  )
+  return contains_any_phrase(lowered, phrases)
 
 
 def looks_like_nostr_publish_request(text: str) -> bool:
@@ -2013,6 +2066,27 @@ async def generate_feedback_proposal(payload: dict, revision_note: str = "", pre
   return normalize_proposal_json(raw_reply)
 
 
+def build_memory_lookup_instruction(query_text: str, results: list[dict]) -> str:
+  lines = [
+    "Use only the memory retrieval results below to answer the user's memory lookup request.",
+    "If the results are sparse, say that directly instead of inventing details.",
+    "Keep the answer concise and useful.",
+    f"Memory lookup query:\n{query_text}",
+    "Retrieved memory results:",
+  ]
+  for idx, item in enumerate(results, start=1):
+    snippet = normalize_text(item.get("snippet"))
+    title = normalize_text(item.get("title"))
+    context = normalize_text(item.get("context"))
+    score = item.get("score")
+    lines.append(f"{idx}. title={title!r} score={score!r}")
+    if context:
+      lines.append(f"   context: {context}")
+    if snippet:
+      lines.append(f"   snippet: {snippet}")
+  return "\n".join(lines)
+
+
 def build_pending_draft(payload: dict, event_payload: dict, draft_type: str, preview_text: str) -> dict:
   event = payload.get("event") or {}
   sender = event.get("sender") or {}
@@ -2106,6 +2180,47 @@ async def runtime_proposal_status(
       "agentId": RUNTIME_AGENT_ID,
       "enabled": proposal_service_configured(),
     },
+  }
+
+
+@app.get("/v1/runtime/memory/status")
+async def runtime_memory_status(
+  authorization: str | None = Header(default=None),
+):
+  expected_token = resolve_internal_api_token()
+  if authorization != f"Bearer {expected_token}":
+    raise HTTPException(status_code=401, detail="invalid runtime authorization")
+
+  if not memory_service_configured():
+    return {
+      "ok": True,
+      "runtime": {
+        "agentId": RUNTIME_AGENT_ID,
+        "displayName": RUNTIME_DISPLAY_NAME,
+      },
+      "memory": {
+        "configured": False,
+      },
+    }
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  async with httpx.AsyncClient(
+    transport=transport,
+    base_url="http://memory-service",
+    timeout=20,
+  ) as client:
+    response = await client.get(
+      "/v1/memory/status",
+      headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+    )
+    response.raise_for_status()
+  return {
+    "ok": True,
+    "runtime": {
+      "agentId": RUNTIME_AGENT_ID,
+      "displayName": RUNTIME_DISPLAY_NAME,
+    },
+    "memory": (response.json() or {}).get("memory", {"configured": False}),
   }
 
 
@@ -2343,8 +2458,47 @@ async def inbound_telegram(
               ),
             },
           }
+      ],
+    }
+
+  if memory_service_configured() and looks_like_memory_lookup_request(text):
+    memory_result = await request_memory_service(text)
+    results = ((memory_result.get("memory") or {}).get("results") or [])
+    if not results:
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": "I checked my memory and did not find a relevant stored result for that query.",
+            },
+          }
         ],
       }
+    reply_text = await generate_reply(
+      payload,
+      extra_instruction=build_memory_lookup_instruction(text, results),
+    )
+    return {
+      "ok": True,
+      "actions": [
+        {
+          "type": "telegram.sendMessage",
+          "target": {
+            "chatId": chat.get("id"),
+            "replyToMessageId": event.get("messageId"),
+          },
+          "message": {
+            "text": reply_text,
+          },
+        }
+      ],
+    }
 
   if proposal_service_configured() and looks_like_feedback_proposal_request(text):
     topic_slug, summary, preview_markdown, files = await generate_feedback_proposal(payload)
@@ -2567,6 +2721,33 @@ private_proposal_repo_branch() {
 
 private_proposal_unit_name() {
   printf 'clawbot-%s-proposal.service\n' "$1"
+}
+
+private_memory_enabled() {
+  local public_id="$1"
+  local enabled_id
+  for enabled_id in "${OPENCLAW_MEMORY_PUBLIC_IDS[@]}"; do
+    if [[ "$enabled_id" == "$public_id" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+private_memory_dir() {
+  printf '%s/%s\n' "$OPENCLAW_ROOT_STATE_DIR/memory-services" "$1"
+}
+
+private_memory_socket_dir() {
+  printf '%s/%s/memory-service\n' "$OPENCLAW_MEMORY_SOCKET_BASE_DIR" "$1"
+}
+
+private_memory_socket_path() {
+  printf '%s/service.sock\n' "$(private_memory_socket_dir "$1")"
+}
+
+private_memory_unit_name() {
+  printf 'clawbot-%s-memory.service\n' "$1"
 }
 
 install_agent_proposal_helper() {
@@ -2803,6 +2984,206 @@ prepare_proposal_service_directories() {
     chmod 700 "$proposal_dir"
     chown root:"$OPENCLAW_USER" "$socket_dir"
     chmod 750 "$socket_dir"
+  done
+}
+
+prepare_memory_service_directories() {
+  local public_id
+  local memory_dir
+  local socket_dir
+
+  mkdir -p "$OPENCLAW_ROOT_STATE_DIR/memory-services"
+  chown root:root "$OPENCLAW_ROOT_STATE_DIR/memory-services"
+  chmod 700 "$OPENCLAW_ROOT_STATE_DIR/memory-services"
+  mkdir -p "$OPENCLAW_MEMORY_SOCKET_BASE_DIR"
+  chown root:"$OPENCLAW_USER" "$OPENCLAW_MEMORY_SOCKET_BASE_DIR"
+  chmod 750 "$OPENCLAW_MEMORY_SOCKET_BASE_DIR"
+
+  for public_id in "${OPENCLAW_MEMORY_PUBLIC_IDS[@]}"; do
+    memory_dir="$(private_memory_dir "$public_id")"
+    socket_dir="$(private_memory_socket_dir "$public_id")"
+    mkdir -p "$memory_dir" "$socket_dir"
+    chown -R root:root "$memory_dir"
+    chmod 700 "$memory_dir"
+    chown root:"$OPENCLAW_USER" "$socket_dir"
+    chmod 750 "$socket_dir"
+  done
+}
+
+render_memory_service_app() {
+  local memory_dir="$1"
+  cat >"${memory_dir}/app.py" <<'PY'
+import json
+import os
+import subprocess
+
+from fastapi import FastAPI, Header, HTTPException, Request
+
+app = FastAPI()
+
+TENANT_ID = os.getenv("OPENCLAW_PRIVATE_MEMORY_TENANT_ID", "tenant_0").strip()
+RUNTIME_PUBLIC_ID = os.getenv("OPENCLAW_PRIVATE_MEMORY_PUBLIC_ID", "stacks").strip()
+RUNTIME_DISPLAY_NAME = os.getenv("OPENCLAW_PRIVATE_MEMORY_DISPLAY_NAME", "Stacks").strip()
+OPENCLAW_PRIVATE_MEMORY_TOKEN = os.getenv("OPENCLAW_PRIVATE_MEMORY_TOKEN", "").strip()
+OPENCLAW_PRIVATE_MEMORY_WRAPPER = os.getenv("OPENCLAW_PRIVATE_MEMORY_WRAPPER", "/usr/local/bin/clawbot-qmd-tenant").strip()
+
+
+def verify_memory_token(authorization: str | None) -> None:
+  if not OPENCLAW_PRIVATE_MEMORY_TOKEN:
+    raise HTTPException(status_code=500, detail=f"memory token missing for {RUNTIME_DISPLAY_NAME}")
+  if authorization != f"Bearer {OPENCLAW_PRIVATE_MEMORY_TOKEN}":
+    raise HTTPException(status_code=401, detail="invalid memory authorization")
+
+
+def wrapper_json(*args: str) -> dict:
+  try:
+    result = subprocess.run(
+      [OPENCLAW_PRIVATE_MEMORY_WRAPPER, *args],
+      check=True,
+      capture_output=True,
+      text=True,
+    )
+  except subprocess.CalledProcessError as exc:
+    detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"memory wrapper failed: {detail}") from exc
+
+  try:
+    payload = json.loads(result.stdout)
+  except json.JSONDecodeError as exc:
+    raise HTTPException(status_code=502, detail=f"invalid memory wrapper response: {exc}") from exc
+  if not isinstance(payload, dict):
+    raise HTTPException(status_code=502, detail="memory wrapper returned non-object payload")
+  return payload
+
+
+@app.get("/v1/memory/status")
+async def memory_status(
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  payload = wrapper_json("status", TENANT_ID)
+  return {
+    "ok": True,
+    "memory": {
+      "configured": True,
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "wrapper": OPENCLAW_PRIVATE_MEMORY_WRAPPER,
+      "status": payload,
+    },
+  }
+
+
+@app.post("/v1/memory/query")
+async def memory_query(
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  payload = await request.json()
+  query = str(payload.get("query") or "").strip()
+  if not query:
+    raise HTTPException(status_code=400, detail="query is required")
+  result = wrapper_json("query", TENANT_ID, RUNTIME_PUBLIC_ID, query)
+  return {
+    "ok": True,
+    "memory": {
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "query": query,
+      "results": result.get("results") or [],
+      "allowedCollections": result.get("allowedCollections") or [],
+    },
+  }
+PY
+  chown root:root "${memory_dir}/app.py"
+  chmod 700 "${memory_dir}/app.py"
+}
+
+ensure_memory_service_venv() {
+  local memory_venv="$OPENCLAW_ROOT_STATE_DIR/memory-services/.venv"
+  if [[ ! -x "${memory_venv}/bin/python" ]]; then
+    python3 -m venv "$memory_venv"
+  fi
+  if [[ ! -x "${memory_venv}/bin/pip" ]]; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+      python3-venv \
+      python3-pip \
+      python3-setuptools
+    rm -rf "$memory_venv"
+    python3 -m venv "$memory_venv"
+  fi
+  "${memory_venv}/bin/pip" install --upgrade --no-cache-dir fastapi uvicorn >/tmp/openclaw-memory-service-pip.log 2>&1
+}
+
+write_memory_service_unit() {
+  local public_id="$1"
+  local display_name="$2"
+  local memory_unit="/etc/systemd/system/$(private_memory_unit_name "$public_id")"
+  local memory_dir
+  local memory_socket_dir
+  local memory_socket_path
+  local memory_token
+  memory_dir="$(private_memory_dir "$public_id")"
+  memory_socket_dir="$(private_memory_socket_dir "$public_id")"
+  memory_socket_path="$(private_memory_socket_path "$public_id")"
+  memory_token="$(read_agent_internal_api_token "$(private_runtime_agent_id "$public_id")")"
+  cat >"$memory_unit" <<EOF
+[Unit]
+Description=Clawbot ${display_name} memory service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=$OPENCLAW_USER
+UMask=0007
+WorkingDirectory=$memory_dir
+ExecStartPre=/usr/bin/install -d -o root -g $OPENCLAW_USER -m 0750 $memory_socket_dir
+ExecStartPre=/usr/bin/rm -f $memory_socket_path
+ExecStart=$OPENCLAW_ROOT_STATE_DIR/memory-services/.venv/bin/uvicorn app:app --uds $memory_socket_path
+Environment=OPENCLAW_PRIVATE_MEMORY_TENANT_ID=$OPENCLAW_TENANT_ID
+Environment=OPENCLAW_PRIVATE_MEMORY_PUBLIC_ID=$public_id
+Environment=OPENCLAW_PRIVATE_MEMORY_DISPLAY_NAME=$display_name
+Environment=OPENCLAW_PRIVATE_MEMORY_TOKEN=$memory_token
+Environment=OPENCLAW_PRIVATE_MEMORY_WRAPPER=$OPENCLAW_QMD_WRAPPER
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chown root:root "$memory_unit"
+  chmod 0644 "$memory_unit"
+}
+
+configure_memory_services() {
+  local public_id
+  local display_name
+  local memory_dir
+  local memory_unit
+
+  if [[ "${#OPENCLAW_MEMORY_PUBLIC_IDS[@]}" -eq 0 ]]; then
+    return 0
+  fi
+
+  prepare_memory_service_directories
+  ensure_memory_service_venv
+
+  for public_id in "${OPENCLAW_MEMORY_PUBLIC_IDS[@]}"; do
+    display_name="$(private_runtime_display_name "$public_id")"
+    memory_dir="$(private_memory_dir "$public_id")"
+    render_memory_service_app "$memory_dir"
+    write_memory_service_unit "$public_id" "$display_name"
+  done
+
+  run_step "Reload systemd for memory services" systemctl daemon-reload
+
+  for public_id in "${OPENCLAW_MEMORY_PUBLIC_IDS[@]}"; do
+    memory_unit="$(private_memory_unit_name "$public_id")"
+    run_step "Enable ${public_id} memory service" systemctl enable "$memory_unit"
+    run_step "Restart ${public_id} memory service" systemctl restart "$memory_unit"
   done
 }
 
@@ -4041,6 +4422,17 @@ Environment=OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_SOCKET=/run/clawbot/proposal-servi
 Environment=OPENCLAW_PRIVATE_RUNTIME_PROPOSAL_TOKEN=$proposal_token
 EOF
   fi
+  if private_memory_enabled "$public_id"; then
+    local memory_token
+    local memory_socket_dir
+    memory_token="$(read_agent_internal_api_token "$agent_id")"
+    memory_socket_dir="$(private_memory_socket_dir "$public_id")"
+    cat >>"$runtime_quadlet" <<EOF
+Volume=$memory_socket_dir:/run/clawbot/memory-service:rw
+Environment=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET=/run/clawbot/memory-service/service.sock
+Environment=OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN=$memory_token
+EOF
+  fi
   cat >>"$runtime_quadlet" <<EOF
 Environment=OPENCLAW_PRIVATE_RUNTIME_PORT=$runtime_port
 Environment=OPENCLAW_PRIVATE_RUNTIME_HOST=0.0.0.0
@@ -4981,6 +5373,7 @@ run_step "Initialize agent secret stores" ensure_agent_secret_stores
 run_step "Install agent secret provider" write_agent_secret_provider
 run_step "Install agent secret sudoers policy" write_agent_secret_sudoers
 run_step "Configure nostr signer services" configure_nostr_signers
+run_step "Configure memory services" configure_memory_services
 run_step "Configure proposal services" configure_proposal_services
 run_step "Prepare bootstrap runtime directory" prepare_runtime_config_directory
 ensure_gateway_token
