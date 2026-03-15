@@ -7,8 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- Added tenant-local `QMD` collection context seeding for the first `tenant_0` collections so shared and bot-private memory indexes carry human-written summaries to improve retrieval quality.
-- Added a first read-only memory-service pilot for `Stacks`, exposing scoped `tenant_0` retrieval through a root-side Unix-socket service instead of direct bot access to raw `QMD`.
+- _None yet._
 
 ### Fixed
 - _None yet._
@@ -17,10 +16,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Security
-- Kept the first bot retrieval integration limited to `Stacks`, read-only, and restricted to `shared` plus `bot-stacks` memory via a host-side service boundary.
+- _None yet._
 
 ### Changed
-- Changed `clawbot-qmd-tenant` collection setup to seed context alongside collection registration, keeping the `QMD` pilot corpus self-describing on rebuilds.
+- _None yet._
+
+## [0.7.45] - 2026-03-15
+
+### Added
+- Added tenant-local `QMD` collection context seeding for the first `tenant_0` collections so shared and bot-private memory indexes carry human-written summaries to improve retrieval quality.
+- Added a first read-only memory-service pilot for `Stacks`, exposing scoped `tenant_0` retrieval through a root-side Unix-socket service instead of direct bot access to raw `QMD`.
+- Extended the same read-only memory-service path to `Jennifer`, keeping her retrieval limited to `shared` plus `bot-jennifer`.
+
+### Fixed
+- Fixed the first bot memory lookup flow to normalize natural phrasings like `what do you remember about ... from memory` into the underlying scoped search query, so memory retrieval works in normal operator language instead of only rigid command forms.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept the first bot retrieval integrations read-only and host-mediated, with `Stacks` restricted to `shared` plus `bot-stacks` and `Jennifer` restricted to `shared` plus `bot-jennifer`.
+
+### Changed
+- Changed the runtime memory lookup path from a `Stacks`-only proof of concept into a narrowly generalized bot capability for the first two eligible specialists without widening write access or cross-bot scope.
 
 ## [0.7.44] - 2026-03-15
 
