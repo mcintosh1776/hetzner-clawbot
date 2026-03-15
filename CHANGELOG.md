@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- _None yet._
+- Added tenant-local `QMD` collection context seeding for the first `tenant_0` collections so shared and bot-private memory indexes carry human-written summaries to improve retrieval quality.
 
 ### Fixed
 - _None yet._
@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Changed `clawbot-qmd-tenant` collection setup to seed context alongside collection registration, keeping the `QMD` pilot corpus self-describing on rebuilds.
 
 ## [0.7.44] - 2026-03-15
 

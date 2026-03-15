@@ -4462,6 +4462,55 @@ function allowedCollectionsForBot(tenantId, botId) {
   return ["shared", `bot-${botId}`];
 }
 
+function desiredContextsForTenant(tenantId) {
+  const contexts = {
+    shared:
+      "Shared tenant_0 brand voice and cross-fleet operating guidance. Bitcoin-first, credible, human, anti-hype, and useful for all tenant_0 bots.",
+  };
+
+  for (const botId of knownBotIdsForTenant(tenantId)) {
+    const collectionName = `bot-${botId}`;
+    const defaults = {
+      bob: "Bob coordination memory. Boundaries, routing, escalation, cross-bot authority limits, and coordinator behavior for tenant_0.",
+      stacks:
+        "Stacks media and social tone memory. Warmer friendlier tone, approachable Bitcoin-first media voice, avoid robotic copy and hype.",
+      jennifer:
+        "Jennifer editorial and research memory. Editorial discipline, evidence-minded framing, calm authority, and avoid marketing tone.",
+      steve:
+        "Steve engineering memory. Pragmatic implementation, small reviewable changes, migration safety, and avoid unnecessary rewrites.",
+      number5:
+        "Number5 business and operations memory. Business framing, operational thinking, structured proposals, and clear assumptions.",
+    };
+    contexts[collectionName] =
+      defaults[botId] || `${botId} bot-private tenant_0 memory for role guidance and durable preferences.`;
+  }
+
+  return contexts;
+}
+
+function ensureCollectionContexts(tenantId, collections) {
+  const contexts = desiredContextsForTenant(tenantId);
+
+  for (const collection of collections) {
+    const target = `qmd://${collection.name}/`;
+    const summary = contexts[collection.name];
+    if (!summary) {
+      continue;
+    }
+
+    try {
+      runQmd(tenantId, ["context", "add", target, summary]);
+    } catch (error) {
+      const stderr = String(error && error.stderr ? error.stderr : "");
+      if (!/already exists|already has context|duplicate/i.test(stderr)) {
+        throw new Error(
+          `failed to add qmd context for ${collection.name}: ${stderr || error.message}`,
+        );
+      }
+    }
+  }
+}
+
 function ensureCollections(tenantId) {
   const collections = canonicalCollections(tenantId);
   if (collections.length === 0) {
@@ -4481,6 +4530,7 @@ function ensureCollections(tenantId) {
     }
   }
 
+  ensureCollectionContexts(tenantId, collections);
   return collections;
 }
 
