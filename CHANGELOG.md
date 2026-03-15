@@ -21,6 +21,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.41] - 2026-03-15
+
+### Added
+- Added the first tenant-aware state path migrations for `tenant_0`, moving Telegram dedupe state, proposal-service socket state, and private runtime state under `/opt/clawbot/tenants/tenant_0/state/...`.
+- Added continuity-preserving runtime-state migration logic so legacy per-bot runtime state is moved into the new `tenant_0` runtime paths during bootstrap when needed.
+
+### Fixed
+- Fixed the generated Telegram webhook app to import the dependencies required by stale-update filtering, so webhook freshness and dedupe logic now run instead of crashing at request time.
+- Fixed repeated bootstrap failures caused by stale runner SHA pins by updating the pinned `openclaw_bootstrap_runner_sha256` alongside runner changes.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept tenantization changes limited to low-risk state families first, preserving current secret and signing boundaries while the hardened path layout is introduced incrementally.
+
+### Changed
+- Changed repository workflow discipline so changes to `modules/clawbot_server/bootstrap-node-runner.sh` must ship with the matching checksum update in `live/prod/fsn1/clawbot/terragrunt.hcl` before rebuilds.
+
 ## [0.7.40] - 2026-03-15
 
 ### Added
