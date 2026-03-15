@@ -47,6 +47,7 @@ From a stack directory (example: `live/prod/us-east/clawbot`):
 - Do not run validation, smoke tests, or post-build checks against a rebuilt node until bootstrap is complete.
 - Treat bootstrap as complete only after `/var/log/cloud-init-output.log` shows completion. The node usually takes about 6 minutes.
 - Prefer waiting for explicit completion markers such as `openclaw node bootstrap complete.` or the final `Cloud-init ... finished` line before testing nginx, certbot, OpenClaw, or Telegram webhook behavior.
+- If `modules/clawbot_server/bootstrap-node-runner.sh` changes, update the pinned `openclaw_bootstrap_runner_sha256` in `live/prod/fsn1/clawbot/terragrunt.hcl` in the same milestone before any rebuild or apply.
 
 ## Milestones and releases
 - Commit changes at reasonable milestones instead of letting local work accumulate too long.
