@@ -1758,6 +1758,36 @@ def looks_like_memory_lookup_request(text: str) -> bool:
   return contains_any_phrase(lowered, phrases)
 
 
+def normalize_memory_lookup_query(text: str) -> str:
+  value = normalize_text(text)
+  lowered = value.lower()
+  replacements = (
+    "search memory for",
+    "search memory",
+    "check memory for",
+    "check memory",
+    "look in memory for",
+    "look in memory",
+    "memory lookup for",
+    "memory lookup",
+    "what do you remember about",
+    "what do you remember",
+    "recall from memory about",
+    "recall from memory",
+    "from memory",
+  )
+  for phrase in replacements:
+    if lowered.startswith(phrase):
+      value = value[len(phrase):].strip(" :.-\n\t")
+      lowered = value.lower()
+      break
+  if lowered.endswith("from memory"):
+    value = value[: -len("from memory")].strip(" :.-\n\t")
+  if lowered.endswith("in memory"):
+    value = value[: -len("in memory")].strip(" :.-\n\t")
+  return value or normalize_text(text)
+
+
 def looks_like_nostr_publish_request(text: str) -> bool:
   lowered = normalize_text(text).lower()
   if looks_like_meta_agent_conversation(lowered):
@@ -2462,7 +2492,8 @@ async def inbound_telegram(
     }
 
   if memory_service_configured() and looks_like_memory_lookup_request(text):
-    memory_result = await request_memory_service(text)
+    memory_query = normalize_memory_lookup_query(text)
+    memory_result = await request_memory_service(memory_query)
     results = ((memory_result.get("memory") or {}).get("results") or [])
     if not results:
       return {
@@ -2482,7 +2513,7 @@ async def inbound_telegram(
       }
     reply_text = await generate_reply(
       payload,
-      extra_instruction=build_memory_lookup_instruction(text, results),
+      extra_instruction=build_memory_lookup_instruction(memory_query, results),
     )
     return {
       "ok": True,
