@@ -10,6 +10,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- _None yet._
+
+## [0.7.44] - 2026-03-15
+
+### Added
+- Added the first working tenant-local `QMD` retrieval pilot for `tenant_0`, including live canonical-memory indexing, scoped wrapper queries, and verified retrieval hits for `Stacks` and `Jennifer`.
+- Expanded the `tenant_0` canonical seed corpus with richer natural-language memory content so scoped retrieval returns useful hits instead of indexing only skeletal seed text.
+
+### Fixed
 - Fixed the `QMD` pilot bootstrap path to install a modern Node runtime before `npm install -g @tobilu/qmd`, and to fail the bootstrap step if the `qmd` binary is still missing afterward.
 - Fixed the `clawbot-qmd-tenant` wrapper to use the actual `qmd search` collection flag syntax (`-c`) so scoped tenant retrieval returns real search results instead of empty responses.
 - Fixed the `clawbot-qmd-tenant` wrapper to use `qmd search -n 5` instead of an unsupported `--limit` flag, matching the live CLI syntax that returns results on the node.
@@ -18,7 +36,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Security
-- _None yet._
+- Kept `QMD` retrieval tenant-scoped and bot-scoped by routing all access through the host-side wrapper, which restricts each bot to `shared` plus its own bot collection.
 
 ### Changed
 - Changed the `clawbot-qmd-tenant` wrapper to use `qmd search` for scoped retrieval instead of the heavier `qmd query` path, keeping the pilot retrieval-only and reducing interactive latency on CPU-only nodes.
