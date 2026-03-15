@@ -3134,7 +3134,10 @@ render_memory_service_app() {
   cat >"${memory_dir}/app.py" <<'PY'
 import json
 import os
+import re
 import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request
 
