@@ -19,7 +19,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Changed
-- _None yet._
+- Changed the `clawbot-qmd-tenant` wrapper to use `qmd search` for scoped retrieval instead of the heavier `qmd query` path, keeping the pilot retrieval-only and reducing interactive latency on CPU-only nodes.
 
 ## [0.7.43] - 2026-03-15
 
