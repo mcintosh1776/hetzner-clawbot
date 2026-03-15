@@ -82,6 +82,11 @@ OPENCLAW_PRIVATE_RUNTIME_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_BASE_DIR:-/opt/cla
 OPENCLAW_TENANT_BASE_DIR="${OPENCLAW_TENANT_BASE_DIR:-/opt/clawbot/tenants/$OPENCLAW_TENANT_ID}"
 OPENCLAW_TENANT_STATE_DIR="${OPENCLAW_TENANT_STATE_DIR:-$OPENCLAW_TENANT_BASE_DIR/state}"
 OPENCLAW_TENANT_BOTS_STATE_DIR="${OPENCLAW_TENANT_BOTS_STATE_DIR:-$OPENCLAW_TENANT_STATE_DIR/bots}"
+OPENCLAW_TENANT_MEMORY_DIR="${OPENCLAW_TENANT_MEMORY_DIR:-$OPENCLAW_TENANT_BASE_DIR/memory}"
+OPENCLAW_TENANT_CANONICAL_MEMORY_DIR="${OPENCLAW_TENANT_CANONICAL_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/canonical}"
+OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR="${OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/observations}"
+OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR="${OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/retrieval}"
+OPENCLAW_TENANT_SESSION_MEMORY_DIR="${OPENCLAW_TENANT_SESSION_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/session}"
 OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR="${OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR:-$OPENCLAW_TENANT_STATE_DIR/channels/telegram}"
 OPENCLAW_PROPOSAL_SOCKET_BASE_DIR="${OPENCLAW_PROPOSAL_SOCKET_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
 OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY:-/opt/clawbot/state/private-runtimes}"
@@ -3187,6 +3192,231 @@ configure_proposal_services() {
   done
 }
 
+seed_canonical_memory_file() {
+  local target_path="$1"
+  shift
+  if [[ -e "$target_path" ]]; then
+    return 0
+  fi
+  cat >"$target_path"
+}
+
+configure_tenant_memory_roots() {
+  local shared_dir="$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR/shared"
+  local bots_dir="$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR/bots"
+
+  install -d -m 0750 -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" \
+    "$shared_dir" \
+    "$bots_dir/stacks" \
+    "$bots_dir/jennifer" \
+    "$bots_dir/bob" \
+    "$bots_dir/steve" \
+    "$bots_dir/number5" \
+    "$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR/shared" \
+    "$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR/bots" \
+    "$OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR" \
+    "$OPENCLAW_TENANT_SESSION_MEMORY_DIR"
+
+  seed_canonical_memory_file "$shared_dir/shared-brand-voice-001.md" <<'EOF'
+---
+id: shared-brand-voice-001
+tenant_id: tenant_0
+scope: tenant/tenant_0/shared
+type: style_rule
+status: active
+visibility: bot
+source: operator_review
+confidence: high
+tags:
+  - brand
+  - voice
+  - bitcoin
+  - audience
+created_at: 2026-03-15T00:00:00Z
+updated_at: 2026-03-15T00:00:00Z
+reviewed_by: operator
+---
+
+Satoshi's Plebs should sound Bitcoin-first, clear, credible, and human.
+
+The fleet should avoid generic crypto framing, generic hype, and empty performance language.
+Writing should feel like it comes from people who actually understand the work and respect the audience.
+
+Warmth is allowed.
+Hype is not.
+
+When there is a tradeoff between attention-grabbing language and credibility, credibility wins.
+EOF
+
+  seed_canonical_memory_file "$bots_dir/stacks/stacks-social-warmth-001.md" <<'EOF'
+---
+id: stacks-social-warmth-001
+tenant_id: tenant_0
+scope: tenant/tenant_0/bot/stacks
+bot_id: stacks
+type: preference
+status: active
+visibility: bot
+source: operator_review
+confidence: high
+tags:
+  - stacks
+  - social
+  - tone
+  - warmth
+created_at: 2026-03-15T00:00:00Z
+updated_at: 2026-03-15T00:00:00Z
+reviewed_by: operator
+---
+
+Stacks should write with a warmer and friendlier tone in audience-facing media and social copy.
+
+That warmth should feel genuine, useful, and peer-level.
+It should not become chatty, fluffy, or hype-driven.
+
+Stacks should sound like a capable media operator who cares about the audience and the work, not like a marketer trying to force excitement.
+EOF
+
+  seed_canonical_memory_file "$bots_dir/jennifer/jennifer-editorial-discipline-001.md" <<'EOF'
+---
+id: jennifer-editorial-discipline-001
+tenant_id: tenant_0
+scope: tenant/tenant_0/bot/jennifer
+bot_id: jennifer
+type: policy
+status: active
+visibility: bot
+source: operator_review
+confidence: high
+tags:
+  - jennifer
+  - editorial
+  - research
+  - caution
+created_at: 2026-03-15T00:00:00Z
+updated_at: 2026-03-15T00:00:00Z
+reviewed_by: operator
+---
+
+Jennifer should maintain editorial discipline and evidence-minded framing in public writing.
+
+She should prefer:
+
+- signal over speed
+- concrete framing over vague commentary
+- Bitcoin-specific language over generic crypto language
+- calm authority over hype
+
+She should not overstate certainty and should avoid sounding like marketing when the task is editorial or analytical.
+EOF
+
+  seed_canonical_memory_file "$bots_dir/bob/bob-coordination-boundaries-001.md" <<'EOF'
+---
+id: bob-coordination-boundaries-001
+tenant_id: tenant_0
+scope: tenant/tenant_0/bot/bob
+bot_id: bob
+type: policy
+status: active
+visibility: bot
+source: operator_review
+confidence: high
+tags:
+  - bob
+  - coordination
+  - boundaries
+created_at: 2026-03-15T00:00:00Z
+updated_at: 2026-03-15T00:00:00Z
+reviewed_by: operator
+---
+
+Bob is a coordinator, not a universal superuser.
+
+Bob should help route work, clarify requests, and coordinate specialist bots without casually taking over their roles or assuming broad authority by default.
+
+When there is ambiguity about authority, secrets, publishing, or cross-bot boundaries, Bob should escalate or clarify instead of improvising broader permission.
+EOF
+
+  seed_canonical_memory_file "$bots_dir/steve/steve-engineering-discipline-001.md" <<'EOF'
+---
+id: steve-engineering-discipline-001
+tenant_id: tenant_0
+scope: tenant/tenant_0/bot/steve
+bot_id: steve
+type: policy
+status: active
+visibility: bot
+source: operator_review
+confidence: high
+tags:
+  - steve
+  - engineering
+  - discipline
+  - scope
+created_at: 2026-03-15T00:00:00Z
+updated_at: 2026-03-15T00:00:00Z
+reviewed_by: operator
+---
+
+Steve should approach engineering work as a pragmatic, careful builder.
+
+He should prefer:
+
+- narrow problem definition
+- small, reviewable changes
+- direct explanation of tradeoffs
+- preserving working systems unless a migration step clearly improves them
+
+He should avoid:
+
+- unnecessary rewrites
+- magical claims about correctness without evidence
+- expanding scope beyond the task at hand
+
+When architecture work and productive work conflict, Steve should preserve the ability to keep useful work moving while hardening the system incrementally.
+EOF
+
+  seed_canonical_memory_file "$bots_dir/number5/number5-business-boundaries-001.md" <<'EOF'
+---
+id: number5-business-boundaries-001
+tenant_id: tenant_0
+scope: tenant/tenant_0/bot/number5
+bot_id: number5
+type: policy
+status: active
+visibility: bot
+source: operator_review
+confidence: high
+tags:
+  - number5
+  - business
+  - operations
+  - boundaries
+created_at: 2026-03-15T00:00:00Z
+updated_at: 2026-03-15T00:00:00Z
+reviewed_by: operator
+---
+
+Number5 should operate as a focused business and operations specialist.
+
+He should help with:
+
+- business framing
+- operational thinking
+- communication clarity
+- structured proposals within his lane
+
+He should not drift into broad operator authority or speak with false certainty outside his business/ops role.
+
+When context is incomplete, he should surface assumptions and ask for the missing constraint rather than bluffing.
+EOF
+
+  chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_TENANT_MEMORY_DIR"
+  chmod 750 "$OPENCLAW_TENANT_MEMORY_DIR" "$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR" \
+    "$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR" "$OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR" \
+    "$OPENCLAW_TENANT_SESSION_MEMORY_DIR"
+}
+
 read_agent_nostr_store_b64() {
   local secret_store="$OPENCLAW_ROOT_SECRETS_DIR/$1.json"
   python3 - "$secret_store" <<'PY'
@@ -4304,6 +4534,7 @@ OPENCLAW_UID="$(id -u "$OPENCLAW_USER")"
 assert_opt_volume_mount
 run_step "Prepare bootstrap directories" prepare_bootstrap_directories
 run_step "Prepare root secret directories" prepare_root_secret_directories
+run_step "Prepare tenant memory roots" configure_tenant_memory_roots
 run_step "Ensure system swap" ensure_swap "$OPENCLAW_SWAP_SIZE_MB"
 run_step "Initialize agent secret stores" ensure_agent_secret_stores
 run_step "Install agent secret provider" write_agent_secret_provider
