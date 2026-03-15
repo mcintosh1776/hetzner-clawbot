@@ -12,6 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 - Fixed the `QMD` pilot bootstrap path to install a modern Node runtime before `npm install -g @tobilu/qmd`, and to fail the bootstrap step if the `qmd` binary is still missing afterward.
 - Fixed the `clawbot-qmd-tenant` wrapper to use the actual `qmd search` collection flag syntax (`-c`) so scoped tenant retrieval returns real search results instead of empty responses.
+- Fixed the `clawbot-qmd-tenant` wrapper to use `qmd search -n 5` instead of an unsupported `--limit` flag, matching the live CLI syntax that returns results on the node.
 
 ### Removed
 - _None yet._

@@ -177,7 +177,7 @@ function commandRebuild(tenantId, args) {
 function commandQuery(tenantId, botId, queryText) {
   ensureCollections(tenantId);
   const allowedCollections = allowedCollectionsForBot(tenantId, botId);
-  const args = ["search", queryText, "--json", "--limit", "5"];
+  const args = ["search", queryText, "--json", "-n", "5"];
 
   for (const collection of allowedCollections) {
     args.push("-c", collection);
