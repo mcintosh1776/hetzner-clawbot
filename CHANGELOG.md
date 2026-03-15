@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- _None yet._
+- Added the first executable live-node memory regression harness for `tenant_0`, covering `QMD` rebuilds, positive and negative scoped retrieval checks, and end-to-end memory lookup checks for `Stacks` and `Jennifer`.
 
 ### Fixed
 - _None yet._
