@@ -180,7 +180,7 @@ function commandQuery(tenantId, botId, queryText) {
   const args = ["search", queryText, "--json", "--limit", "5"];
 
   for (const collection of allowedCollections) {
-    args.push("--collection", collection);
+    args.push("-c", collection);
   }
 
   const results = parseJsonOrText(runQmd(tenantId, args));
