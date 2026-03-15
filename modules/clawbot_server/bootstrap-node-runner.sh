@@ -1408,6 +1408,25 @@ def clear_pending_proposal() -> None:
     path.unlink()
 
 
+def last_opened_proposal_path() -> Path:
+  return runtime_state_dir() / "last-opened-proposal.json"
+
+
+def load_last_opened_proposal() -> dict | None:
+  path = last_opened_proposal_path()
+  if not path.exists():
+    return None
+  try:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+  except Exception:
+    return None
+  return payload if isinstance(payload, dict) else None
+
+
+def save_last_opened_proposal(payload: dict) -> None:
+  last_opened_proposal_path().write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def nostr_signer_configured() -> bool:
   return bool(OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_SOCKET and OPENCLAW_PRIVATE_RUNTIME_NOSTR_SIGNER_TOKEN)
 
@@ -2040,6 +2059,7 @@ async def inbound_telegram(
 
   pending_nostr = load_pending_nostr()
   pending_proposal = load_pending_proposal()
+  last_opened_proposal = load_last_opened_proposal()
   if sender_is_operator(event) and pending_nostr:
     if is_approval_command(text):
       draft_type = str(pending_nostr.get("draftType") or "post")
@@ -2161,6 +2181,15 @@ async def inbound_telegram(
         or (result.get("proposal") or {}).get("pullRequestUrl")
         or ""
       ).strip()
+      save_last_opened_proposal(
+        {
+          "id": str(pending_proposal.get("id") or ""),
+          "openedAt": int(time.time()),
+          "topicSlug": str(pending_proposal.get("topicSlug") or ""),
+          "summary": str(pending_proposal.get("summary") or ""),
+          "prUrl": pr_url,
+        }
+      )
       return {
         "ok": True,
         "actions": [
@@ -2238,6 +2267,31 @@ async def inbound_telegram(
 
   if proposal_service_configured() and looks_like_feedback_proposal_request(text):
     topic_slug, summary, preview_markdown, files = await generate_feedback_proposal(payload)
+    if (
+      last_opened_proposal
+      and str(last_opened_proposal.get("topicSlug") or "") == topic_slug
+      and str(last_opened_proposal.get("summary") or "") == summary
+      and int(last_opened_proposal.get("openedAt") or 0) >= int(time.time()) - 1800
+    ):
+      existing_pr_url = str(last_opened_proposal.get("prUrl") or "").strip()
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": (
+                f"That proposal was already opened.\n\n{existing_pr_url}"
+                if existing_pr_url else "That proposal was already opened."
+              ),
+            },
+          }
+        ],
+      }
     pending_proposal = {
       "id": f"{RUNTIME_AGENT_ID}-proposal-{int(time.time())}",
       "createdAt": int(time.time()),

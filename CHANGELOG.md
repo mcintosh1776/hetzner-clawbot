@@ -17,6 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed disposable proposal workspaces to read the durable repo origin with a Git safe-directory override so the root-owned proposal service can prepare temp clones.
 - Fixed disposable proposal workspaces to clone from the durable server repo with explicit Git safe-directory overrides so proposal PR creation no longer dies on the shared-clone step.
 - Reworked disposable proposal workspaces to clone from GitHub using the GitHub App installation token instead of cloning from the local durable repo, removing the remaining Git safe-directory failures in proposal PR creation.
+- Added runtime-side proposal deduplication so agents remember the last successfully opened proposal and return the existing PR URL instead of regenerating the same proposal from follow-up chat.
 
 ### Removed
 - _None yet._
