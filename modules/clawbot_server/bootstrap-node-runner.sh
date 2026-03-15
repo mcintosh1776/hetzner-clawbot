@@ -79,12 +79,13 @@ OPENCLAW_STACKS_RUNTIME_SYSTEMD_UNIT="/etc/systemd/system/clawbot-stacks-runtime
 OPENCLAW_STACKS_RUNTIME_AGENT_ID="podcast_media"
 OPENCLAW_STACKS_PROMPT_FILE="$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
 OPENCLAW_PRIVATE_RUNTIME_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_BASE_DIR:-/opt/clawbot/config/private-runtimes}"
-OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR:-/opt/clawbot/state/private-runtimes}"
 OPENCLAW_TENANT_BASE_DIR="${OPENCLAW_TENANT_BASE_DIR:-/opt/clawbot/tenants/$OPENCLAW_TENANT_ID}"
 OPENCLAW_TENANT_STATE_DIR="${OPENCLAW_TENANT_STATE_DIR:-$OPENCLAW_TENANT_BASE_DIR/state}"
 OPENCLAW_TENANT_BOTS_STATE_DIR="${OPENCLAW_TENANT_BOTS_STATE_DIR:-$OPENCLAW_TENANT_STATE_DIR/bots}"
 OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR="${OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR:-$OPENCLAW_TENANT_STATE_DIR/channels/telegram}"
 OPENCLAW_PROPOSAL_SOCKET_BASE_DIR="${OPENCLAW_PROPOSAL_SOCKET_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
+OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY:-/opt/clawbot/state/private-runtimes}"
+OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
 OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT="${OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT:-$OPENCLAW_STACKS_RUNTIME_MODEL}"
 OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
 OPENCLAW_PRIVATE_RUNTIME_IMAGE="${OPENCLAW_PRIVATE_RUNTIME_IMAGE:-localhost/clawbot-private-runtime:local}"
@@ -1292,7 +1293,7 @@ private_runtime_dir() {
 }
 
 private_runtime_state_dir() {
-  printf '%s/%s\n' "$OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR" "$1"
+  printf '%s/%s/runtime\n' "$OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR" "$1"
 }
 
 private_runtime_unit_name() {
@@ -3739,6 +3740,7 @@ configure_private_runtimes() {
   local runtime_port
   local runtime_dir
   local runtime_state_dir
+  local legacy_runtime_state_dir
   local runtime_unit
 
   mkdir -p "$OPENCLAW_PRIVATE_RUNTIME_BASE_DIR"
@@ -3756,7 +3758,13 @@ configure_private_runtimes() {
     runtime_port="$(private_runtime_port "$public_id")"
     runtime_dir="$(private_runtime_dir "$public_id")"
     runtime_state_dir="$(private_runtime_state_dir "$public_id")"
+    legacy_runtime_state_dir="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY}/${public_id}"
     runtime_unit="$(private_runtime_unit_name "$public_id")"
+
+    if [[ -d "$legacy_runtime_state_dir" && ! -e "$runtime_state_dir" ]]; then
+      mkdir -p "$(dirname "$runtime_state_dir")"
+      mv "$legacy_runtime_state_dir" "$runtime_state_dir"
+    fi
 
     mkdir -p "$runtime_dir" "$runtime_state_dir"
     chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$runtime_dir"
