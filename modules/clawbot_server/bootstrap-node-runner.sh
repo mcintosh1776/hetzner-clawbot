@@ -90,7 +90,9 @@ OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT="${OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT
 OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
 OPENCLAW_PRIVATE_RUNTIME_IMAGE="${OPENCLAW_PRIVATE_RUNTIME_IMAGE:-localhost/clawbot-private-runtime:local}"
 OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE="${OPENCLAW_PRIVATE_RUNTIME_BASE_DIR}/Containerfile"
-OPENCLAW_AGENT_PROPOSAL_REPO_DIR="${OPENCLAW_AGENT_PROPOSAL_REPO_DIR:-/opt/clawbot/repos/clawbot-agents}"
+OPENCLAW_TENANT_REPOS_DIR="${OPENCLAW_TENANT_REPOS_DIR:-$OPENCLAW_TENANT_BASE_DIR/repos}"
+OPENCLAW_AGENT_PROPOSAL_REPO_DIR_LEGACY="${OPENCLAW_AGENT_PROPOSAL_REPO_DIR_LEGACY:-/opt/clawbot/repos/clawbot-agents}"
+OPENCLAW_AGENT_PROPOSAL_REPO_DIR="${OPENCLAW_AGENT_PROPOSAL_REPO_DIR:-$OPENCLAW_TENANT_REPOS_DIR/clawbot-agents}"
 OPENCLAW_AGENT_PROPOSAL_HELPER="${OPENCLAW_AGENT_PROPOSAL_HELPER:-/usr/local/bin/clawbot-agents-pr}"
 OPENCLAW_TLS_BACKUP_DIR="/opt/clawbot/tls/letsencrypt"
 OPENCLAW_AGENT_FLEET_TEMPLATE_B64="${OPENCLAW_AGENT_FLEET_TEMPLATE_B64:-}"
@@ -2732,6 +2734,7 @@ EOF
 
 prepare_agent_proposal_repo() {
   local repo_dir="$OPENCLAW_AGENT_PROPOSAL_REPO_DIR"
+  local legacy_repo_dir="$OPENCLAW_AGENT_PROPOSAL_REPO_DIR_LEGACY"
   local repo_parent
   local clone_url="$OPENCLAW_AGENT_PACK_REPO_URL"
   local branch
@@ -2745,6 +2748,11 @@ prepare_agent_proposal_repo() {
   repo_parent="$(dirname "$repo_dir")"
   branch="$(private_proposal_repo_branch)"
   install -d -m 0750 -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" "$repo_parent"
+
+  if [[ -d "$legacy_repo_dir/.git" && ! -e "$repo_dir" ]]; then
+    mv "$legacy_repo_dir" "$repo_dir"
+    chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$repo_dir"
+  fi
 
   if [[ "$clone_url" == git@* || "$clone_url" == ssh://* ]]; then
     if [[ ! -f "$OPENCLAW_AGENT_PACK_SSH_KEY_FILE" ]]; then
