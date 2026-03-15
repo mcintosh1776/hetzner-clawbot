@@ -89,6 +89,7 @@ OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR="${OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR:-$O
 OPENCLAW_TENANT_SESSION_MEMORY_DIR="${OPENCLAW_TENANT_SESSION_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/session}"
 OPENCLAW_QMD_WRAPPER="${OPENCLAW_QMD_WRAPPER:-/usr/local/bin/clawbot-qmd-tenant}"
 OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
+OPENCLAW_QMD_NODE_MAJOR="${OPENCLAW_QMD_NODE_MAJOR:-22}"
 OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR="${OPENCLAW_TELEGRAM_DEDUPE_STATE_DIR:-$OPENCLAW_TENANT_STATE_DIR/channels/telegram}"
 OPENCLAW_PROPOSAL_SOCKET_BASE_DIR="${OPENCLAW_PROPOSAL_SOCKET_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
 OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY:-/opt/clawbot/state/private-runtimes}"
@@ -4232,6 +4233,40 @@ install_webhook_packages() {
     python3-setuptools
 }
 
+ensure_qmd_node_runtime() {
+  local current_major=""
+
+  if command -v node >/dev/null 2>&1; then
+    current_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$current_major" && "$current_major" =~ ^[0-9]+$ ]] && (( current_major >= OPENCLAW_QMD_NODE_MAJOR )); then
+    return 0
+  fi
+
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg
+  install -d -m 0755 /etc/apt/keyrings
+
+  if [ ! -f /etc/apt/keyrings/nodesource.gpg ]; then
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+      | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+    chmod 0644 /etc/apt/keyrings/nodesource.gpg
+  fi
+
+  printf 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_%s.x nodistro main\n' \
+    "$OPENCLAW_QMD_NODE_MAJOR" >/etc/apt/sources.list.d/nodesource.list
+
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs
+
+  current_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
+  if [[ -z "$current_major" || ! "$current_major" =~ ^[0-9]+$ ]] || (( current_major < OPENCLAW_QMD_NODE_MAJOR )); then
+    echo "nodejs ${OPENCLAW_QMD_NODE_MAJOR}+ is required for qmd; found ${current_major:-missing}" >&2
+    return 1
+  fi
+}
+
 write_qmd_tenant_wrapper() {
   cat >"$OPENCLAW_QMD_WRAPPER" <<'EOF'
 #!/usr/bin/env node
@@ -4490,9 +4525,9 @@ EOF
 }
 
 install_qmd_cli() {
-  apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm
+  ensure_qmd_node_runtime
   npm install -g "$OPENCLAW_QMD_NPM_PACKAGE"
+  command -v qmd >/dev/null 2>&1
   write_qmd_tenant_wrapper
 }
 

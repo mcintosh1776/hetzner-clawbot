@@ -10,7 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - _None yet._
 
 ### Fixed
-- _None yet._
+- Fixed the `QMD` pilot bootstrap path to install a modern Node runtime before `npm install -g @tobilu/qmd`, and to fail the bootstrap step if the `qmd` binary is still missing afterward.
 
 ### Removed
 - _None yet._
