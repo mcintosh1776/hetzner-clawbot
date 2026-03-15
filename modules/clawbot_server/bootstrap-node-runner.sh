@@ -866,7 +866,10 @@ render_webhook_app() {
   cat >"${OPENCLAW_WEBHOOK_DIR}/app.py" <<'PY'
 import json
 import os
+import re
 import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
 import time
 from pathlib import Path
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -1613,6 +1616,35 @@ async def request_memory_service(query_text: str) -> dict:
     raise HTTPException(status_code=502, detail=f"invalid memory service response: {exc}") from exc
 
 
+async def request_memory_observation_create(content_text: str) -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"memory service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      response = await client.post(
+        "/v1/memory/observations",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+        json={"content": content_text},
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"memory service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"memory service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid memory service response: {exc}") from exc
+
+
 def build_user_message(payload: dict) -> str:
   event = payload.get("event") or {}
   sender = event.get("sender") or {}
@@ -1756,6 +1788,19 @@ def looks_like_memory_lookup_request(text: str) -> bool:
   return contains_any_phrase(lowered, phrases)
 
 
+def looks_like_observation_memory_request(text: str) -> bool:
+  lowered = normalize_text(text).lower()
+  prefixes = (
+    "remember this:",
+    "remember this for later:",
+    "store observation:",
+    "store this observation:",
+    "save observation:",
+    "save this observation:",
+  )
+  return any(lowered.startswith(prefix) for prefix in prefixes)
+
+
 def normalize_memory_lookup_query(text: str) -> str:
   value = normalize_text(text)
   lowered = value.lower()
@@ -1784,6 +1829,23 @@ def normalize_memory_lookup_query(text: str) -> str:
   if lowered.endswith("in memory"):
     value = value[: -len("in memory")].strip(" :.-\n\t")
   return value or normalize_text(text)
+
+
+def normalize_observation_memory_content(text: str) -> str:
+  value = normalize_text(text)
+  lowered = value.lower()
+  prefixes = (
+    "remember this:",
+    "remember this for later:",
+    "store observation:",
+    "store this observation:",
+    "save observation:",
+    "save this observation:",
+  )
+  for prefix in prefixes:
+    if lowered.startswith(prefix):
+      return value[len(prefix):].strip()
+  return value
 
 
 def looks_like_nostr_publish_request(text: str) -> bool:
@@ -2489,6 +2551,30 @@ async def inbound_telegram(
       ],
     }
 
+  if sender_is_operator(event) and memory_service_configured() and looks_like_observation_memory_request(text):
+    observation_content = normalize_observation_memory_content(text)
+    observation_result = await request_memory_observation_create(observation_content)
+    observation = observation_result.get("observation") or {}
+    observation_id = str(observation.get("id") or "").strip()
+    return {
+      "ok": True,
+      "actions": [
+        {
+          "type": "telegram.sendMessage",
+          "target": {
+            "chatId": chat.get("id"),
+            "replyToMessageId": event.get("messageId"),
+          },
+          "message": {
+            "text": (
+              f"Stored observation candidate {observation_id} for review."
+              if observation_id else "Stored observation candidate for review."
+            ),
+          },
+        }
+      ],
+    }
+
   if memory_service_configured() and looks_like_memory_lookup_request(text):
     memory_query = normalize_memory_lookup_query(text)
     memory_result = await request_memory_service(memory_query)
@@ -3055,6 +3141,7 @@ RUNTIME_PUBLIC_ID = os.getenv("OPENCLAW_PRIVATE_MEMORY_PUBLIC_ID", "stacks").str
 RUNTIME_DISPLAY_NAME = os.getenv("OPENCLAW_PRIVATE_MEMORY_DISPLAY_NAME", "Stacks").strip()
 OPENCLAW_PRIVATE_MEMORY_TOKEN = os.getenv("OPENCLAW_PRIVATE_MEMORY_TOKEN", "").strip()
 OPENCLAW_PRIVATE_MEMORY_WRAPPER = os.getenv("OPENCLAW_PRIVATE_MEMORY_WRAPPER", "/usr/local/bin/clawbot-qmd-tenant").strip()
+OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT = os.getenv("OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT", "/opt/clawbot/tenants/tenant_0/memory/observations").strip()
 
 
 def verify_memory_token(authorization: str | None) -> None:
@@ -3083,6 +3170,62 @@ def wrapper_json(*args: str) -> dict:
   if not isinstance(payload, dict):
     raise HTTPException(status_code=502, detail="memory wrapper returned non-object payload")
   return payload
+
+
+def slugify(value: str) -> str:
+  lowered = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+  return lowered[:48] or "observation"
+
+
+def observation_scope_dir() -> Path:
+  return Path(OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT) / "bots" / RUNTIME_PUBLIC_ID
+
+
+def write_observation_entry(content: str) -> dict:
+  body = str(content or "").strip()
+  if not body:
+    raise HTTPException(status_code=400, detail="observation content is required")
+
+  now = datetime.now(timezone.utc)
+  timestamp = now.strftime("%Y%m%d-%H%M%S")
+  slug = slugify(body)
+  observation_id = f"obs-{RUNTIME_PUBLIC_ID}-{slug}-{timestamp}"
+  target_dir = observation_scope_dir()
+  target_dir.mkdir(parents=True, exist_ok=True)
+  target_path = target_dir / f"{observation_id}.md"
+  iso_now = now.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+  target_path.write_text(
+    "\n".join(
+      [
+        "---",
+        f"id: {observation_id}",
+        f"tenant_id: {TENANT_ID}",
+        f"scope: tenant/{TENANT_ID}/bot/{RUNTIME_PUBLIC_ID}",
+        f"bot_id: {RUNTIME_PUBLIC_ID}",
+        "type: observation",
+        "status: pending_review",
+        "visibility: bot",
+        "source: explicit_operator_request",
+        "confidence: high",
+        "tags:",
+        "  - observation",
+        "  - candidate-memory",
+        f"created_at: {iso_now}",
+        f"updated_at: {iso_now}",
+        "---",
+        "",
+        body,
+        "",
+      ]
+    ),
+    encoding="utf-8",
+  )
+  return {
+    "id": observation_id,
+    "path": str(target_path),
+    "scope": f"tenant/{TENANT_ID}/bot/{RUNTIME_PUBLIC_ID}",
+    "status": "pending_review",
+  }
 
 
 @app.get("/v1/memory/status")
@@ -3123,6 +3266,21 @@ async def memory_query(
       "results": result.get("results") or [],
       "allowedCollections": result.get("allowedCollections") or [],
     },
+  }
+
+
+@app.post("/v1/memory/observations")
+async def memory_observations_create(
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  payload = await request.json()
+  content = str(payload.get("content") or "").strip()
+  observation = write_observation_entry(content)
+  return {
+    "ok": True,
+    "observation": observation,
   }
 PY
   chown root:root "${memory_dir}/app.py"
@@ -3177,6 +3335,7 @@ Environment=OPENCLAW_PRIVATE_MEMORY_PUBLIC_ID=$public_id
 Environment=OPENCLAW_PRIVATE_MEMORY_DISPLAY_NAME=$display_name
 Environment=OPENCLAW_PRIVATE_MEMORY_TOKEN=$memory_token
 Environment=OPENCLAW_PRIVATE_MEMORY_WRAPPER=$OPENCLAW_QMD_WRAPPER
+Environment=OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT=$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR
 Restart=always
 RestartSec=2
 
