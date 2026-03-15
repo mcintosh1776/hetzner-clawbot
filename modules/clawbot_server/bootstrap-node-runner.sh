@@ -68,7 +68,7 @@ OPENCLAW_TENANT_ID="${OPENCLAW_TENANT_ID:-tenant_0}"
 OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business)
 OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS=(stacks jennifer)
 OPENCLAW_PROPOSAL_PUBLIC_IDS=(bob stacks jennifer steve number5)
-OPENCLAW_MEMORY_PUBLIC_IDS=(stacks)
+OPENCLAW_MEMORY_PUBLIC_IDS=(stacks jennifer)
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
@@ -1743,7 +1743,7 @@ def looks_like_feedback_proposal_request(text: str) -> bool:
 
 
 def looks_like_memory_lookup_request(text: str) -> bool:
-  if RUNTIME_AGENT_ID != "podcast_media":
+  if RUNTIME_AGENT_ID not in {"podcast_media", "research"}:
     return False
   lowered = normalize_text(text).lower()
   phrases = (
