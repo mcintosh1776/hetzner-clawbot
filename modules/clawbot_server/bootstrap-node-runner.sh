@@ -5288,7 +5288,7 @@ function usage() {
 }
 
 function tenantTranscriptRoot(tenantId) {
-  return \`/opt/clawbot/tenants/\${tenantId}/memory/sources/transcripts\`;
+  return "/opt/clawbot/tenants/" + tenantId + "/memory/sources/transcripts";
 }
 
 function slugify(value) {
@@ -5351,9 +5351,9 @@ function normalizePodcastHtmlTranscript(raw) {
       if (!text) {
         continue;
       }
-      const prefix = currentTime ? \`[\${currentTime}] \` : "";
-      const speaker = currentSpeaker ? \`\${currentSpeaker}: \` : "";
-      lines.push(\`\${prefix}\${speaker}\${text}\`.trim());
+      const prefix = currentTime ? "[" + currentTime + "] " : "";
+      const speaker = currentSpeaker ? currentSpeaker + ": " : "";
+      lines.push((prefix + speaker + text).trim());
     }
   }
 
@@ -5384,9 +5384,9 @@ function deriveTitle(filePath, body) {
 function frontmatter({ id, tenantId, title, sourceFile }) {
   return [
     "---",
-    \`id: \${id}\`,
-    \`tenant_id: \${tenantId}\`,
-    \`scope: tenant/\${tenantId}/source/transcripts\`,
+    "id: " + id,
+    "tenant_id: " + tenantId,
+    "scope: tenant/" + tenantId + "/source/transcripts",
     "type: transcript",
     "status: active",
     "visibility: bot",
@@ -5394,8 +5394,8 @@ function frontmatter({ id, tenantId, title, sourceFile }) {
     "tags:",
     "  - transcript",
     "  - podcast",
-    \`title: \${JSON.stringify(title)}\`,
-    \`source_file: \${JSON.stringify(sourceFile)}\`,
+    "title: " + JSON.stringify(title),
+    "source_file: " + JSON.stringify(sourceFile),
     "---",
     "",
   ].join("\\n");
@@ -5413,14 +5413,14 @@ function writeTranscriptChunk({
   if (!lines.length) {
     return null;
   }
-  const id = `${baseId}-chunk-${String(chunkIndex).padStart(3, "0")}`;
-  const targetPath = path.join(outputDir, `${id}.md`);
+  const id = baseId + "-chunk-" + String(chunkIndex).padStart(3, "0");
+  const targetPath = path.join(outputDir, id + ".md");
   fs.writeFileSync(
     targetPath,
     frontmatter({
       id,
       tenantId,
-      title: `${title} (chunk ${chunkIndex})`,
+      title: title + " (chunk " + chunkIndex + ")",
       sourceFile,
     }) + lines.join("\\n").trim() + "\\n",
     "utf8",
@@ -5541,7 +5541,9 @@ async function fetchText(url) {
     },
   });
   if (!response.ok) {
-    throw new Error(\`fetch failed for \${url}: \${response.status} \${response.statusText}\`);
+    throw new Error(
+      "fetch failed for " + url + ": " + response.status + " " + response.statusText,
+    );
   }
   return await response.text();
 }
@@ -5550,23 +5552,25 @@ async function commandFetchFeed(tenantId, feedUrl, limit) {
   const xml = await fetchText(feedUrl);
   const items = parseFeed(xml);
   const selected = items.slice(0, limit > 0 ? limit : items.length);
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), \`clawbot-transcripts-\${tenantId}-\`));
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "clawbot-transcripts-" + tenantId + "-"),
+  );
 
   for (let index = 0; index < selected.length; index += 1) {
     const item = selected[index];
     const transcript = item.transcripts.find((entry) => !entry.language || entry.language.toLowerCase().startsWith("en")) || item.transcripts[0];
     const rawText = await fetchText(transcript.url);
-    const fileBase = slugify(item.guid || item.title || \`episode-\${index + 1}\`);
-    const sourcePath = path.join(tempDir, \`\${fileBase}.txt\`);
+    const fileBase = slugify(item.guid || item.title || "episode-" + (index + 1));
+    const sourcePath = path.join(tempDir, fileBase + ".txt");
     const header = [
-      item.title ? \`Title: \${item.title}\` : "",
-      item.pubDate ? \`Published: \${item.pubDate}\` : "",
-      transcript.url ? \`Transcript URL: \${transcript.url}\` : "",
+      item.title ? "Title: " + item.title : "",
+      item.pubDate ? "Published: " + item.pubDate : "",
+      transcript.url ? "Transcript URL: " + transcript.url : "",
       "",
     ]
       .filter(Boolean)
       .join("\\n");
-    fs.writeFileSync(sourcePath, \`\${header}\${rawText}\`, "utf8");
+    fs.writeFileSync(sourcePath, header + rawText, "utf8");
   }
 
   importDir(tenantId, tempDir);
