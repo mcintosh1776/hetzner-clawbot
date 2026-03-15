@@ -5300,10 +5300,12 @@ function slugify(value) {
 }
 
 function normalizeTranscriptBody(raw) {
-  const lines = String(raw || "")
-    .replace(/\\r\\n/g, "\\n")
-    .split("\\n")
-    .map((line) => line.trimEnd());
+  const text = String(raw || "").replace(/\\r\\n/g, "\\n");
+  if (/<(?:cite|time|p)\\b/i.test(text)) {
+    return normalizePodcastHtmlTranscript(text);
+  }
+
+  const lines = text.split("\\n").map((line) => line.trimEnd());
 
   const out = [];
   let previousBlank = false;
@@ -5322,6 +5324,40 @@ function normalizeTranscriptBody(raw) {
   }
 
   return out.join("\\n").trim() + "\\n";
+}
+
+function normalizePodcastHtmlTranscript(raw) {
+  const lines = [];
+  let currentSpeaker = "";
+  let currentTime = "";
+  const tokenRegex = /<cite>([\\s\\S]*?)<\\/cite>|<time>([\\s\\S]*?)<\\/time>|<p>([\\s\\S]*?)<\\/p>/gi;
+
+  for (const match of String(raw || "").matchAll(tokenRegex)) {
+    if (match[1] !== undefined) {
+      currentSpeaker = decodeXml(match[1]).replace(/:\\s*$/, "").trim();
+      continue;
+    }
+
+    if (match[2] !== undefined) {
+      currentTime = decodeXml(match[2]).trim();
+      continue;
+    }
+
+    if (match[3] !== undefined) {
+      const text = decodeXml(match[3])
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\\s+/g, " ")
+        .trim();
+      if (!text) {
+        continue;
+      }
+      const prefix = currentTime ? \`[\${currentTime}] \` : "";
+      const speaker = currentSpeaker ? \`\${currentSpeaker}: \` : "";
+      lines.push(\`\${prefix}\${speaker}\${text}\`.trim());
+    }
+  }
+
+  return lines.join("\\n").trim() + "\\n";
 }
 
 function decodeXml(value) {
