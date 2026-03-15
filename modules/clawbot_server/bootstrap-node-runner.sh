@@ -947,16 +947,72 @@ def normalize_text(value) -> str:
   return str(value or "").strip()
 
 
-def is_operator_reply_command(update: dict) -> bool:
-  if not OPERATOR_TELEGRAM_USER_ID:
-    return False
-  message = (
+TELEGRAM_EVENT_MAX_AGE_SECONDS = 300
+TELEGRAM_DEDUPE_STATE_DIR = "/opt/clawbot/state/telegram-webhook"
+
+
+def telegram_message(update: dict) -> dict:
+  return (
     update.get("message")
     or update.get("edited_message")
     or update.get("channel_post")
     or update.get("edited_channel_post")
     or {}
   )
+
+
+def telegram_event_timestamp(update: dict) -> int | None:
+  message = telegram_message(update)
+  value = message.get("date")
+  if value in (None, ""):
+    return None
+  try:
+    return int(value)
+  except Exception:
+    return None
+
+
+def telegram_update_id(update: dict) -> int | None:
+  value = update.get("update_id")
+  if value in (None, ""):
+    return None
+  try:
+    return int(value)
+  except Exception:
+    return None
+
+
+def telegram_dedupe_path(agent: str) -> str:
+  return os.path.join(TELEGRAM_DEDUPE_STATE_DIR, f"{agent or 'unknown'}-last-update-id")
+
+
+def is_stale_telegram_update(update: dict) -> bool:
+  event_ts = telegram_event_timestamp(update)
+  if event_ts is None:
+    return False
+  return event_ts < int(time.time()) - TELEGRAM_EVENT_MAX_AGE_SECONDS
+
+
+def is_duplicate_telegram_update(update: dict, agent: str | None) -> bool:
+  update_id = telegram_update_id(update)
+  if update_id is None:
+    return False
+  os.makedirs(TELEGRAM_DEDUPE_STATE_DIR, exist_ok=True)
+  path = telegram_dedupe_path(agent or "unknown")
+  try:
+    existing = int(Path(path).read_text(encoding="utf-8").strip())
+  except Exception:
+    existing = None
+  if existing is not None and update_id <= existing:
+    return True
+  Path(path).write_text(f"{update_id}\n", encoding="utf-8")
+  return False
+
+
+def is_operator_reply_command(update: dict) -> bool:
+  if not OPERATOR_TELEGRAM_USER_ID:
+    return False
+  message = telegram_message(update)
   sender = message.get("from") or {}
   sender_id = sender.get("id")
   if sender_id in (None, ""):
@@ -973,13 +1029,7 @@ def is_operator_reply_command(update: dict) -> bool:
 
 
 def find_pending_owner(update: dict) -> str | None:
-  message = (
-    update.get("message")
-    or update.get("edited_message")
-    or update.get("channel_post")
-    or update.get("edited_channel_post")
-    or {}
-  )
+  message = telegram_message(update)
   chat = message.get("chat") or {}
   chat_id = chat.get("id")
   reply_to_message_id = ((message.get("reply_to_message") or {}).get("message_id"))
@@ -1127,6 +1177,15 @@ async def handle_telegram_webhook(
 
   if not update:
     return {"ok": True}
+
+  if is_stale_telegram_update(update):
+    return {"ok": True, "ignored": "stale"}
+
+  dedupe_agent = agent
+  if not dedupe_agent and is_operator_reply_command(update):
+    dedupe_agent = find_pending_owner(update)
+  if is_duplicate_telegram_update(update, dedupe_agent or agent):
+    return {"ok": True, "ignored": "duplicate"}
 
   await forward_to_openclaw(update, agent)
   return {"ok": True}

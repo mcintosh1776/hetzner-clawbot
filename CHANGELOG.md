@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Fixed disposable proposal workspaces to clone from the durable server repo with explicit Git safe-directory overrides so proposal PR creation no longer dies on the shared-clone step.
 - Reworked disposable proposal workspaces to clone from GitHub using the GitHub App installation token instead of cloning from the local durable repo, removing the remaining Git safe-directory failures in proposal PR creation.
 - Added runtime-side proposal deduplication so agents remember the last successfully opened proposal and return the existing PR URL instead of regenerating the same proposal from follow-up chat.
+- Added Telegram webhook freshness and `update_id` deduplication so stale or replayed bot messages are ignored instead of being processed hours later.
 
 ### Removed
 - _None yet._
