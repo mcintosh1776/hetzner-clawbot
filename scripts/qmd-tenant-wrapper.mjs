@@ -199,6 +199,49 @@ function parseJsonOrText(output) {
   }
 }
 
+function uniqueQueries(queryText) {
+  const variants = [];
+  const seen = new Set();
+
+  function addVariant(value) {
+    const normalized = String(value || "").trim().replace(/\s+/g, " ");
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    variants.push(normalized);
+  }
+
+  addVariant(queryText);
+  addVariant(String(queryText || "").replace(/(?<=\d),(?=\d)/g, ""));
+
+  const millionVariant = String(queryText || "").replace(
+    /\b(\d{1,3})(?:,\d{3}){2}\b/g,
+    (_match, millions) => `${Number(millions)} million`,
+  );
+  addVariant(millionVariant);
+
+  return variants;
+}
+
+function mergeResultsByDoc(queries, resultsByQuery) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const query of queries) {
+    for (const item of resultsByQuery.get(query) || []) {
+      const key = `${item.docid || ""}|${item.file || ""}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      merged.push(item);
+    }
+  }
+
+  return merged;
+}
+
 function commandStatus(tenantId) {
   const collections = ensureCollections(tenantId);
   const output = runQmd(tenantId, ["status", "--json"]);
@@ -242,13 +285,19 @@ function commandRebuild(tenantId, args) {
 function commandQuery(tenantId, botId, queryText) {
   ensureCollections(tenantId);
   const allowedCollections = allowedCollectionsForBot(tenantId, botId);
-  const args = ["search", queryText, "--json", "-n", "5"];
+  const queryVariants = uniqueQueries(queryText);
+  const resultsByQuery = new Map();
 
-  for (const collection of allowedCollections) {
-    args.push("-c", collection);
+  for (const queryVariant of queryVariants) {
+    const args = ["search", queryVariant, "--json", "-n", "5"];
+    for (const collection of allowedCollections) {
+      args.push("-c", collection);
+    }
+    const parsed = parseJsonOrText(runQmd(tenantId, args));
+    resultsByQuery.set(queryVariant, Array.isArray(parsed) ? parsed : []);
   }
 
-  const results = parseJsonOrText(runQmd(tenantId, args));
+  const results = mergeResultsByDoc(queryVariants, resultsByQuery);
   console.log(
     JSON.stringify(
       {
@@ -256,6 +305,7 @@ function commandQuery(tenantId, botId, queryText) {
         tenantId,
         botId,
         query: queryText,
+        queryVariants,
         allowedCollections,
         retrievalRoot: retrievalRoot(tenantId),
         results,
