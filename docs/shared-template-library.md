@@ -30,12 +30,14 @@ clawbot-template-library copy <tenant-id> <template-id> <bot-id> [--display-name
 - `engineering`
 - `business`
 - `qa`
+- `security`
 - `youtube-specialist`
 - `social-media-specialist`
 - `mail-inbox-specialist`
 
 The first four reuse the current specialist guidance already present on the node.
 `qa` is the first review-focused shared template and uses an embedded guidance scaffold.
+`security` is the first security-review shared template and is intentionally review-only.
 The last three are starter templates for future tenant expansion.
 
 ## Copy target
