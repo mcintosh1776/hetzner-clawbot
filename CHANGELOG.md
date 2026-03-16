@@ -21,6 +21,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.51] - 2026-03-16
+
+### Added
+- Added a live `tenant_0` work-queue regression harness covering queue task creation, owner-filtered listing, handoff transitions, persisted handoff notes, and explicit state/owner reassignment.
+- Added operator-facing documentation for the work-queue regression harness so the queue substrate has a repeatable validation path.
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- Changed the work-queue milestone from a one-off manual validation into a repeatable live-node regression check.
+
 ## [0.7.50] - 2026-03-16
 
 ### Added
