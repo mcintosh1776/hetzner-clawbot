@@ -5160,13 +5160,23 @@ function uniqueQueries(queryText) {
   }
 
   addVariant(queryText);
-  addVariant(String(queryText || "").replace(/(?<=\\d),(?=\\d)/g, ""));
+  const commaFree = String(queryText || "").split(",").join("");
+  addVariant(commaFree);
 
-  const millionVariant = String(queryText || "").replace(
-    /\\b(\\d{1,3})(?:,\\d{3}){2}\\b/g,
-    (_match, millions) => String(Number(millions)) + " million",
-  );
-  addVariant(millionVariant);
+  const parts = String(queryText || "").split(/\\s+/);
+  const millionParts = parts.map((part) => {
+    const bare = part.replace(/[^0-9,]/g, "");
+    if ((bare.match(/,/g) || []).length !== 2) {
+      return part;
+    }
+    const digits = bare.split(",").join("");
+    if (!/^\\d+$/.test(digits) || digits.length !== 8 || !digits.endsWith("000000")) {
+      return part;
+    }
+    const millions = String(Number(digits.slice(0, -6)));
+    return part.replace(bare, millions + " million");
+  });
+  addVariant(millionParts.join(" "));
 
   return variants;
 }
