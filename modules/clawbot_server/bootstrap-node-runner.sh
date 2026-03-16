@@ -5458,6 +5458,9 @@ function extractTranscriptMetadata(raw, body, fallbackTitle) {
 
   const bitcoinPriceEur =
     parseNumber(
+      body.match(/What about.*?\\n\\[[^\\]]+\\]\\s+[^:]+:\\s+([0-9][0-9,]{3,}(?:\\.\\d+)?)\\./is)?.[1],
+    ) ||
+    parseNumber(
       body.match(/How many kroner\\?.*?euros times 11.*?([0-9][0-9,]{3,}(?:\\.\\d+)?)/is)?.[1],
     ) ||
     parseNumber(body.match(/([0-9][0-9,]{3,}(?:\\.\\d+)?)\\s+euros?\\b/i)?.[1]) ||
