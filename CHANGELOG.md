@@ -21,6 +21,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.50] - 2026-03-16
+
+### Added
+- Added a host-side `clawbot-work-queue` CLI for tenant-scoped file-backed task routing, including `list`, `show`, `create`, `move`, and `handoff` commands.
+- Added the first live `tenant_0` work-queue substrate under `/opt/clawbot/tenants/<tenant>/work-queue/`, with explicit state directories and markdown-backed task files.
+- Added operator-facing documentation for the queue CLI so the handoff contract and queue format now have a concrete executable tool.
+
+### Fixed
+- Fixed the bootstrap-installed work-queue CLI so it is written to the node verbatim instead of with escaped newline sequences that broke frontmatter parsing, owner persistence, and queue filtering.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept the first work-queue implementation file-backed and host-side only, with no direct bot-side permission widening or automatic deployment behavior.
+
+### Changed
+- Changed multi-bot handoff planning from documentation-only into a live queue substrate that can carry real ownership and state transitions for `tenant_0`.
+
 ## [0.7.49] - 2026-03-16
 
 ### Added
