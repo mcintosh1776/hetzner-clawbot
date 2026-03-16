@@ -8,6 +8,7 @@ Script:
 
 Host binary after bootstrap:
 - `/usr/local/bin/clawbot-observation-review`
+- `/usr/local/bin/clawbot-memory-reindex`
 
 ## Purpose
 
@@ -105,4 +106,21 @@ Recommended workflow:
 2. show the candidate
 3. reject obvious noise
 4. promote stable useful candidates
-5. rebuild retrieval when you want canonical retrieval updated
+5. refresh retrieval when you want canonical retrieval updated
+
+## Reindex helper
+
+After promotion, rebuild tenant retrieval with:
+
+```bash
+clawbot-memory-reindex tenant_0
+```
+
+Or rebuild plus embeddings:
+
+```bash
+clawbot-memory-reindex tenant_0 --embed
+```
+
+This is a small wrapper around the tenant `QMD` rebuild path so the post-promotion
+step is one stable command instead of a raw wrapper invocation.

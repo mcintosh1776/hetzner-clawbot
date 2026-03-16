@@ -93,6 +93,7 @@ OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR="${OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR:-
 OPENCLAW_QMD_WRAPPER="${OPENCLAW_QMD_WRAPPER:-/usr/local/bin/clawbot-qmd-tenant}"
 OPENCLAW_TRANSCRIPT_IMPORTER="${OPENCLAW_TRANSCRIPT_IMPORTER:-/usr/local/bin/clawbot-import-podcast-transcripts}"
 OPENCLAW_OBSERVATION_REVIEW_TOOL="${OPENCLAW_OBSERVATION_REVIEW_TOOL:-/usr/local/bin/clawbot-observation-review}"
+OPENCLAW_MEMORY_REINDEX_TOOL="${OPENCLAW_MEMORY_REINDEX_TOOL:-/usr/local/bin/clawbot-memory-reindex}"
 OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
 OPENCLAW_QMD_NODE_MAJOR="${OPENCLAW_QMD_NODE_MAJOR:-22}"
 OPENCLAW_PODCAST_RSS_FEED="${OPENCLAW_PODCAST_RSS_FEED:-https://serve.podhome.fm/rss/3d1d205b-b9f7-5253-b09d-df1c8ec4fc25}"
@@ -6285,6 +6286,55 @@ EOF
   chmod 0755 "$OPENCLAW_OBSERVATION_REVIEW_TOOL"
 }
 
+write_memory_reindex_tool() {
+  cat >"$OPENCLAW_MEMORY_REINDEX_TOOL" <<'EOF'
+#!/usr/bin/env node
+
+const { execFileSync } = require("node:child_process");
+
+function usage() {
+  console.error(
+    [
+      "usage:",
+      "  clawbot-memory-reindex <tenant-id> [--embed]",
+    ].join("\n"),
+  );
+}
+
+function main() {
+  const tenantId = process.argv[2];
+  const args = process.argv.slice(3);
+  if (!tenantId) {
+    usage();
+    process.exit(1);
+  }
+
+  const doEmbed = args.includes("--embed");
+  const commandArgs = ["rebuild", tenantId];
+  if (doEmbed) {
+    commandArgs.push("--embed");
+  }
+
+  const output = execFileSync("clawbot-qmd-tenant", commandArgs, {
+    encoding: "utf-8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  process.stdout.write(output);
+}
+
+try {
+  main();
+} catch (error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(detail);
+  process.exit(1);
+}
+EOF
+
+  chmod 0755 "$OPENCLAW_MEMORY_REINDEX_TOOL"
+}
+
 install_qmd_cli() {
   ensure_qmd_node_runtime
   npm install -g "$OPENCLAW_QMD_NPM_PACKAGE"
@@ -6292,6 +6342,7 @@ install_qmd_cli() {
   write_qmd_tenant_wrapper
   write_transcript_importer
   write_observation_review_tool
+  write_memory_reindex_tool
 }
 
 configure_ufw() {
