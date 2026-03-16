@@ -438,6 +438,76 @@ Success criteria:
 
 - future expansion is driven by narrow specialist templates, not ad hoc bot creation
 
+### Milestone 7: define shared bot template/config library
+
+Deliverables:
+
+- shared specialist bot templates that can be copied into a tenant fleet
+- clear split between:
+  - shared template defaults
+  - tenant-owned copied configuration
+- rules for what tenants may rename, tune, and extend after copying
+
+Examples:
+
+- YouTube specialist template
+- social/media specialist template
+- mail/inbox specialist template
+
+Success criteria:
+
+- future tenants do not have to invent common bot roles from scratch
+- templates are reusable without creating cross-tenant live coupling
+
+### Milestone 7.5: define structured bot handoffs and work queues
+
+Deliverables:
+
+- task state model for multi-bot work
+- handoff packet contract between bots
+- Bob-managed routing rules for implementation -> QA -> approval
+- explicit queue/inbox model for bot ownership changes
+
+Examples:
+
+- Steve finishes a website feature and hands it to QA
+- QA returns findings to Steve through a structured packet
+- Bob advances a passed task to approval
+
+Success criteria:
+
+- multi-bot work does not depend on informal chat
+- handoffs are reviewable, auditable, and routable
+- QA becomes a clean future bot role instead of an ad hoc behavior
+
+### Milestone 8: define tenant web control board
+
+Deliverables:
+
+- tenant-facing web interface/control board concept
+- bot fleet management surface
+- template/config library browsing and copy flow
+- future home for per-tenant bot configuration, status, and approvals
+
+Success criteria:
+
+- tenant-facing control is treated as a first-class product surface
+- the platform has a clear UI path for fleet setup and template-driven bot creation
+
+### Milestone 8.5: define operator handbook and runbook surface
+
+Deliverables:
+
+- operator handbook
+- common operational commands and decision boundaries
+- incident/rebuild discipline
+- future control board mapping to operator workflows
+
+Success criteria:
+
+- the operator is not relying on memory or chat history for core procedures
+- day-to-day operating rules are explicit
+
 ## Immediate decisions
 
 These should be treated as decided unless there is a strong reason to reverse them.
@@ -450,6 +520,8 @@ These should be treated as decided unless there is a strong reason to reverse th
 6. Retrieval memory may use vector storage, but only as a derived layer.
 7. Proposal-driven behavioral changes remain Git-reviewed.
 8. Near-term runtime direction is tenant-level isolation, not per-bot isolation for everything.
+9. Shared bot templates are allowed; shared live tenant bots are not.
+10. A tenant-facing control board is a core product requirement, not an afterthought.
 
 ## Open questions
 
@@ -466,3 +538,14 @@ These should be treated as decided unless there is a strong reason to reverse th
 3. write the memory schema doc next
 4. map current bots to capability tiers
 5. define the first post-`tenant_0` specialist bot template
+## Testing follow-on milestone
+
+Once the QMD and memory system is live, the next milestone should be a real testing layer rather than more feature expansion.
+
+That testing milestone should cover:
+
+- retrieval isolation across tenants
+- retrieval isolation across bots inside a tenant
+- canonical memory update -> rebuild -> embed -> retrieval regression checks
+- stable expected-hit queries for a small tenant_0 corpus
+- coexistence checks for memory retrieval and existing proposal/publish flows

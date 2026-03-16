@@ -38,15 +38,35 @@ The pilot is successful if:
 4. `Jennifer` cannot retrieve `Stacks` private memory
 5. the retrieval layer can be deleted and rebuilt without losing truth
 
+## Current status
+
+Implemented and verified for `tenant_0`:
+
+- [x] canonical memory root exists under `/opt/clawbot/tenants/tenant_0/memory/canonical/`
+- [x] tenant-local `QMD` home exists under `/opt/clawbot/tenants/tenant_0/memory/retrieval/qmd/`
+- [x] one `QMD` index is running per tenant for the pilot
+- [x] canonical corpus is indexed and embedded
+- [x] bot-scope filtering is enforced through the host wrapper
+- [x] `Stacks` can retrieve `Stacks` memory
+- [x] `Jennifer` can retrieve `Jennifer` memory
+- [x] collection context is seeded for the live `tenant_0` collections
+
+Still pending:
+
+- [ ] formal automated tests
+- [ ] direct negative retrieval tests recorded as repeatable checks
+- [ ] read-only bot tool integration
+- [ ] observation-memory indexing policy beyond canonical-only pilot
+
 ## Stage 1: finalize pilot corpus
 
 ## 1.1 Canonical corpus
 
 Checklist:
 
-- [ ] confirm the initial canonical seed set for `tenant_0`
-- [ ] decide which files are in the first retrieval corpus
-- [ ] keep the corpus intentionally small
+- [x] confirm the initial canonical seed set for `tenant_0`
+- [x] decide which files are in the first retrieval corpus
+- [x] keep the corpus intentionally small
 
 Recommended first corpus:
 
@@ -64,8 +84,8 @@ Optional second wave:
 
 Checklist:
 
-- [ ] decide whether any observation-memory files are included in the first pilot
-- [ ] if included, restrict to explicitly approved examples only
+- [x] decide whether any observation-memory files are included in the first pilot
+- [x] if included, restrict to explicitly approved examples only
 
 Recommendation:
 
@@ -77,7 +97,7 @@ Recommendation:
 
 Checklist:
 
-- [ ] choose the actual first filesystem location for canonical memory
+- [x] choose the actual first filesystem location for canonical memory
 
 Recommended target:
 
@@ -87,7 +107,7 @@ Recommended target:
 
 Checklist:
 
-- [ ] define the `QMD` index location
+- [x] define the `QMD` index location
 
 Recommended target:
 
@@ -97,7 +117,7 @@ Recommended target:
 
 Checklist:
 
-- [ ] define the first observation-memory location
+- [x] define the first observation-memory location
 
 Recommended target:
 
@@ -107,9 +127,9 @@ Recommended target:
 
 Checklist:
 
-- [ ] create the canonical directory structure for `tenant_0`
-- [ ] decide ownership and permissions
-- [ ] copy or generate the initial canonical seed files into that structure
+- [x] create the canonical directory structure for `tenant_0`
+- [x] decide ownership and permissions
+- [x] copy or generate the initial canonical seed files into that structure
 
 Suggested structure:
 
@@ -124,15 +144,15 @@ Suggested structure:
 
 Checklist:
 
-- [ ] decide that `tenant_0` gets its own `QMD` index
-- [ ] ensure no other tenant data can enter that index
+- [x] decide that `tenant_0` gets its own `QMD` index
+- [x] ensure no other tenant data can enter that index
 
 ## 4.2 Bot scope filtering
 
 Checklist:
 
-- [ ] define scope labels for indexed docs
-- [ ] define which scopes each bot may query
+- [x] define scope labels for indexed docs
+- [x] define which scopes each bot may query
 
 Pilot defaults:
 
@@ -150,7 +170,7 @@ Pilot defaults:
 
 Checklist:
 
-- [ ] explicitly exclude operator-private scope from bot retrieval in the first pilot
+- [x] explicitly exclude operator-private scope from bot retrieval in the first pilot
 
 ## Stage 5: define the memory service wrapper
 
@@ -160,20 +180,20 @@ Bots should not query raw `QMD` directly.
 
 Checklist:
 
-- [ ] define a thin memory service API
-- [ ] ensure requests include:
+- [x] define a thin memory service API
+- [x] ensure requests include:
   - `tenant_id`
   - `bot_id`
   - desired purpose
-- [ ] make the service enforce allowed scopes before returning results
+- [x] make the service enforce allowed scopes before returning results
 
 ## Stage 6: implement indexing workflow
 
 Checklist:
 
-- [ ] define how canonical files are fed into `QMD`
-- [ ] define how index rebuilds are triggered
-- [ ] define how index invalidation works when canonical files change
+- [x] define how canonical files are fed into `QMD`
+- [x] define how index rebuilds are triggered
+- [x] define how index invalidation works when canonical files change
 
 Recommendation:
 
@@ -186,8 +206,8 @@ Recommendation:
 Checklist:
 
 - [ ] `Stacks` can retrieve tenant-shared brand voice
-- [ ] `Stacks` can retrieve his own warmth preference
-- [ ] `Jennifer` can retrieve her editorial discipline rule
+- [x] `Stacks` can retrieve his own warmth preference
+- [x] `Jennifer` can retrieve her editorial discipline rule
 
 ## 7.2 Negative tests
 
@@ -201,8 +221,8 @@ Checklist:
 
 Checklist:
 
-- [ ] delete and rebuild the index without losing truth
-- [ ] confirm results are materially the same after rebuild
+- [x] delete and rebuild the index without losing truth
+- [x] confirm results are materially the same after rebuild
 
 ## Stage 8: define daily consolidation boundary
 
@@ -257,6 +277,10 @@ Mitigation:
 - canonical-only first pilot
 
 ## Immediate next actions
+
+1. add explicit negative retrieval checks and capture expected results
+2. expose a read-only retrieval tool to one bot only, preferably `Stacks`
+3. keep the pilot canonical-only until the read path is stable
 
 1. decide where the first canonical files should live on `/opt`
 2. create the tenant_0 canonical memory root

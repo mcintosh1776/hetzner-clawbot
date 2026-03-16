@@ -228,7 +228,86 @@ Checklist:
 - [ ] include name, role, tools, memory, channel, and policy fields
 - [ ] ensure future bots are created from templates, not improvisation
 
-## Phase 7: choose implementation order
+## Phase 7: define shared template/config library
+
+## 7.1 Define shared template model
+
+Checklist:
+
+- [ ] define what lives in the shared template library
+- [ ] define what gets copied into a tenant fleet versus referenced centrally
+- [ ] define what tenants may rename and tune safely
+
+## 7.2 Define initial shared specialist templates
+
+Recommended first templates:
+
+- [ ] YouTube specialist
+- [ ] social/media specialist
+- [ ] mail/inbox specialist
+
+Success criteria:
+
+- tenants can start from reusable specialist templates instead of hand-building every bot
+
+## Phase 7.5: define structured bot handoffs and work queues
+
+## 7.5.1 Define work-item states
+
+Checklist:
+
+- [ ] define a minimal task state machine for multi-bot work
+- [ ] define ownership transfer rules between bots
+- [ ] define what Bob must validate before rerouting work
+
+## 7.5.2 Define handoff packet contract
+
+Checklist:
+
+- [ ] define required handoff fields
+- [ ] define implementation -> QA handoff rules
+- [ ] define QA -> approval or QA -> engineering return path
+- [ ] define Bob's validation/routing responsibilities
+
+Success criteria:
+
+- specialist bots can hand work to each other without relying on loose chat memory
+
+## Phase 8: define tenant web control board
+
+## 8.1 Define control board scope
+
+Checklist:
+
+- [ ] define tenant-facing fleet management surface
+- [ ] define bot status/configuration views
+- [ ] define approvals/history view
+- [ ] define template library browsing and copy flow
+
+## 8.2 Define control board first-version priorities
+
+Checklist:
+
+- [ ] define must-have controls for tenant_0
+- [ ] define what remains operator-only for now
+- [ ] define how tenants will create or tune bots from shared templates
+
+## Phase 8.5: write the operator handbook
+
+## 8.5.1 Define operator runbook scope
+
+Checklist:
+
+- [ ] define the operator’s current responsibilities
+- [ ] define common memory/transcript/template commands
+- [ ] define approval boundaries and rebuild discipline
+- [ ] define current incident/recovery basics
+
+Success criteria:
+
+- the operator has an explicit handbook for current live operations
+
+## Phase 9: choose implementation order
 
 Recommended order:
 
@@ -238,6 +317,8 @@ Recommended order:
 4. memory roots and first canonical entries
 5. tenant-aware migration of current state paths
 6. first new specialist bot template
+7. shared template/config library
+8. tenant web control board
 
 ## Items that should not slip
 
@@ -248,6 +329,21 @@ These are the highest-value items and should not be deferred if the two-week win
 3. capability tier definitions
 4. target tenant-aware path conventions
 5. first canonical memory entries
+6. post-memory testing harness
+
+## 6. Post-memory testing harness
+
+After the QMD and memory system is in place, add explicit test coverage before broader bot rollout.
+
+- [ ] add wrapper-level retrieval tests for tenant-scoped and bot-scoped queries
+- [ ] add negative tests proving one bot cannot retrieve another bot's private memory
+- [ ] add negative tests proving one tenant cannot retrieve another tenant's memory
+- [ ] add smoke tests for canonical memory update -> rebuild -> embed -> retrieval
+- [ ] add regression tests for proposal flow plus memory retrieval coexisting on the same node
+- [ ] define a repeatable test corpus for tenant_0 so retrieval quality can be checked after rebuilds
+- [ ] document expected search hits for a small set of stable queries
+6. shared template library model
+7. tenant control board scope
 
 ## Items that can wait slightly longer
 

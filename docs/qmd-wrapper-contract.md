@@ -2,16 +2,28 @@
 
 ## Purpose
 
-Define the first concrete `QMD` integration contract for `tenant_0`.
+Define the implemented `QMD` wrapper contract for the live `tenant_0` pilot.
 
 This document answers:
 
-- where `QMD` data should live
-- what the memory service should accept
-- what it should return
+- where the live `QMD` data lives
+- what the current wrapper command does
 - how tenant and bot scope are enforced
+- what remains before bot-side tool integration
 
-This is the contract to implement before wiring `QMD` into bootstrap or runtime behavior.
+## Current live artifacts
+
+Implemented on the node:
+
+- `qmd`
+- `/usr/local/bin/clawbot-qmd-tenant`
+
+Live tenant roots:
+
+- canonical memory:
+  - `/opt/clawbot/tenants/tenant_0/memory/canonical/`
+- retrieval root:
+  - `/opt/clawbot/tenants/tenant_0/memory/retrieval/qmd/`
 
 ## Scope
 
@@ -23,23 +35,23 @@ Reference use:
 
 - retrieval over canonical memory only
 
-Out of scope for the first implementation:
+Still out of scope:
 
 - observation indexing
 - cross-tenant operation
 - direct bot access to raw `QMD`
 - automatic canonical writes
+- bot write access to memory through the wrapper
 
 ## Core rule
 
 Bots do not query `QMD` directly.
 
-Bots query a memory wrapper service.
-The wrapper service enforces:
+The platform uses a wrapper that enforces:
 
 - `tenant_id`
 - `bot_id`
-- allowed scopes
+- allowed collections
 
 Then the wrapper talks to `QMD`.
 
@@ -47,29 +59,32 @@ Then the wrapper talks to `QMD`.
 
 ## Canonical source files
 
-Current live root:
+Live root:
 
 - `/opt/clawbot/tenants/tenant_0/memory/canonical/`
 
+Live indexed collections:
+
+- `shared`
+- `bot-bob`
+- `bot-jennifer`
+- `bot-number5`
+- `bot-stacks`
+- `bot-steve`
+
 ## QMD home/index root
 
-Recommended first location:
+Live location:
 
 - `/opt/clawbot/tenants/tenant_0/memory/retrieval/qmd/`
 
-This should be the tenant-scoped `QMD` home for the pilot.
+Live `QMD` home:
 
-## Temporary working area
-
-If needed:
-
-- `/opt/clawbot/tenants/tenant_0/memory/retrieval/qmd/tmp/`
-
-Keep this under the same tenant root.
+- `/opt/clawbot/tenants/tenant_0/memory/retrieval/qmd/home/`
 
 ## One index per tenant
 
-For the first pilot:
+Current pilot model:
 
 - one `QMD` home/index per tenant
 
@@ -80,15 +95,13 @@ Not:
 
 Reason:
 
-- good tenant isolation
-- simpler operational model
+- strong tenant separation
+- simpler operations
 - avoids premature per-bot index sprawl
 
 ## Scope model inside the tenant
 
-Documents must still carry scope metadata.
-
-Minimum supported scopes for `tenant_0`:
+Supported scopes for `tenant_0`:
 
 - `tenant/tenant_0/shared`
 - `tenant/tenant_0/bot/bob`
@@ -97,162 +110,190 @@ Minimum supported scopes for `tenant_0`:
 - `tenant/tenant_0/bot/steve`
 - `tenant/tenant_0/bot/number5`
 
-Excluded from the first pilot:
+Excluded from the current pilot:
 
 - `tenant/tenant_0/operator`
 
-## Wrapper responsibilities
+## Implemented wrapper command contract
 
-The wrapper service must do all of the following:
+Current commands:
 
-1. accept tenant/bot-aware retrieval requests
-2. resolve allowed scopes for that bot
-3. map those scopes to the underlying corpus/index
-4. issue the actual query to `QMD`
-5. filter and normalize results
-6. return only allowed items
+- `clawbot-qmd-tenant status <tenant-id>`
+- `clawbot-qmd-tenant rebuild <tenant-id> [--embed]`
+- `clawbot-qmd-tenant query <tenant-id> <bot-id> <query...>`
+
+### `status`
+
+Purpose:
+
+- register collections if needed
+- ensure collection context is present
+- report current index/collection health
+
+Current behavior:
+
+- runs `qmd status --json`
+- returns:
+  - tenant id
+  - retrieval root
+  - collection names
+  - raw status text/json
+
+### `rebuild`
+
+Purpose:
+
+- re-index canonical files
+- optionally refresh embeddings
+
+Current behavior:
+
+- runs:
+  - `qmd update --json`
+  - optionally `qmd embed --json`
+
+### `query`
+
+Purpose:
+
+- perform read-only scoped retrieval for one bot
+
+Current behavior:
+
+- uses:
+  - `qmd search <query> --json -n 5 -c <collection> ...`
+- result is limited to:
+  - `shared`
+  - `bot-<bot_id>`
+
+## Allowed collections by bot
+
+## Bob
+
+- `shared`
+- `bot-bob`
+
+## Stacks
+
+- `shared`
+- `bot-stacks`
+
+## Jennifer
+
+- `shared`
+- `bot-jennifer`
+
+## Steve
+
+- `shared`
+- `bot-steve`
+
+## Number5
+
+- `shared`
+- `bot-number5`
+
+## Collection context contract
+
+The wrapper seeds one collection-level context summary per collection.
+
+Current seeded contexts:
+
+- `shared`
+  - tenant-wide brand voice and shared operating guidance
+- `bot-bob`
+  - coordination boundaries and escalation
+- `bot-stacks`
+  - warmer friendlier media tone, avoid robotic copy and hype
+- `bot-jennifer`
+  - editorial discipline, evidence-minded framing, avoid marketing tone
+- `bot-steve`
+  - pragmatic engineering, small reviewable changes, avoid rewrites
+- `bot-number5`
+  - business framing, operations thinking, structured proposals
 
 ## Request contract
 
-## Request shape
+The current wrapper is a host command, not an HTTP service.
 
-Suggested JSON request:
+Future service shape should still look like:
 
 ```json
 {
   "tenantId": "tenant_0",
   "botId": "stacks",
   "query": "warmer social tone for audience-facing posts",
-  "purpose": "drafting",
+  "purpose": "style_recall",
   "maxResults": 5
 }
 ```
 
-## Required fields
+Required future fields:
 
 - `tenantId`
 - `botId`
 - `query`
 
-## Optional fields
+Optional future fields:
 
 - `purpose`
 - `maxResults`
 - `scopeHint`
 
-## Request rules
-
-### `tenantId`
-
-Must match the tenant context of the calling runtime.
-
-### `botId`
-
-Must match the current bot identity.
-
-### `query`
-
-Plain-text retrieval query.
-
-### `purpose`
-
-Optional but useful for logging and later policy refinement.
-
-Examples:
-
-- `drafting`
-- `style_recall`
-- `planning`
-- `memory_lookup`
-
-### `scopeHint`
-
-Optional.
-Can be used to bias retrieval, but not to widen access.
-
-Examples:
-
-- `shared`
-- `bot`
-
-Important:
-
-- bots may not use `scopeHint` to bypass scope rules
-
 ## Response contract
 
-## Response shape
-
-Suggested JSON response:
+Current wrapper response shape:
 
 ```json
 {
   "ok": true,
   "tenantId": "tenant_0",
   "botId": "stacks",
+  "query": "warmer friendlier tone",
+  "allowedCollections": [
+    "shared",
+    "bot-stacks"
+  ],
+  "retrievalRoot": "/opt/clawbot/tenants/tenant_0/memory/retrieval/qmd",
   "results": [
     {
-      "id": "stacks-social-warmth-001",
-      "scope": "tenant/tenant_0/bot/stacks",
-      "type": "preference",
-      "path": "/opt/clawbot/tenants/tenant_0/memory/canonical/bots/stacks/stacks-social-warmth-001.md",
-      "score": 0.92,
+      "docid": "#d5017c",
+      "score": 0.86,
+      "file": "qmd://bot-stacks/stacks-social-warmth-001.md",
+      "title": "stacks-social-warmth-001",
+      "context": "Stacks media and social tone memory...",
       "snippet": "Stacks should write with a warmer and friendlier tone..."
     }
   ]
 }
 ```
 
-## Result fields
+Current response fields:
 
-- `id`
-- `scope`
-- `type`
-- `path`
+- `ok`
+- `tenantId`
+- `botId`
+- `query`
+- `allowedCollections`
+- `retrievalRoot`
+- `results`
+
+Current result fields come from `QMD`:
+
+- `docid`
 - `score`
+- `file`
+- `title`
+- optional `context`
 - `snippet`
-
-## Response rules
-
-- only return scopes allowed for the bot
-- do not expose operator-private content
-- do not expose cross-bot private content
-- keep snippets short and relevant
-
-## Allowed scopes by bot for pilot
-
-## Bob
-
-- `tenant/tenant_0/shared`
-- `tenant/tenant_0/bot/bob`
-
-## Stacks
-
-- `tenant/tenant_0/shared`
-- `tenant/tenant_0/bot/stacks`
-
-## Jennifer
-
-- `tenant/tenant_0/shared`
-- `tenant/tenant_0/bot/jennifer`
-
-## Steve
-
-- `tenant/tenant_0/shared`
-- `tenant/tenant_0/bot/steve`
-
-## Number5
-
-- `tenant/tenant_0/shared`
-- `tenant/tenant_0/bot/number5`
 
 ## Indexing contract
 
-## Initial corpus
+Current corpus:
 
-Only index canonical memory files in the first pilot.
+- canonical memory only
 
-Current live files:
+Current live files include:
 
 - shared brand voice
 - Bob coordination boundaries
@@ -261,97 +302,50 @@ Current live files:
 - Steve engineering discipline
 - Number5 business boundaries
 
-## Index refresh model
+Current refresh model:
 
-First version should be simple:
+- explicit rebuild
 
-- explicit rebuild command
+Current rebuild rule:
 
-Not:
-
-- automatic real-time sync
-
-## Rebuild rule
-
-Deleting the `QMD` retrieval index must not lose truth.
-
-The wrapper/indexer must be able to rebuild from:
-
-- `/opt/clawbot/tenants/tenant_0/memory/canonical/`
+- deleting the tenant retrieval index must not lose truth
+- canonical files remain the source of truth
 
 ## Security model
 
-## Hard boundaries
-
-The wrapper must enforce:
+Hard boundaries currently enforced:
 
 - no cross-tenant retrieval
 - no cross-bot private retrieval by default
-- no operator-private retrieval in the first pilot
+- no operator-private retrieval
 
-## Things the wrapper must not trust
+Things the wrapper does not trust:
 
-Do not trust:
-
-- caller-supplied path
-- caller-supplied scope expansion
+- caller-supplied filesystem paths
+- caller-supplied scope widening
 - caller-supplied tenant switching
 
-The wrapper decides those from policy.
+## What is now proven
 
-## Logging
+The live pilot has proven:
 
-Recommended logging per request:
+1. tenant-local `QMD` install works
+2. canonical memory can be indexed and embedded
+3. bot-scope filtering works
+4. `Stacks` retrieval works for `Stacks` memory
+5. `Jennifer` retrieval works for `Jennifer` memory
+6. collection context is present and returned in results
 
-- timestamp
-- tenant id
-- bot id
-- purpose
-- allowed scopes
-- result count
+## What is still pending
 
-Do not log:
-
-- raw secrets
-- large document bodies
-
-## First implementation recommendation
-
-Keep the first implementation very small.
-
-## Phase 1
-
-- build a local wrapper command or small service
-- point it at the `tenant_0` canonical root
-- support only one tenant
-
-## Phase 2
-
-- add bot-specific scope enforcement
-- run retrieval tests
-
-## Phase 3
-
-- connect one bot, probably `Stacks`, for a constrained retrieval experiment
-
-## What not to do in the first implementation
-
-- do not expose raw `QMD` CLI to bots
-- do not index observations yet
-- do not include operator scope
-- do not attempt cross-tenant support before `tenant_0` works
-
-## Success criteria
-
-The wrapper contract is successful if:
-
-1. it makes `QMD` usable without weakening isolation
-2. it keeps canonical memory as truth
-3. it is simple enough to implement for `tenant_0`
-4. it can evolve into a multi-tenant service later
+- explicit negative retrieval checks captured as repeatable tests
+- a read-only bot tool that calls this wrapper or successor service
+- observation-memory policy beyond canonical-only pilot
+- broader tenant rollout beyond `tenant_0`
 
 ## Recommended next actions
 
-1. implement the first local wrapper command or service for `tenant_0`
-2. add explicit corpus rebuild command
-3. run positive and negative retrieval tests before wiring any bot to it
+1. add repeatable negative retrieval tests
+2. expose a read-only retrieval tool to one bot only
+3. start with `Stacks`
+4. keep write paths out of scope until retrieval behavior is stable
