@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- _None yet._
+- Added a live transcript regression harness for `tenant_0` covering transcript import, transcript indexing, Steve-only transcript retrieval, transcript isolation from non-Steve bots, and Steve’s transcript-backed runtime replies.
 
 ### Fixed
 - _None yet._
