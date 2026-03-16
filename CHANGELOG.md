@@ -7,7 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- Added a live transcript regression harness for `tenant_0` covering transcript import, transcript indexing, Steve-only transcript retrieval, transcript isolation from non-Steve bots, and Steve’s transcript-backed runtime replies.
+- _None yet._
 
 ### Fixed
 - _None yet._
@@ -20,6 +20,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 - _None yet._
+
+### Added
+- Added a live transcript regression harness for `tenant_0` covering transcript import, transcript indexing, Steve-only transcript retrieval, transcript isolation from non-Steve bots, and Steve’s transcript-backed runtime replies.
+- Added an observation review and promotion CLI for `tenant_0`, including list/show/reject/promote commands and host-side installation as `clawbot-observation-review`.
+- Added a documented observation review workflow for promoting reviewed observation memory into canonical bot memory.
+
+### Fixed
+- Fixed transcript numeric query normalization so the tenant `QMD` wrapper now emits general numeric query variants instead of brittle one-off transcript query rewrites.
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- Changed the memory system so `tenant_0` now supports the full observation loop: capture, review, reject, and explicit promotion into canonical memory.
+
+## [0.7.48] - 2026-03-16
+
+### Added
+- Added a live transcript regression harness for `tenant_0` covering transcript import, transcript indexing, Steve-only transcript retrieval, transcript isolation from non-Steve bots, and Steve’s transcript-backed runtime replies.
+- Added an observation review and promotion CLI for `tenant_0`, including list/show/reject/promote commands and host-side installation as `clawbot-observation-review`.
+- Added a documented observation review workflow for promoting reviewed observation memory into canonical bot memory.
+
+### Fixed
+- Fixed transcript numeric query normalization so the tenant `QMD` wrapper now emits general numeric query variants instead of brittle one-off transcript query rewrites.
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- Changed the memory system so `tenant_0` now supports the full observation loop: capture, review, reject, and explicit promotion into canonical memory.
 
 ## [0.7.47] - 2026-03-15
 
