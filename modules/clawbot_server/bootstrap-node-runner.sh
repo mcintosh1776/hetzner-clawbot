@@ -6703,8 +6703,8 @@ write_work_queue_tool() {
   cat >"$OPENCLAW_WORK_QUEUE_TOOL" <<'EOF'
 #!/usr/bin/env node
 
-const fs = require("node:fs");
-const path = require("node:path");
+import fs from "node:fs";
+import path from "node:path";
 
 const VALID_STATES = [
   "todo",
@@ -6727,12 +6727,12 @@ function usage() {
       "  clawbot-work-queue create <tenant-id> <task-id> --title <title> --owner <bot-id> [--requested-by <actor>] [--priority <level>] [--category <kind>] [--state <state>]",
       "  clawbot-work-queue move <tenant-id> <task-id> <state> [--owner <bot-id>]",
       "  clawbot-work-queue handoff <tenant-id> <task-id> --to <bot-id> --status <state> --summary <text> [--from <bot-id>]",
-    ].join("\\n"),
+    ].join("\n"),
   );
 }
 
 function nowIso() {
-  return new Date().toISOString().replace(/\\.\\d{3}Z$/, "Z");
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
 function tenantRoot(tenantId) {
@@ -6774,30 +6774,30 @@ function parseScalar(value) {
 }
 
 function parseFrontmatter(text) {
-  const normalized = String(text || "").replace(/\\r\\n/g, "\\n");
-  if (!normalized.startsWith("---\\n")) {
+  const normalized = String(text || "").replace(/\r\n/g, "\n");
+  if (!normalized.startsWith("---\n")) {
     return { meta: {}, body: normalized.trim() };
   }
-  const end = normalized.indexOf("\\n---\\n", 4);
+  const end = normalized.indexOf("\n---\n", 4);
   if (end === -1) {
     return { meta: {}, body: normalized.trim() };
   }
 
   const meta = {};
   const block = normalized.slice(4, end);
-  const body = normalized.slice(end + 5).replace(/^\\n+/, "");
+  const body = normalized.slice(end + 5).replace(/^\n+/, "");
   let currentListKey = null;
 
-  for (const line of block.split("\\n")) {
+  for (const line of block.split("\n")) {
     if (!line.trim()) {
       continue;
     }
-    const listMatch = line.match(/^\\s*-\\s+(.*)$/);
+    const listMatch = line.match(/^\s*-\s+(.*)$/);
     if (listMatch && currentListKey) {
       meta[currentListKey].push(parseScalar(listMatch[1]));
       continue;
     }
-    const fieldMatch = line.match(/^([A-Za-z0-9_]+):\\s*(.*)$/);
+    const fieldMatch = line.match(/^([A-Za-z0-9_]+):\s*(.*)$/);
     if (!fieldMatch) {
       currentListKey = null;
       continue;
@@ -6842,7 +6842,7 @@ function stringifyFrontmatter(meta, body) {
     lines.push(key + ": " + stringifyScalar(value));
   }
   lines.push("---", "", String(body || "").trim(), "");
-  return lines.join("\\n");
+  return lines.join("\n");
 }
 
 function taskPath(tenantId, state, taskId) {
@@ -6924,7 +6924,7 @@ function defaultBody(title) {
     "## Notes",
     "",
     "- TODO",
-  ].join("\\n");
+  ].join("\n");
 }
 
 function ensureValidState(state) {
@@ -7057,7 +7057,7 @@ function appendLatestHandoff(body, handoff) {
     "- summary: " + handoff.summary,
     "- status: " + handoff.status,
   ];
-  return lines.join("\\n").trim() + "\\n";
+  return lines.join("\n").trim() + "\n";
 }
 
 function commandHandoff(tenantId, taskId, args) {
