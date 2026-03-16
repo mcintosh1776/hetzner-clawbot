@@ -21,6 +21,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.52] - 2026-03-16
+
+### Added
+- Added a shared `qa` bot template with internal id `qa` and display name `Inspector Bot`.
+- Added a reusable QA specialist guidance file focused on findings-first review, verification planning, regression checks, and handoff-based quality control.
+- Added `qa` to the shared template library so tenants can copy a bounded QA bot scaffold into their own tenant-owned config tree.
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+### Security
+- Kept the QA template review-only, with no deploy, publish, or secret authority.
+
+### Changed
+- Changed the QA bot concept from a planning idea into a live shared template that can participate in the emerging queue/handoff model.
+
 ## [0.7.51] - 2026-03-16
 
 ### Added
