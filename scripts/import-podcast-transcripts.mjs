@@ -116,6 +116,18 @@ function parseEpisodeNumber(title) {
   return match ? Number(match[1]) : null;
 }
 
+function cleanUrl(value) {
+  const match = String(value || "").match(/https?:\/\/[^\s"'<>()]+/);
+  return match ? match[0] : "";
+}
+
+function canonicalEpisodeUrl(episodeNumber, fallbackUrl) {
+  if (episodeNumber !== null) {
+    return `https://satoshis-plebs.com/episodes/episode-${episodeNumber}`;
+  }
+  return cleanUrl(fallbackUrl);
+}
+
 function parseSpeakers(body) {
   const speakers = [];
   const seen = new Set();
@@ -146,8 +158,12 @@ function parseNumber(value) {
 function extractTranscriptMetadata(raw, body, fallbackTitle) {
   const title = extractHeaderValue(raw, "Title") || fallbackTitle;
   const publishedAt = toIsoDate(extractHeaderValue(raw, "Published"));
-  const transcriptUrl = extractHeaderValue(raw, "Transcript URL");
-  const episodeUrl = extractHeaderValue(raw, "Episode URL");
+  const episodeNumber = parseEpisodeNumber(title);
+  const transcriptUrl = cleanUrl(extractHeaderValue(raw, "Transcript URL"));
+  const episodeUrl = canonicalEpisodeUrl(
+    episodeNumber,
+    extractHeaderValue(raw, "Episode URL"),
+  );
   const { speakers, hosts, guests } = parseSpeakers(body);
 
   const blockHeight =
@@ -159,6 +175,9 @@ function extractTranscriptMetadata(raw, body, fallbackTitle) {
     parseNumber(body.match(/price[^0-9]{0,20}([0-9][0-9,]{3,}(?:\.\d+)?)\s+US\b/i)?.[1]);
 
   const bitcoinPriceEur =
+    parseNumber(
+      body.match(/How many kroner\?.*?euros times 11.*?([0-9][0-9,]{3,}(?:\.\d+)?)/is)?.[1],
+    ) ||
     parseNumber(body.match(/([0-9][0-9,]{3,}(?:\.\d+)?)\s+euros?\b/i)?.[1]) ||
     parseNumber(body.match(/price[^0-9]{0,20}([0-9][0-9,]{3,}(?:\.\d+)?)\s+EUR\b/i)?.[1]);
 
@@ -168,7 +187,7 @@ function extractTranscriptMetadata(raw, body, fallbackTitle) {
 
   return {
     title,
-    episodeNumber: parseEpisodeNumber(title),
+    episodeNumber,
     publishedAt,
     transcriptUrl,
     episodeUrl,
