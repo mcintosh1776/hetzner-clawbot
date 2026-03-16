@@ -21,22 +21,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.49] - 2026-03-16
+
 ### Added
-- Added a live transcript regression harness for `tenant_0` covering transcript import, transcript indexing, Steve-only transcript retrieval, transcript isolation from non-Steve bots, and Steve’s transcript-backed runtime replies.
-- Added an observation review and promotion CLI for `tenant_0`, including list/show/reject/promote commands and host-side installation as `clawbot-observation-review`.
-- Added a documented observation review workflow for promoting reviewed observation memory into canonical bot memory.
+- Added a host-side `clawbot-memory-reindex` helper so `tenant_0` canonical, shared, and transcript retrieval corpora can be refreshed with one stable command after observation promotion or corpus changes.
+- Added a shared bot template library scaffold with a host-side `clawbot-template-library` CLI supporting `list`, `show`, and tenant-owned `copy` operations.
+- Added starter shared templates for future specialist roles, including `youtube-specialist`, `social-media-specialist`, and `mail-inbox-specialist`.
+- Added an operator/workflow handbook set covering quickstart operations, the full operator handbook, bot handoff contract, file-backed work queue format, and rebuild/release runbook guidance.
 
 ### Fixed
-- Fixed transcript numeric query normalization so the tenant `QMD` wrapper now emits general numeric query variants instead of brittle one-off transcript query rewrites.
+- Fixed the changelog/release state by moving post-`v0.7.48` shipped work out of `Unreleased` and into an explicit release entry.
 
 ### Removed
 - _None yet._
 
 ### Security
-- _None yet._
+- Kept the shared template library copy-based and tenant-owned, so templates can be reused without creating shared live bot instances or cross-tenant coupling.
 
 ### Changed
-- Changed the memory system so `tenant_0` now supports the full observation loop: capture, review, reject, and explicit promotion into canonical memory.
+- Changed template creation from an architecture-only milestone into a live scaffolded workflow that writes tenant-owned bot bundles under `/opt/clawbot/tenants/<tenant>/config/template-copies/`.
 
 ## [0.7.48] - 2026-03-16
 
