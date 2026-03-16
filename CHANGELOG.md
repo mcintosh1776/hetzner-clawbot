@@ -7,8 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ## [Unreleased]
 
 ### Added
-- Added the first executable live-node memory regression harness for `tenant_0`, covering `QMD` rebuilds, positive and negative scoped retrieval checks, and end-to-end memory lookup checks for `Stacks` and `Jennifer`.
-- Expanded the live-node memory regression harness to cover the full current fleet, including positive scoped retrieval and end-to-end runtime lookup checks for `Bob`, `Steve`, and `Number5`.
+- _None yet._
 
 ### Fixed
 - _None yet._
@@ -21,6 +20,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Changed
 - _None yet._
+
+## [0.7.47] - 2026-03-15
+
+### Added
+- Added the first executable live-node memory regression harness for `tenant_0`, covering `QMD` rebuilds, positive and negative scoped retrieval checks, and end-to-end memory lookup checks for `Stacks` and `Jennifer`.
+- Expanded the live-node memory regression harness to cover the full current fleet, including positive scoped retrieval and end-to-end runtime lookup checks for `Bob`, `Steve`, and `Number5`.
+- Added tenant-scoped podcast transcript import support under `/opt/clawbot/tenants/tenant_0/memory/sources/transcripts`, including a host-side importer scaffold with the Podhome RSS feed as the default source.
+- Added transcript collection support to the tenant `QMD` wrapper with `Steve`-only access to the `source-transcripts` retrieval corpus.
+- Added transcript normalization from Podhome transcript HTML into chunked Markdown retrieval documents suitable for `QMD` indexing.
+- Added enriched transcript frontmatter metadata, including RSS-first episode metadata plus extracted speakers/hosts and selected podcast-specific fields.
+
+### Fixed
+- Fixed the bootstrap-generated transcript importer so shell expansion no longer corrupts installed JavaScript during node bootstrap.
+- Fixed transcript import title handling to preserve the RSS episode title instead of deriving it from the first transcript line.
+- Fixed transcript metadata handling for canonical episode URLs, cleaned transcript URLs, and extracted Bitcoin USD/EUR price fields for episode `247`.
+
+### Removed
+- _None yet._
+
+### Security
+- _None yet._
+
+### Changed
+- Changed transcript retrieval from single large episode documents to chunked episode documents, which improved Steve's recall for specific questions like `Cypherpunk Manifesto`.
 
 ## [0.7.45] - 2026-03-15
 
