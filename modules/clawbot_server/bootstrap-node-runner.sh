@@ -5162,23 +5162,54 @@ function uniqueQueries(queryText) {
   }
 
   addVariant(queryText);
-  const commaFree = String(queryText || "").split(",").join("");
+  const commaFree = String(queryText || "").replace(/(?<=\\d),(?=\\d)/g, "");
   addVariant(commaFree);
 
-  const parts = String(queryText || "").split(" ");
-  const millionParts = parts.map((part) => {
-    const bare = part.replace(/[^0-9,]/g, "");
-    if ((bare.match(/,/g) || []).length !== 2) {
+  function humanizeDigits(digits) {
+    const value = Number(digits);
+    if (!Number.isFinite(value) || value < 1000) {
+      return null;
+    }
+
+    const scales = [
+      { threshold: 1000000000, suffix: "billion" },
+      { threshold: 1000000, suffix: "million" },
+      { threshold: 1000, suffix: "thousand" },
+    ];
+
+    for (const scale of scales) {
+      if (value >= scale.threshold) {
+        const scaled = value / scale.threshold;
+        const rounded = Number(scaled.toFixed(scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2));
+        return String(rounded) + " " + scale.suffix;
+      }
+    }
+
+    return null;
+  }
+
+  const humanizedParts = String(queryText || "").split(" ").map((part) => {
+    const match = part.match(/^([^0-9,]*)([0-9][0-9,]*)([^0-9,]*)$/);
+    if (!match) {
+      return part;
+    }
+    const prefix = match[1];
+    const bare = match[2];
+    const suffix = match[3];
+    if (!bare.includes(",")) {
       return part;
     }
     const digits = bare.split(",").join("");
-    if (!isDigitsOnly(digits) || digits.length !== 8 || !digits.endsWith("000000")) {
+    if (!isDigitsOnly(digits)) {
       return part;
     }
-    const millions = String(Number(digits.slice(0, -6)));
-    return part.replace(bare, millions + " million");
+    const humanized = humanizeDigits(digits);
+    if (!humanized) {
+      return part;
+    }
+    return prefix + humanized + suffix;
   });
-  addVariant(millionParts.join(" "));
+  addVariant(humanizedParts.join(" "));
 
   return variants;
 }
