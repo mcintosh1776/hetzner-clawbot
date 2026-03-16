@@ -5149,9 +5149,11 @@ function parseJsonOrText(output) {
 function uniqueQueries(queryText) {
   const variants = [];
   const seen = new Set();
+  const isDigitsOnly = (value) =>
+    [...String(value || "")].every((ch) => ch >= "0" && ch <= "9");
 
   function addVariant(value) {
-    const normalized = String(value || "").trim().replace(/\\s+/g, " ");
+    const normalized = String(value || "").trim().split(" ").filter(Boolean).join(" ");
     if (!normalized || seen.has(normalized)) {
       return;
     }
@@ -5163,14 +5165,14 @@ function uniqueQueries(queryText) {
   const commaFree = String(queryText || "").split(",").join("");
   addVariant(commaFree);
 
-  const parts = String(queryText || "").split(/\\s+/);
+  const parts = String(queryText || "").split(" ");
   const millionParts = parts.map((part) => {
     const bare = part.replace(/[^0-9,]/g, "");
     if ((bare.match(/,/g) || []).length !== 2) {
       return part;
     }
     const digits = bare.split(",").join("");
-    if (!/^\\d+$/.test(digits) || digits.length !== 8 || !digits.endsWith("000000")) {
+    if (!isDigitsOnly(digits) || digits.length !== 8 || !digits.endsWith("000000")) {
       return part;
     }
     const millions = String(Number(digits.slice(0, -6)));
