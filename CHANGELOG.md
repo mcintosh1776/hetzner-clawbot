@@ -21,6 +21,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.53] - 2026-03-16
+
+### Added
+- Added an operator-side non-rebuild asset sync path with `scripts/sync-node-assets.sh` for syncing selected host tools into `/usr/local/bin/` and selected agent-config templates into `/opt/clawbot/config/agent-config/`.
+- Added a non-rebuild sync runbook documenting when to use incremental sync instead of a full node replacement.
+
+### Fixed
+- _None yet._
+
+### Removed
+- _None yet._
+
+### Security
+- Kept the non-rebuild sync path operator-only and limited to tool/template assets, not general remote mutation or deploy authority.
+
+### Changed
+- Changed small tool/template updates from rebuild-only operations into operator-driven incremental sync operations when baseline provisioning is not being changed.
+
 ## [0.7.52] - 2026-03-16
 
 ### Added
