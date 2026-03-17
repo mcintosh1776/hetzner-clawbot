@@ -3641,7 +3641,8 @@ async def queue_task_handoff(
   verify_memory_token(authorization)
   current = queue_json("show", TENANT_ID, task_id)
   current_task = current.get("task") or {}
-  if str(current_task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
+  current_meta = current_task.get("meta") or {}
+  if str(current_meta.get("current_owner") or current_task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
     raise HTTPException(status_code=403, detail="task is not currently assigned to this bot")
 
   payload = await request.json()

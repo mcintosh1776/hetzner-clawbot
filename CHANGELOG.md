@@ -21,6 +21,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.55] - 2026-03-17
+
+### Added
+- _None yet._
+
+### Fixed
+- Fixed the Steve/Jennifer queue handoff path so ownership checks read the current owner from queue task metadata, allowing specialists to hand tasks off through the live runtime successfully.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept specialist handoff authority scoped to tasks currently assigned to the requesting bot; cross-owner handoff attempts still fail.
+
+### Changed
+- Changed Steve/Jennifer queue participation from read-only task visibility into working handoff participation against the shared tenant queue.
+
 ## [0.7.54] - 2026-03-17
 
 ### Added
