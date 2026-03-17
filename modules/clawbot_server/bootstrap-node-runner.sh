@@ -1549,6 +1549,10 @@ def memory_service_configured() -> bool:
   return bool(OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET and OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN)
 
 
+def queue_runtime_enabled() -> bool:
+  return RUNTIME_AGENT_ID in {"engineering", "research"}
+
+
 async def request_nostr_signer(method: str, path: str, payload: dict | None = None) -> dict:
   if not nostr_signer_configured():
     raise HTTPException(status_code=503, detail=f"nostr signer not configured for {RUNTIME_DISPLAY_NAME}")
@@ -1665,6 +1669,96 @@ async def request_memory_observation_create(content_text: str) -> dict:
     return response.json()
   except Exception as exc:
     raise HTTPException(status_code=502, detail=f"invalid memory service response: {exc}") from exc
+
+
+async def request_queue_list(state_text: str = "") -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"queue service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      response = await client.get(
+        "/v1/queue/tasks",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+        params={"state": state_text} if state_text else None,
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"queue service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"queue service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid queue service response: {exc}") from exc
+
+
+async def request_queue_show(task_id: str) -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"queue service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      response = await client.get(
+        f"/v1/queue/tasks/{task_id}",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"queue service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"queue service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid queue service response: {exc}") from exc
+
+
+async def request_queue_handoff(task_id: str, to_owner: str, status_text: str, summary_text: str) -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"queue service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      response = await client.post(
+        f"/v1/queue/tasks/{task_id}/handoff",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+        json={
+          "to": to_owner,
+          "status": status_text,
+          "summary": summary_text,
+        },
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"queue service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"queue service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid queue service response: {exc}") from exc
 
 
 def build_user_message(payload: dict) -> str:
@@ -1868,6 +1962,89 @@ def normalize_observation_memory_content(text: str) -> str:
     if lowered.startswith(prefix):
       return value[len(prefix):].strip()
   return value
+
+
+def looks_like_queue_list_request(text: str) -> bool:
+  lowered = normalize_text(text).lower()
+  phrases = (
+    "list my tasks",
+    "show my tasks",
+    "show my queue",
+    "list my queue",
+    "what is in my queue",
+    "what's in my queue",
+  )
+  return contains_any_phrase(lowered, phrases)
+
+
+def extract_queue_show_task_id(text: str) -> str:
+  match = re.match(
+    r"^\s*(?:show|open|read)\s+(?:task|queue task)\s+([a-z0-9][a-z0-9_-]{1,127})\s*$",
+    normalize_text(text),
+    flags=re.IGNORECASE,
+  )
+  return (match.group(1).strip() if match else "")
+
+
+def extract_queue_handoff_request(text: str) -> dict | None:
+  match = re.match(
+    r"^\s*hand\s*off\s+task\s+([a-z0-9][a-z0-9_-]{1,127})\s+to\s+([a-z0-9][a-z0-9_-]{1,63})\s+status\s+([a-z_]{2,64})\s*:\s*(.+?)\s*$",
+    normalize_text(text),
+    flags=re.IGNORECASE,
+  )
+  if not match:
+    return None
+  return {
+    "taskId": match.group(1).strip(),
+    "to": match.group(2).strip(),
+    "status": match.group(3).strip(),
+    "summary": match.group(4).strip(),
+  }
+
+
+def format_queue_task_line(task: dict) -> str:
+  task_id = normalize_text(task.get("task_id") or task.get("taskId"))
+  status = normalize_text(task.get("status"))
+  title = normalize_text(task.get("title"))
+  owner = normalize_text(task.get("current_owner") or task.get("currentOwner"))
+  parts = [f"[{status or 'unknown'}]", task_id or "unknown-task"]
+  if title:
+    parts.append(f"- {title}")
+  if owner:
+    parts.append(f"(owner: {owner})")
+  return " ".join(parts)
+
+
+def format_queue_list_reply(tasks: list[dict]) -> str:
+  if not tasks:
+    return "You have no queue tasks assigned right now."
+  lines = ["Your queue tasks:"]
+  for task in tasks[:8]:
+    lines.append(f"- {format_queue_task_line(task)}")
+  if len(tasks) > 8:
+    lines.append(f"- ... {len(tasks) - 8} more task(s)")
+  lines.append("")
+  lines.append("Use `show task <task-id>` to inspect one task.")
+  lines.append("Use `hand off task <task-id> to <owner> status <state>: <summary>` to hand one off.")
+  return "\n".join(lines)
+
+
+def format_queue_show_reply(task: dict) -> str:
+  task_id = normalize_text(task.get("task_id") or task.get("taskId"))
+  status = normalize_text(task.get("status"))
+  owner = normalize_text(task.get("current_owner") or task.get("currentOwner"))
+  title = normalize_text(task.get("title"))
+  body = normalize_text(task.get("body"))
+  lines = [
+    f"Task: {task_id or 'unknown'}",
+    f"Status: {status or 'unknown'}",
+    f"Owner: {owner or 'unknown'}",
+  ]
+  if title:
+    lines.append(f"Title: {title}")
+  if body:
+    lines.extend(["", body[:1200]])
+  return "\n".join(lines)
 
 
 def looks_like_nostr_publish_request(text: str) -> bool:
@@ -2597,6 +2774,74 @@ async def inbound_telegram(
       ],
     }
 
+  if queue_runtime_enabled() and looks_like_queue_list_request(text):
+    queue_result = await request_queue_list()
+    tasks = ((queue_result.get("queue") or {}).get("tasks") or [])
+    return {
+      "ok": True,
+      "actions": [
+        {
+          "type": "telegram.sendMessage",
+          "target": {
+            "chatId": chat.get("id"),
+            "replyToMessageId": event.get("messageId"),
+          },
+          "message": {
+            "text": format_queue_list_reply(tasks),
+          },
+        }
+      ],
+    }
+
+  if queue_runtime_enabled():
+    queue_task_id = extract_queue_show_task_id(text)
+    if queue_task_id:
+      queue_result = await request_queue_show(queue_task_id)
+      task = (queue_result.get("queue") or {}).get("task") or {}
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": format_queue_show_reply(task),
+            },
+          }
+        ],
+      }
+
+    handoff_request = extract_queue_handoff_request(text)
+    if handoff_request:
+      queue_result = await request_queue_handoff(
+        handoff_request["taskId"],
+        handoff_request["to"],
+        handoff_request["status"],
+        handoff_request["summary"],
+      )
+      task = (queue_result.get("queue") or {}).get("task") or {}
+      task_id = normalize_text(task.get("task_id") or task.get("taskId") or handoff_request["taskId"])
+      owner = normalize_text(task.get("current_owner") or task.get("currentOwner") or handoff_request["to"])
+      status = normalize_text(task.get("status") or handoff_request["status"])
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Task {task_id} handed off to {owner} with status {status}.",
+            },
+          }
+        ],
+      }
+
   if memory_service_configured() and looks_like_memory_lookup_request(text):
     memory_query = normalize_memory_lookup_query(text)
     memory_result = await request_memory_service(memory_query)
@@ -3167,6 +3412,7 @@ RUNTIME_DISPLAY_NAME = os.getenv("OPENCLAW_PRIVATE_MEMORY_DISPLAY_NAME", "Stacks
 OPENCLAW_PRIVATE_MEMORY_TOKEN = os.getenv("OPENCLAW_PRIVATE_MEMORY_TOKEN", "").strip()
 OPENCLAW_PRIVATE_MEMORY_WRAPPER = os.getenv("OPENCLAW_PRIVATE_MEMORY_WRAPPER", "/usr/local/bin/clawbot-qmd-tenant").strip()
 OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT = os.getenv("OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT", "/opt/clawbot/tenants/tenant_0/memory/observations").strip()
+OPENCLAW_PRIVATE_MEMORY_WORK_QUEUE_TOOL = os.getenv("OPENCLAW_PRIVATE_MEMORY_WORK_QUEUE_TOOL", "/usr/local/bin/clawbot-work-queue").strip()
 
 
 def verify_memory_token(authorization: str | None) -> None:
@@ -3194,6 +3440,27 @@ def wrapper_json(*args: str) -> dict:
     raise HTTPException(status_code=502, detail=f"invalid memory wrapper response: {exc}") from exc
   if not isinstance(payload, dict):
     raise HTTPException(status_code=502, detail="memory wrapper returned non-object payload")
+  return payload
+
+
+def queue_json(*args: str) -> dict:
+  try:
+    result = subprocess.run(
+      [OPENCLAW_PRIVATE_MEMORY_WORK_QUEUE_TOOL, *args],
+      check=True,
+      capture_output=True,
+      text=True,
+    )
+  except subprocess.CalledProcessError as exc:
+    detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"queue tool failed: {detail}") from exc
+
+  try:
+    payload = json.loads(result.stdout)
+  except json.JSONDecodeError as exc:
+    raise HTTPException(status_code=502, detail=f"invalid queue tool response: {exc}") from exc
+  if not isinstance(payload, dict):
+    raise HTTPException(status_code=502, detail="queue tool returned non-object payload")
   return payload
 
 
@@ -3307,6 +3574,88 @@ async def memory_observations_create(
     "ok": True,
     "observation": observation,
   }
+
+
+@app.get("/v1/queue/tasks")
+async def queue_tasks_list(
+  state: str | None = None,
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  args = ["list", TENANT_ID, "--owner", RUNTIME_PUBLIC_ID]
+  if isinstance(state, str) and state.strip():
+    args.extend(["--state", state.strip()])
+  payload = queue_json(*args)
+  return {
+    "ok": True,
+    "queue": {
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "tasks": payload.get("tasks") or [],
+    },
+  }
+
+
+@app.get("/v1/queue/tasks/{task_id}")
+async def queue_task_show(
+  task_id: str,
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  payload = queue_json("show", TENANT_ID, task_id)
+  task = payload.get("task") or {}
+  if str(task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
+    raise HTTPException(status_code=403, detail="task is not currently assigned to this bot")
+  return {
+    "ok": True,
+    "queue": {
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "task": task,
+    },
+  }
+
+
+@app.post("/v1/queue/tasks/{task_id}/handoff")
+async def queue_task_handoff(
+  task_id: str,
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  current = queue_json("show", TENANT_ID, task_id)
+  current_task = current.get("task") or {}
+  if str(current_task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
+    raise HTTPException(status_code=403, detail="task is not currently assigned to this bot")
+
+  payload = await request.json()
+  to_owner = str(payload.get("to") or "").strip()
+  status_text = str(payload.get("status") or "").strip()
+  summary_text = str(payload.get("summary") or "").strip()
+  if not to_owner or not status_text or not summary_text:
+    raise HTTPException(status_code=400, detail="to, status, and summary are required")
+
+  result = queue_json(
+    "handoff",
+    TENANT_ID,
+    task_id,
+    "--to",
+    to_owner,
+    "--status",
+    status_text,
+    "--summary",
+    summary_text,
+    "--from",
+    RUNTIME_PUBLIC_ID,
+  )
+  return {
+    "ok": True,
+    "queue": {
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "task": (result.get("task") or {}),
+    },
+  }
 PY
   chown root:root "${memory_dir}/app.py"
   chmod 700 "${memory_dir}/app.py"
@@ -3361,6 +3710,7 @@ Environment=OPENCLAW_PRIVATE_MEMORY_DISPLAY_NAME=$display_name
 Environment=OPENCLAW_PRIVATE_MEMORY_TOKEN=$memory_token
 Environment=OPENCLAW_PRIVATE_MEMORY_WRAPPER=$OPENCLAW_QMD_WRAPPER
 Environment=OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT=$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR
+Environment=OPENCLAW_PRIVATE_MEMORY_WORK_QUEUE_TOOL=$OPENCLAW_WORK_QUEUE_TOOL
 Restart=always
 RestartSec=2
 
