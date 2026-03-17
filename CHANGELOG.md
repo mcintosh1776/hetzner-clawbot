@@ -21,6 +21,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.57] - 2026-03-17
+
+### Added
+- Added Bob queue control through the existing tenant memory/queue bridge, so the orchestrator can create queue tasks, inspect any task, list the shared tenant queue, and route work between specialists without falling back to the operator CLI.
+
+### Fixed
+- Fixed the orchestrator runtime queue gate so Bob participates in the same live queue path already used by Steve, Jennifer, Inspector Bot, and Sentinel.
+- Fixed the queue bridge baseline to expose task creation to the orchestrator while keeping specialist queue access limited to their existing owner-scoped commands.
+- Fixed the pinned bootstrap runner checksum in [terragrunt.hcl](/home/mcintosh/repos/hetzner-clawbot/live/prod/fsn1/clawbot/terragrunt.hcl) for the Bob queue-control baseline.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept task-creation authority restricted to the orchestrator while preserving owner-scoped queue reads and handoffs for non-orchestrator specialists.
+
+### Changed
+- Changed the shared tenant queue from a specialist-only handoff surface into an orchestrated workflow surface that Bob can actively manage.
+
 ## [0.7.56] - 2026-03-17
 
 ### Added
