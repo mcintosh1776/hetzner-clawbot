@@ -1551,7 +1551,11 @@ def memory_service_configured() -> bool:
 
 
 def queue_runtime_enabled() -> bool:
-  return RUNTIME_AGENT_ID in {"engineering", "research", "qa", "security"}
+  return RUNTIME_AGENT_ID in {"orchestrator", "engineering", "research", "qa", "security"}
+
+
+def queue_create_enabled() -> bool:
+  return RUNTIME_AGENT_ID == "orchestrator"
 
 
 async def request_nostr_signer(method: str, path: str, payload: dict | None = None) -> dict:
@@ -1687,6 +1691,40 @@ async def request_queue_list(state_text: str = "") -> dict:
         "/v1/queue/tasks",
         headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
         params={"state": state_text} if state_text else None,
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"queue service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"queue service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid queue service response: {exc}") from exc
+
+
+async def request_queue_create(task_id: str, title_text: str, owner_text: str, status_text: str = "todo") -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"queue service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      response = await client.post(
+        "/v1/queue/tasks",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+        json={
+          "taskId": task_id,
+          "title": title_text,
+          "owner": owner_text,
+          "status": status_text,
+        },
       )
       response.raise_for_status()
   except httpx.HTTPStatusError as exc:
@@ -1969,13 +2007,56 @@ def looks_like_queue_list_request(text: str) -> bool:
   lowered = normalize_text(text).lower()
   phrases = (
     "list my tasks",
+    "list tasks",
     "show my tasks",
+    "show tasks",
     "show my queue",
+    "show queue",
     "list my queue",
+    "list queue",
     "what is in my queue",
     "what's in my queue",
   )
   return contains_any_phrase(lowered, phrases)
+
+
+def slugify_queue_task_id(value: str) -> str:
+  slug = re.sub(r"[^a-z0-9]+", "-", normalize_text(value).lower()).strip("-")
+  slug = re.sub(r"-{2,}", "-", slug)
+  if len(slug) < 3:
+    slug = f"task-{int(time.time())}"
+  return slug[:96]
+
+
+def extract_queue_create_request(text: str) -> dict | None:
+  normalized = normalize_text(text)
+  explicit_match = re.match(
+    r"^\s*create\s+task\s+([a-z0-9][a-z0-9_-]{1,127})\s+for\s+([a-z0-9][a-z0-9_-]{1,63})(?:\s+status\s+([a-z_]{2,64}))?\s*:\s*(.+?)\s*$",
+    normalized,
+    flags=re.IGNORECASE,
+  )
+  if explicit_match:
+    return {
+      "taskId": explicit_match.group(1).strip(),
+      "owner": explicit_match.group(2).strip(),
+      "status": (explicit_match.group(3) or "todo").strip(),
+      "title": explicit_match.group(4).strip(),
+    }
+
+  auto_match = re.match(
+    r"^\s*create\s+task\s+for\s+([a-z0-9][a-z0-9_-]{1,63})(?:\s+status\s+([a-z_]{2,64}))?\s*:\s*(.+?)\s*$",
+    normalized,
+    flags=re.IGNORECASE,
+  )
+  if not auto_match:
+    return None
+  title_text = auto_match.group(3).strip()
+  return {
+    "taskId": f"{auto_match.group(1).strip()}-{slugify_queue_task_id(title_text)}",
+    "owner": auto_match.group(1).strip(),
+    "status": (auto_match.group(2) or "todo").strip(),
+    "title": title_text,
+  }
 
 
 def extract_queue_show_task_id(text: str) -> str:
@@ -2796,6 +2877,36 @@ async def inbound_telegram(
     }
 
   if queue_runtime_enabled():
+    if queue_create_enabled():
+      create_request = extract_queue_create_request(text)
+      if create_request:
+        queue_result = await request_queue_create(
+          create_request["taskId"],
+          create_request["title"],
+          create_request["owner"],
+          create_request["status"],
+        )
+        task = (queue_result.get("queue") or {}).get("task") or {}
+        meta = task.get("meta") or {}
+        task_id = normalize_text(meta.get("task_id") or create_request["taskId"])
+        owner = normalize_text(meta.get("current_owner") or create_request["owner"])
+        status = normalize_text(meta.get("status") or create_request["status"])
+        return {
+          "ok": True,
+          "actions": [
+            {
+              "type": "telegram.sendMessage",
+              "target": {
+                "chatId": chat.get("id"),
+                "replyToMessageId": event.get("messageId"),
+              },
+              "message": {
+                "text": f"Created task {task_id} for {owner} with status {status}.",
+              },
+            }
+          ],
+        }
+
     queue_task_id = extract_queue_show_task_id(text)
     if queue_task_id:
       try:
@@ -3479,6 +3590,10 @@ def queue_json(*args: str) -> dict:
   return payload
 
 
+def queue_is_orchestrator() -> bool:
+  return RUNTIME_PUBLIC_ID == "bob"
+
+
 def slugify(value: str) -> str:
   lowered = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
   return lowered[:48] or "observation"
@@ -3597,7 +3712,9 @@ async def queue_tasks_list(
   authorization: str | None = Header(default=None),
 ):
   verify_memory_token(authorization)
-  args = ["list", TENANT_ID, "--owner", RUNTIME_PUBLIC_ID]
+  args = ["list", TENANT_ID]
+  if not queue_is_orchestrator():
+    args.extend(["--owner", RUNTIME_PUBLIC_ID])
   if isinstance(state, str) and state.strip():
     args.extend(["--state", state.strip()])
   payload = queue_json(*args)
@@ -3620,7 +3737,7 @@ async def queue_task_show(
   payload = queue_json("show", TENANT_ID, task_id)
   task = payload.get("task") or {}
   meta = task.get("meta") or {}
-  if str(meta.get("current_owner") or task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
+  if not queue_is_orchestrator() and str(meta.get("current_owner") or task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
     raise HTTPException(status_code=403, detail="task is not currently assigned to this bot")
   return {
     "ok": True,
@@ -3628,6 +3745,46 @@ async def queue_task_show(
       "tenantId": TENANT_ID,
       "botId": RUNTIME_PUBLIC_ID,
       "task": task,
+    },
+  }
+
+
+@app.post("/v1/queue/tasks")
+async def queue_task_create(
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  if not queue_is_orchestrator():
+    raise HTTPException(status_code=403, detail="task creation is only available to the orchestrator")
+
+  payload = await request.json()
+  task_id = str(payload.get("taskId") or "").strip()
+  title_text = str(payload.get("title") or "").strip()
+  owner_text = str(payload.get("owner") or "").strip()
+  status_text = str(payload.get("status") or "todo").strip()
+  if not task_id or not title_text or not owner_text or not status_text:
+    raise HTTPException(status_code=400, detail="taskId, title, owner, and status are required")
+
+  result = queue_json(
+    "create",
+    TENANT_ID,
+    task_id,
+    "--title",
+    title_text,
+    "--owner",
+    owner_text,
+    "--state",
+    status_text,
+    "--requested-by",
+    "bob",
+  )
+  return {
+    "ok": True,
+    "queue": {
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "task": result.get("task") or {},
     },
   }
 
@@ -3642,7 +3799,7 @@ async def queue_task_handoff(
   current = queue_json("show", TENANT_ID, task_id)
   current_task = current.get("task") or {}
   current_meta = current_task.get("meta") or {}
-  if str(current_meta.get("current_owner") or current_task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
+  if not queue_is_orchestrator() and str(current_meta.get("current_owner") or current_task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
     raise HTTPException(status_code=403, detail="task is not currently assigned to this bot")
 
   payload = await request.json()
