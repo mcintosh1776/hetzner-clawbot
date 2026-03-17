@@ -3767,6 +3767,7 @@ prepare_memory_service_directories() {
 render_memory_service_app() {
   local memory_dir="$1"
   cat >"${memory_dir}/app.py" <<'PY'
+import base64
 import json
 import os
 import re
