@@ -90,12 +90,14 @@ OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR="${OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR:-$O
 OPENCLAW_TENANT_SESSION_MEMORY_DIR="${OPENCLAW_TENANT_SESSION_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/session}"
 OPENCLAW_TENANT_SOURCE_MEMORY_DIR="${OPENCLAW_TENANT_SOURCE_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/sources}"
 OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR="${OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR:-$OPENCLAW_TENANT_SOURCE_MEMORY_DIR/transcripts}"
+OPENCLAW_TENANT_OUTPUTS_DIR="${OPENCLAW_TENANT_OUTPUTS_DIR:-$OPENCLAW_TENANT_BASE_DIR/outputs}"
 OPENCLAW_QMD_WRAPPER="${OPENCLAW_QMD_WRAPPER:-/usr/local/bin/clawbot-qmd-tenant}"
 OPENCLAW_TRANSCRIPT_IMPORTER="${OPENCLAW_TRANSCRIPT_IMPORTER:-/usr/local/bin/clawbot-import-podcast-transcripts}"
 OPENCLAW_OBSERVATION_REVIEW_TOOL="${OPENCLAW_OBSERVATION_REVIEW_TOOL:-/usr/local/bin/clawbot-observation-review}"
 OPENCLAW_MEMORY_REINDEX_TOOL="${OPENCLAW_MEMORY_REINDEX_TOOL:-/usr/local/bin/clawbot-memory-reindex}"
 OPENCLAW_TEMPLATE_LIBRARY_TOOL="${OPENCLAW_TEMPLATE_LIBRARY_TOOL:-/usr/local/bin/clawbot-template-library}"
 OPENCLAW_WORK_QUEUE_TOOL="${OPENCLAW_WORK_QUEUE_TOOL:-/usr/local/bin/clawbot-work-queue}"
+OPENCLAW_WORK_OUTPUT_TOOL="${OPENCLAW_WORK_OUTPUT_TOOL:-/usr/local/bin/clawbot-work-output}"
 OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
 OPENCLAW_QMD_NODE_MAJOR="${OPENCLAW_QMD_NODE_MAJOR:-22}"
 OPENCLAW_PODCAST_RSS_FEED="${OPENCLAW_PODCAST_RSS_FEED:-https://serve.podhome.fm/rss/3d1d205b-b9f7-5253-b09d-df1c8ec4fc25}"
@@ -365,6 +367,7 @@ ensure_agent_secret_stores() {
   for agent_id in "${OPENCLAW_AGENT_SECRET_IDS[@]}"; do
     secret_store="$OPENCLAW_ROOT_SECRETS_DIR/${agent_id}.json"
     python3 - "$secret_store" "$agent_id" <<'PY'
+import base64
 import json
 import secrets
 import sys
@@ -1558,6 +1561,10 @@ def queue_create_enabled() -> bool:
   return RUNTIME_AGENT_ID == "orchestrator"
 
 
+def output_runtime_enabled() -> bool:
+  return memory_service_configured()
+
+
 async def request_nostr_signer(method: str, path: str, payload: dict | None = None) -> dict:
   if not nostr_signer_configured():
     raise HTTPException(status_code=503, detail=f"nostr signer not configured for {RUNTIME_DISPLAY_NAME}")
@@ -1800,6 +1807,91 @@ async def request_queue_handoff(task_id: str, to_owner: str, status_text: str, s
     raise HTTPException(status_code=502, detail=f"invalid queue service response: {exc}") from exc
 
 
+async def request_output_list() -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"output service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      response = await client.get(
+        "/v1/outputs",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"output service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"output service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid output service response: {exc}") from exc
+
+
+async def request_output_show(output_id: str) -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"output service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      response = await client.get(
+        f"/v1/outputs/{output_id}",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"output service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"output service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid output service response: {exc}") from exc
+
+
+async def request_output_write(output_id: str, title_text: str, body_text: str) -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"output service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      response = await client.post(
+        "/v1/outputs",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+        json={"outputId": output_id, "title": title_text, "body": body_text},
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"output service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"output service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid output service response: {exc}") from exc
+
+
 def build_user_message(payload: dict) -> str:
   event = payload.get("event") or {}
   sender = event.get("sender") or {}
@@ -1926,6 +2018,19 @@ def looks_like_meta_agent_conversation(text: str) -> bool:
 
 
 def looks_like_feedback_proposal_request(text: str) -> bool:
+  lowered = normalize_text(text).lower()
+  direct_deliverable_phrases = (
+    "episode package",
+    "show notes",
+    "social post",
+    "promo copy",
+    "draft package",
+    "reply in chat",
+    "send in chat",
+    "output in chat",
+  )
+  if contains_any_phrase(lowered, direct_deliverable_phrases):
+    return False
   return looks_like_meta_agent_conversation(text)
 
 
@@ -2082,6 +2187,73 @@ def extract_queue_handoff_request(text: str) -> dict | None:
     "status": match.group(3).strip(),
     "summary": match.group(4).strip(),
   }
+
+
+def looks_like_output_list_request(text: str) -> bool:
+  lowered = normalize_text(text).lower()
+  phrases = (
+    "list outputs",
+    "list my outputs",
+    "show outputs",
+    "show my outputs",
+  )
+  return contains_any_phrase(lowered, phrases)
+
+
+def extract_output_show_id(text: str) -> str:
+  match = re.match(
+    r"^\s*(?:show|open|read)\s+output\s+([a-z0-9][a-z0-9_-]{1,127})\s*$",
+    normalize_text(text),
+    flags=re.IGNORECASE,
+  )
+  return (match.group(1).strip() if match else "")
+
+
+def humanize_output_title(output_id: str) -> str:
+  title = output_id.replace("_", " ").replace("-", " ").strip()
+  return title.title() if title else "Untitled Output"
+
+
+def extract_output_write_request(text: str) -> dict | None:
+  normalized = normalize_text(text)
+  explicit_match = re.match(
+    r"^\s*(?:save|write|post)\s+output\s+([a-z0-9][a-z0-9_-]{1,127})\s+title\s+(.+?)\s*:\s*(.+?)\s*$",
+    normalized,
+    flags=re.IGNORECASE | re.DOTALL,
+  )
+  if explicit_match:
+    return {
+      "outputId": explicit_match.group(1).strip(),
+      "title": explicit_match.group(2).strip(),
+      "body": explicit_match.group(3).strip(),
+    }
+
+  simple_match = re.match(
+    r"^\s*(?:save|write|post)\s+output\s+([a-z0-9][a-z0-9_-]{1,127})\s*:\s*(.+?)\s*$",
+    normalized,
+    flags=re.IGNORECASE | re.DOTALL,
+  )
+  if not simple_match:
+    return None
+  output_id = simple_match.group(1).strip()
+  return {
+    "outputId": output_id,
+    "title": humanize_output_title(output_id),
+    "body": simple_match.group(2).strip(),
+  }
+
+
+def format_output_list_reply(items: list[dict]) -> str:
+  if not items:
+    return "No saved outputs."
+  lines = ["Saved outputs:"]
+  for item in items[:12]:
+    output_id = normalize_text(item.get("output_id"))
+    title = normalize_text(item.get("title"))
+    lines.append(f"- {output_id} - {title}" if title else f"- {output_id}")
+  lines.append("")
+  lines.append("Use `show output <output-id>` to open one output.")
+  return "\n".join(lines)
 
 
 def format_queue_task_line(task: dict) -> str:
@@ -2876,6 +3048,80 @@ async def inbound_telegram(
       ],
     }
 
+  if output_runtime_enabled() and looks_like_output_list_request(text):
+    output_result = await request_output_list()
+    items = ((output_result.get("outputs") or {}).get("items") or [])
+    return {
+      "ok": True,
+      "actions": [
+        {
+          "type": "telegram.sendMessage",
+          "target": {
+            "chatId": chat.get("id"),
+            "replyToMessageId": event.get("messageId"),
+          },
+          "message": {
+            "text": format_output_list_reply(items),
+          },
+        }
+      ],
+    }
+
+  if output_runtime_enabled():
+    output_write_request = extract_output_write_request(text)
+    if output_write_request:
+      output_result = await request_output_write(
+        output_write_request["outputId"],
+        output_write_request["title"],
+        output_write_request["body"],
+      )
+      item = (output_result.get("outputs") or {}).get("item") or {}
+      meta = item.get("meta") or {}
+      output_id = normalize_text(meta.get("output_id") or output_write_request["outputId"])
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Saved output {output_id}.",
+            },
+          }
+        ],
+      }
+
+    output_id = extract_output_show_id(text)
+    if output_id:
+      output_result = await request_output_show(output_id)
+      item = (output_result.get("outputs") or {}).get("item") or {}
+      meta = item.get("meta") or {}
+      body_text = normalize_text(item.get("body"))
+      reply_lines = [
+        f"Output: {normalize_text(meta.get('output_id') or output_id)}",
+        f"Title: {normalize_text(meta.get('title') or humanize_output_title(output_id))}",
+      ]
+      if body_text:
+        reply_lines.extend(["", body_text])
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": "\n".join(reply_lines),
+            },
+          }
+        ],
+      }
+
   if queue_runtime_enabled():
     if queue_create_enabled():
       create_request = extract_queue_create_request(text)
@@ -3539,6 +3785,7 @@ OPENCLAW_PRIVATE_MEMORY_TOKEN = os.getenv("OPENCLAW_PRIVATE_MEMORY_TOKEN", "").s
 OPENCLAW_PRIVATE_MEMORY_WRAPPER = os.getenv("OPENCLAW_PRIVATE_MEMORY_WRAPPER", "/usr/local/bin/clawbot-qmd-tenant").strip()
 OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT = os.getenv("OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT", "/opt/clawbot/tenants/tenant_0/memory/observations").strip()
 OPENCLAW_PRIVATE_MEMORY_WORK_QUEUE_TOOL = os.getenv("OPENCLAW_PRIVATE_MEMORY_WORK_QUEUE_TOOL", "/usr/local/bin/clawbot-work-queue").strip()
+OPENCLAW_PRIVATE_MEMORY_OUTPUT_TOOL = os.getenv("OPENCLAW_PRIVATE_MEMORY_OUTPUT_TOOL", "/usr/local/bin/clawbot-work-output").strip()
 
 
 def verify_memory_token(authorization: str | None) -> None:
@@ -3587,6 +3834,27 @@ def queue_json(*args: str) -> dict:
     raise HTTPException(status_code=502, detail=f"invalid queue tool response: {exc}") from exc
   if not isinstance(payload, dict):
     raise HTTPException(status_code=502, detail="queue tool returned non-object payload")
+  return payload
+
+
+def output_json(*args: str) -> dict:
+  try:
+    result = subprocess.run(
+      [OPENCLAW_PRIVATE_MEMORY_OUTPUT_TOOL, *args],
+      check=True,
+      capture_output=True,
+      text=True,
+    )
+  except subprocess.CalledProcessError as exc:
+    detail = exc.stderr.strip() or exc.stdout.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"output tool failed: {detail}") from exc
+
+  try:
+    payload = json.loads(result.stdout)
+  except json.JSONDecodeError as exc:
+    raise HTTPException(status_code=502, detail=f"invalid output tool response: {exc}") from exc
+  if not isinstance(payload, dict):
+    raise HTTPException(status_code=502, detail="output tool returned non-object payload")
   return payload
 
 
@@ -3703,6 +3971,72 @@ async def memory_observations_create(
   return {
     "ok": True,
     "observation": observation,
+  }
+
+
+@app.get("/v1/outputs")
+async def outputs_list(
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  payload = output_json("list", TENANT_ID, RUNTIME_PUBLIC_ID)
+  return {
+    "ok": True,
+    "outputs": {
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "items": payload.get("items") or [],
+    },
+  }
+
+
+@app.get("/v1/outputs/{output_id}")
+async def outputs_show(
+  output_id: str,
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  payload = output_json("show", TENANT_ID, RUNTIME_PUBLIC_ID, output_id)
+  return {
+    "ok": True,
+    "outputs": {
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "item": payload.get("item") or {},
+    },
+  }
+
+
+@app.post("/v1/outputs")
+async def outputs_write(
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  payload = await request.json()
+  output_id = str(payload.get("outputId") or "").strip()
+  title_text = str(payload.get("title") or "").strip()
+  body_text = str(payload.get("body") or "")
+  if not output_id or not title_text or not body_text.strip():
+    raise HTTPException(status_code=400, detail="outputId, title, and body are required")
+  encoded = base64.b64encode(body_text.encode("utf-8")).decode("ascii")
+  result = output_json(
+    "write",
+    TENANT_ID,
+    RUNTIME_PUBLIC_ID,
+    output_id,
+    "--title",
+    title_text,
+    "--body-base64",
+    encoded,
+  )
+  return {
+    "ok": True,
+    "outputs": {
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "item": result.get("item") or {},
+    },
   }
 
 
@@ -3885,6 +4219,7 @@ Environment=OPENCLAW_PRIVATE_MEMORY_TOKEN=$memory_token
 Environment=OPENCLAW_PRIVATE_MEMORY_WRAPPER=$OPENCLAW_QMD_WRAPPER
 Environment=OPENCLAW_PRIVATE_MEMORY_OBSERVATIONS_ROOT=$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR
 Environment=OPENCLAW_PRIVATE_MEMORY_WORK_QUEUE_TOOL=$OPENCLAW_WORK_QUEUE_TOOL
+Environment=OPENCLAW_PRIVATE_MEMORY_OUTPUT_TOOL=$OPENCLAW_WORK_OUTPUT_TOOL
 Restart=always
 RestartSec=2
 
@@ -4336,6 +4671,13 @@ configure_tenant_memory_roots() {
     "$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR/shared" \
     "$OPENCLAW_TENANT_OBSERVATION_MEMORY_DIR/bots" \
     "$OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR" \
+    "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/bob" \
+    "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/stacks" \
+    "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/jennifer" \
+    "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/steve" \
+    "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/number5" \
+    "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/qa" \
+    "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/security" \
     "$OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR" \
     "$OPENCLAW_TENANT_SESSION_MEMORY_DIR"
 
@@ -7808,6 +8150,197 @@ EOF
   chmod 0755 "$OPENCLAW_WORK_QUEUE_TOOL"
 }
 
+write_work_output_tool() {
+  cat >"$OPENCLAW_WORK_OUTPUT_TOOL" <<'EOF'
+#!/usr/bin/env node
+
+const fs = require("node:fs");
+const path = require("node:path");
+
+function usage() {
+  console.error(
+    [
+      "usage:",
+      "  clawbot-work-output list <tenant-id> <bot-id>",
+      "  clawbot-work-output show <tenant-id> <bot-id> <output-id>",
+      "  clawbot-work-output write <tenant-id> <bot-id> <output-id> --title <title> --body-base64 <base64>",
+    ].join("\n"),
+  );
+}
+
+function tenantRoot(tenantId) {
+  return path.join("/opt/clawbot/tenants", tenantId);
+}
+
+function outputsRoot(tenantId) {
+  return path.join(tenantRoot(tenantId), "outputs", "bots");
+}
+
+function botRoot(tenantId, botId) {
+  return path.join(outputsRoot(tenantId), botId);
+}
+
+function outputPath(tenantId, botId, outputId) {
+  return path.join(botRoot(tenantId, botId), `${outputId}.md`);
+}
+
+function nowIso() {
+  return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function parseArgs(args) {
+  const opts = {};
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === "--title") {
+      opts.title = String(args[i + 1] || "").trim();
+      i += 1;
+      continue;
+    }
+    if (args[i] === "--body-base64") {
+      opts.bodyBase64 = String(args[i + 1] || "").trim();
+      i += 1;
+    }
+  }
+  return opts;
+}
+
+function parseFrontmatter(raw) {
+  const match = raw.match(/^---\n([\s\S]*?)\n---\n?/);
+  const meta = {};
+  let body = raw;
+  if (match) {
+    for (const line of match[1].split("\n")) {
+      const idx = line.indexOf(":");
+      if (idx === -1) continue;
+      const key = line.slice(0, idx).trim();
+      const value = line.slice(idx + 1).trim();
+      meta[key] = value;
+    }
+    body = raw.slice(match[0].length);
+  }
+  return { meta, body };
+}
+
+function commandList(tenantId, botId) {
+  const root = botRoot(tenantId, botId);
+  fs.mkdirSync(root, { recursive: true });
+  const items = fs.readdirSync(root)
+    .filter((name) => name.endsWith(".md"))
+    .sort()
+    .map((name) => {
+      const fullPath = path.join(root, name);
+      const parsed = parseFrontmatter(fs.readFileSync(fullPath, "utf8"));
+      return {
+        output_id: parsed.meta.output_id || name.replace(/\.md$/, ""),
+        title: parsed.meta.title || "",
+        bot_id: parsed.meta.bot_id || botId,
+        tenant_id: parsed.meta.tenant_id || tenantId,
+        created_at: parsed.meta.created_at || "",
+        updated_at: parsed.meta.updated_at || "",
+        path: fullPath,
+      };
+    });
+  console.log(JSON.stringify({ ok: true, items }, null, 2));
+}
+
+function commandShow(tenantId, botId, outputId) {
+  const fullPath = outputPath(tenantId, botId, outputId);
+  if (!fs.existsSync(fullPath)) {
+    throw new Error("output not found: " + outputId);
+  }
+  const parsed = parseFrontmatter(fs.readFileSync(fullPath, "utf8"));
+  console.log(JSON.stringify({
+    ok: true,
+    item: {
+      path: fullPath,
+      meta: {
+        output_id: parsed.meta.output_id || outputId,
+        title: parsed.meta.title || "",
+        bot_id: parsed.meta.bot_id || botId,
+        tenant_id: parsed.meta.tenant_id || tenantId,
+        created_at: parsed.meta.created_at || "",
+        updated_at: parsed.meta.updated_at || "",
+        format: parsed.meta.format || "markdown",
+      },
+      body: parsed.body,
+    },
+  }, null, 2));
+}
+
+function commandWrite(tenantId, botId, outputId, args) {
+  const opts = parseArgs(args);
+  if (!opts.title || !opts.bodyBase64) {
+    usage();
+    process.exit(1);
+  }
+  const root = botRoot(tenantId, botId);
+  fs.mkdirSync(root, { recursive: true });
+  const fullPath = outputPath(tenantId, botId, outputId);
+  const now = nowIso();
+  let createdAt = now;
+  if (fs.existsSync(fullPath)) {
+    const parsed = parseFrontmatter(fs.readFileSync(fullPath, "utf8"));
+    createdAt = parsed.meta.created_at || now;
+  }
+  const body = Buffer.from(opts.bodyBase64, "base64").toString("utf8").trimEnd() + "\n";
+  const payload = [
+    "---",
+    `output_id: ${outputId}`,
+    `tenant_id: ${tenantId}`,
+    `bot_id: ${botId}`,
+    `title: ${opts.title.replace(/\n+/g, " ").trim()}`,
+    "format: markdown",
+    `created_at: ${createdAt}`,
+    `updated_at: ${now}`,
+    "---",
+    body,
+  ].join("\n");
+  fs.writeFileSync(fullPath, payload, "utf8");
+  commandShow(tenantId, botId, outputId);
+}
+
+function main() {
+  const [, , command, ...args] = process.argv;
+  if (command === "list") {
+    if (args.length < 2) {
+      usage();
+      process.exit(1);
+    }
+    commandList(args[0], args[1]);
+    return;
+  }
+  if (command === "show") {
+    if (args.length < 3) {
+      usage();
+      process.exit(1);
+    }
+    commandShow(args[0], args[1], args[2]);
+    return;
+  }
+  if (command === "write") {
+    if (args.length < 3) {
+      usage();
+      process.exit(1);
+    }
+    commandWrite(args[0], args[1], args[2], args.slice(3));
+    return;
+  }
+  usage();
+  process.exit(1);
+}
+
+try {
+  main();
+} catch (error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(detail);
+  process.exit(1);
+}
+EOF
+
+  chmod 0755 "$OPENCLAW_WORK_OUTPUT_TOOL"
+}
+
 install_qmd_cli() {
   ensure_qmd_node_runtime
   npm install -g "$OPENCLAW_QMD_NPM_PACKAGE"
@@ -7818,6 +8351,7 @@ install_qmd_cli() {
   write_memory_reindex_tool
   write_template_library_tool
   write_work_queue_tool
+  write_work_output_tool
 }
 
 configure_ufw() {
@@ -8097,6 +8631,38 @@ EOF
   sed -i '1{$s/^\xEF\xBB\xBF//; /^$/d;}' /usr/local/bin/openclaw-ctl
 
   chmod 0755 /usr/local/bin/openclaw-ctl
+}
+
+ensure_deliverable_mode_guidance() {
+  local orchestrator_file="$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md"
+  local stacks_file="$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md"
+
+  if [[ -f "$orchestrator_file" ]] && ! grep -Fq "## Deliverable mode" "$orchestrator_file"; then
+    cat >>"$orchestrator_file" <<'EOF'
+
+## Deliverable mode
+
+- Default operational work to queue tasks and tenant-local outputs under `/opt/clawbot/tenants/<tenant>/outputs/`.
+- For content, drafts, episode packages, and other human-consumption artifacts, prefer direct chat output or saved tenant outputs.
+- Do not default to repo proposals, PRs, skills, framework docs, or config changes unless the operator explicitly asks for a repo or process change.
+- If an episode package or other artifact is requested, route the task and keep the work product out of `SKILLS/` by default.
+EOF
+  fi
+
+  if [[ -f "$stacks_file" ]] && ! grep -Fq "## Deliverable mode" "$stacks_file"; then
+    cat >>"$stacks_file" <<'EOF'
+
+## Deliverable mode
+
+- For episode packages, show notes, social drafts, promo copy, and other human-consumption artifacts, default to direct deliverable output.
+- If the operator wants a saved artifact, write it to the tenant outputs area instead of proposing a repo change.
+- Do not create repo proposals, PRs, new skills, or framework docs unless the operator explicitly asks for repo or process changes.
+- Treat `SKILLS/` as reusable guidance, not the default home for one-off episode deliverables.
+EOF
+  fi
+
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$orchestrator_file" "$stacks_file" 2>/dev/null || true
+  chmod 640 "$orchestrator_file" "$stacks_file" 2>/dev/null || true
 }
 
 build_openclaw_image_as_openclaw() {
@@ -8430,6 +8996,8 @@ EOF
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md"
 fi
+
+run_step "Ensure deliverable-mode guidance" ensure_deliverable_mode_guidance
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" ]]; then
   if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/specialists/stacks.md" "$OPENCLAW_STACKS_TEMPLATE_B64"; then
