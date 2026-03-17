@@ -21,6 +21,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.58] - 2026-03-17
+
+### Added
+- Added a tenant-local work-output store under `/opt/clawbot/tenants/<tenant>/outputs/bots/<bot-id>/` for human-consumption artifacts such as episode packages, show notes drafts, social drafts, and promo copy.
+- Added the `clawbot-work-output` host CLI for listing, reading, and writing tenant-local bot outputs outside the repo and agent config trees.
+- Added runtime output commands over the existing memory-service bridge:
+  - `list outputs`
+  - `show output <output-id>`
+  - `save output <output-id>: <body>`
+  - `save output <output-id> title <title>: <body>`
+
+### Fixed
+- Fixed the work-output memory-service write path by importing `base64` in the rendered memory-service app used to persist markdown outputs.
+- Fixed proposal-trigger behavior for direct deliverable requests so phrases like `episode package`, `show notes`, `social post`, `promo copy`, and `reply in chat` no longer default to proposal mode.
+- Fixed the pinned bootstrap runner checksum in [terragrunt.hcl](/home/mcintosh/repos/hetzner-clawbot/live/prod/fsn1/clawbot/terragrunt.hcl) for the validated work-output baseline.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept work outputs tenant-local and bot-scoped by filesystem path rather than storing them in shared repo/config locations.
+
+### Changed
+- Changed Bob and Stacks toward deliverable mode by giving them a tenant-local artifact home for normal work products instead of forcing repo proposals for routine operational outputs.
+
 ## [0.7.57] - 2026-03-17
 
 ### Added
