@@ -21,6 +21,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.59] - 2026-03-17
+
+### Added
+- Added richer Bob task-packet support so orchestrator-created queue tasks can carry structured objective, constraints, artifacts, verify steps, and notes instead of placeholder `TODO` sections.
+- Added multiline queue-task parsing in Bob’s runtime for task-creation requests using fields like `Title:`, `Objective:`, `Constraints:`, `Artifacts:`, `Verify:`, and `Notes:`.
+
+### Fixed
+- Fixed the queue bridge so orchestrator-created tasks can pass a full task body through the existing memory-service queue path instead of collapsing everything into the task title.
+- Fixed the queue CLI baseline to accept custom task bodies via `--body-base64` for structured task creation.
+- Fixed the pinned bootstrap runner checksum in [terragrunt.hcl](/home/mcintosh/repos/hetzner-clawbot/live/prod/fsn1/clawbot/terragrunt.hcl) for the validated richer-task baseline.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept richer task creation scoped to Bob’s orchestrator path; specialists still consume the shared queue without gaining broad task-creation authority.
+
+### Changed
+- Changed Bob task creation from thin queue stubs into usable work packets that can carry source-material expectations and deliverable contracts for specialists.
+
 ## [0.7.58] - 2026-03-17
 
 ### Added
