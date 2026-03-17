@@ -21,6 +21,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.54] - 2026-03-17
+
+### Added
+- Added tenant-queue access for `Steve` and `Jennifer` through their existing private runtime path, so they can list their assigned tasks and inspect individual task handoffs without a separate queue system.
+
+### Fixed
+- Fixed the `show task <task-id>` runtime path for `Steve` and `Jennifer` by repairing queue-task metadata handling in the private runtime and memory-service queue bridge.
+- Fixed bootstrap secret-store provisioning so `qa.json` and `security.json` are created under `/opt/clawbot-root/secrets/` during rebuilds instead of being left missing.
+- Fixed the private runtime queue parser by restoring the missing `re` import used by `extract_queue_show_task_id()`.
+- Fixed the pinned bootstrap runner checksum in [terragrunt.hcl](/home/mcintosh/repos/hetzner-clawbot/live/prod/fsn1/clawbot/terragrunt.hcl) so rebuilds fetch the current runner successfully.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept Steve/Jennifer queue access scoped to the existing tenant queue and limited task inspection to items currently assigned to the requesting bot.
+
+### Changed
+- Changed specialist queue participation from a documentation-only plan into a live runtime capability for `Steve` and `Jennifer`, while keeping one shared tenant queue instead of introducing per-bot queues.
+
 ## [0.7.53] - 2026-03-16
 
 ### Added

@@ -1394,6 +1394,7 @@ render_private_runtime_app() {
   cat >"${runtime_dir}/app.py" <<'PY'
 import json
 import os
+import re
 import time
 from pathlib import Path
 
