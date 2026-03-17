@@ -65,7 +65,7 @@ OPENCLAW_AGENT_SECRET_PROVIDER="${OPENCLAW_AGENT_SECRET_PROVIDER:-/usr/local/bin
 OPENCLAW_AGENT_SECRET_SUDOERS="${OPENCLAW_AGENT_SECRET_SUDOERS:-/etc/sudoers.d/openclaw-agent-secret-provider}"
 OPENCLAW_OPERATOR_TELEGRAM_USER_ID="${OPENCLAW_OPERATOR_TELEGRAM_USER_ID:-}"
 OPENCLAW_TENANT_ID="${OPENCLAW_TENANT_ID:-tenant_0}"
-OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business)
+OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business qa security)
 OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS=(stacks jennifer)
 OPENCLAW_PROPOSAL_PUBLIC_IDS=(bob stacks jennifer steve number5)
 OPENCLAW_MEMORY_PUBLIC_IDS=(bob stacks jennifer steve number5)
@@ -552,7 +552,7 @@ sync_private_agent_pack_avatars() {
   local repo_dir="$1"
   local agent_id
 
-  for agent_id in orchestrator podcast_media research engineering business; do
+  for agent_id in orchestrator podcast_media research engineering business qa security; do
     sync_private_agent_pack_avatar "$repo_dir" "$agent_id"
   done
 }
@@ -2030,10 +2030,11 @@ def format_queue_list_reply(tasks: list[dict]) -> str:
 
 
 def format_queue_show_reply(task: dict) -> str:
-  task_id = normalize_text(task.get("task_id") or task.get("taskId"))
-  status = normalize_text(task.get("status"))
-  owner = normalize_text(task.get("current_owner") or task.get("currentOwner"))
-  title = normalize_text(task.get("title"))
+  meta = task.get("meta") or {}
+  task_id = normalize_text((meta.get("task_id") or task.get("task_id") or task.get("taskId")))
+  status = normalize_text(meta.get("status") or task.get("status"))
+  owner = normalize_text(meta.get("current_owner") or task.get("current_owner") or task.get("currentOwner"))
+  title = normalize_text(meta.get("title") or task.get("title"))
   body = normalize_text(task.get("body"))
   lines = [
     f"Task: {task_id or 'unknown'}",
@@ -2796,8 +2797,21 @@ async def inbound_telegram(
   if queue_runtime_enabled():
     queue_task_id = extract_queue_show_task_id(text)
     if queue_task_id:
-      queue_result = await request_queue_show(queue_task_id)
-      task = (queue_result.get("queue") or {}).get("task") or {}
+      try:
+        queue_result = await request_queue_show(queue_task_id)
+        task = (queue_result.get("queue") or {}).get("task") or {}
+        meta = task.get("meta") or {}
+        reply_lines = [
+          f"Task: {normalize_text(meta.get('task_id') or queue_task_id)}",
+          f"Status: {normalize_text(meta.get('status') or task.get('state') or 'unknown')}",
+          f"Owner: {normalize_text(meta.get('current_owner') or 'unknown')}",
+        ]
+        title_text = normalize_text(meta.get("title"))
+        if title_text:
+          reply_lines.append(f"Title: {title_text}")
+        reply_text = "\n".join(reply_lines)
+      except Exception as exc:
+        reply_text = f"Queue show failed: {type(exc).__name__}: {exc}"
       return {
         "ok": True,
         "actions": [
@@ -2808,7 +2822,7 @@ async def inbound_telegram(
               "replyToMessageId": event.get("messageId"),
             },
             "message": {
-              "text": format_queue_show_reply(task),
+              "text": reply_text,
             },
           }
         ],
@@ -3604,7 +3618,8 @@ async def queue_task_show(
   verify_memory_token(authorization)
   payload = queue_json("show", TENANT_ID, task_id)
   task = payload.get("task") or {}
-  if str(task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
+  meta = task.get("meta") or {}
+  if str(meta.get("current_owner") or task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
     raise HTTPException(status_code=403, detail="task is not currently assigned to this bot")
   return {
     "ok": True,
