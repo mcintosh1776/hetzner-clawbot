@@ -1712,7 +1712,7 @@ async def request_queue_list(state_text: str = "") -> dict:
     raise HTTPException(status_code=502, detail=f"invalid queue service response: {exc}") from exc
 
 
-async def request_queue_create(task_id: str, title_text: str, owner_text: str, status_text: str = "todo") -> dict:
+async def request_queue_create(task_id: str, title_text: str, owner_text: str, status_text: str = "todo", body_text: str = "") -> dict:
   if not memory_service_configured():
     raise HTTPException(status_code=503, detail=f"queue service not configured for {RUNTIME_DISPLAY_NAME}")
 
@@ -1731,6 +1731,7 @@ async def request_queue_create(task_id: str, title_text: str, owner_text: str, s
           "title": title_text,
           "owner": owner_text,
           "status": status_text,
+          "body": body_text,
         },
       )
       response.raise_for_status()
@@ -2133,6 +2134,83 @@ def slugify_queue_task_id(value: str) -> str:
   return slug[:96]
 
 
+def format_task_section_lines(raw_value: str, fallback: str = "- TODO") -> list[str]:
+  value = normalize_text(raw_value)
+  if not value:
+    return [fallback]
+  parts = [item.strip() for item in re.split(r"[|;]", value) if item.strip()]
+  if not parts:
+    return [fallback]
+  return [f"- {item}" for item in parts]
+
+
+def build_task_body_from_fields(fields: dict) -> str:
+  objective = normalize_text(fields.get("objective") or fields.get("title"))
+  constraints = format_task_section_lines(str(fields.get("constraints") or ""))
+  artifacts = format_task_section_lines(str(fields.get("artifacts") or ""))
+  verify = format_task_section_lines(str(fields.get("verify") or ""))
+  notes_value = normalize_text(fields.get("notes") or "")
+  notes = format_task_section_lines(notes_value, "- TODO") if notes_value else ["- TODO"]
+  return "\n".join([
+    "## Objective",
+    "",
+    objective or "TODO",
+    "",
+    "## Constraints",
+    "",
+    *constraints,
+    "",
+    "## Artifacts",
+    "",
+    *artifacts,
+    "",
+    "## Verify",
+    "",
+    *verify,
+    "",
+    "## Notes",
+    "",
+    *notes,
+  ])
+
+
+def parse_task_packet(raw_value: str, default_title: str = "") -> dict:
+  normalized = normalize_text(raw_value)
+  lines = [line.strip() for line in normalized.splitlines() if line.strip()]
+  fields = {
+    "title": default_title,
+    "objective": "",
+    "constraints": "",
+    "artifacts": "",
+    "verify": "",
+    "notes": "",
+  }
+  unlabeled: list[str] = []
+  for line in lines:
+    matched = False
+    for key in ("title", "objective", "constraints", "artifacts", "verify", "notes"):
+      prefix = f"{key}:"
+      if line.lower().startswith(prefix):
+        fields[key] = line[len(prefix):].strip()
+        matched = True
+        break
+    if not matched:
+      unlabeled.append(line)
+
+  if not fields["title"] and unlabeled:
+    fields["title"] = unlabeled.pop(0)
+  if not fields["objective"]:
+    fields["objective"] = fields["title"] or default_title
+  if unlabeled:
+    extra_notes = " | ".join(unlabeled)
+    fields["notes"] = f"{fields['notes']} | {extra_notes}".strip(" |") if fields["notes"] else extra_notes
+
+  return {
+    "title": normalize_text(fields["title"]) or default_title,
+    "body": build_task_body_from_fields(fields),
+  }
+
+
 def extract_queue_create_request(text: str) -> dict | None:
   normalized = normalize_text(text)
   explicit_match = re.match(
@@ -2141,26 +2219,30 @@ def extract_queue_create_request(text: str) -> dict | None:
     flags=re.IGNORECASE,
   )
   if explicit_match:
+    packet = parse_task_packet(explicit_match.group(4).strip())
     return {
       "taskId": explicit_match.group(1).strip(),
       "owner": explicit_match.group(2).strip(),
       "status": (explicit_match.group(3) or "todo").strip(),
-      "title": explicit_match.group(4).strip(),
+      "title": packet["title"] or explicit_match.group(4).strip(),
+      "body": packet["body"],
     }
 
   auto_match = re.match(
-    r"^\s*create\s+task\s+for\s+([a-z0-9][a-z0-9_-]{1,63})(?:\s+status\s+([a-z_]{2,64}))?\s*:\s*(.+?)\s*$",
+    r"^\s*create\s+task\s+for\s+([a-z0-9][a-z0-9_-]{1,63})(?:\s+status\s+([a-z_]{2,64}))?\s*:?\s*(.+?)\s*$",
     normalized,
-    flags=re.IGNORECASE,
+    flags=re.IGNORECASE | re.DOTALL,
   )
   if not auto_match:
     return None
-  title_text = auto_match.group(3).strip()
+  packet = parse_task_packet(auto_match.group(3).strip())
+  title_text = packet["title"] or auto_match.group(3).strip()
   return {
     "taskId": f"{auto_match.group(1).strip()}-{slugify_queue_task_id(title_text)}",
     "owner": auto_match.group(1).strip(),
     "status": (auto_match.group(2) or "todo").strip(),
     "title": title_text,
+    "body": packet["body"],
   }
 
 
@@ -3131,6 +3213,7 @@ async def inbound_telegram(
           create_request["title"],
           create_request["owner"],
           create_request["status"],
+          create_request.get("body") or "",
         )
         task = (queue_result.get("queue") or {}).get("task") or {}
         meta = task.get("meta") or {}
@@ -4098,6 +4181,7 @@ async def queue_task_create(
   title_text = str(payload.get("title") or "").strip()
   owner_text = str(payload.get("owner") or "").strip()
   status_text = str(payload.get("status") or "todo").strip()
+  body_text = str(payload.get("body") or "").strip()
   if not task_id or not title_text or not owner_text or not status_text:
     raise HTTPException(status_code=400, detail="taskId, title, owner, and status are required")
 
@@ -4113,6 +4197,8 @@ async def queue_task_create(
     status_text,
     "--requested-by",
     "bob",
+    "--body-base64",
+    base64.b64encode((body_text or "").encode("utf-8")).decode("ascii"),
   )
   return {
     "ok": True,
@@ -7693,7 +7779,7 @@ function usage() {
       "usage:",
       "  clawbot-work-queue list <tenant-id> [--state <state>] [--owner <bot-id>]",
       "  clawbot-work-queue show <tenant-id> <task-id>",
-      "  clawbot-work-queue create <tenant-id> <task-id> --title <title> --owner <bot-id> [--requested-by <actor>] [--priority <level>] [--category <kind>] [--state <state>]",
+      "  clawbot-work-queue create <tenant-id> <task-id> --title <title> --owner <bot-id> [--requested-by <actor>] [--priority <level>] [--category <kind>] [--state <state>] [--body-base64 <base64>]",
       "  clawbot-work-queue move <tenant-id> <task-id> <state> [--owner <bot-id>]",
       "  clawbot-work-queue handoff <tenant-id> <task-id> --to <bot-id> --status <state> --summary <text> [--from <bot-id>]",
     ].join("\n"),
@@ -7981,7 +8067,11 @@ function commandCreate(tenantId, taskId, args) {
     requires_operator_approval: false,
   };
 
-  writeTask(target, meta, defaultBody(title));
+  const customBody = String(flags["body-base64"] || "").trim();
+  const body = customBody
+    ? Buffer.from(customBody, "base64").toString("utf8").trimEnd() + "\n"
+    : defaultBody(title);
+  writeTask(target, meta, body);
   console.log(JSON.stringify({ ok: true, tenantId, task_id: taskId, path: target }, null, 2));
 }
 
