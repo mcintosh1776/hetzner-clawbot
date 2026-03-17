@@ -91,6 +91,8 @@ OPENCLAW_TENANT_SESSION_MEMORY_DIR="${OPENCLAW_TENANT_SESSION_MEMORY_DIR:-$OPENC
 OPENCLAW_TENANT_SOURCE_MEMORY_DIR="${OPENCLAW_TENANT_SOURCE_MEMORY_DIR:-$OPENCLAW_TENANT_MEMORY_DIR/sources}"
 OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR="${OPENCLAW_TENANT_TRANSCRIPT_SOURCE_DIR:-$OPENCLAW_TENANT_SOURCE_MEMORY_DIR/transcripts}"
 OPENCLAW_TENANT_OUTPUTS_DIR="${OPENCLAW_TENANT_OUTPUTS_DIR:-$OPENCLAW_TENANT_BASE_DIR/outputs}"
+OPENCLAW_TENANT_CONFIG_DIR="${OPENCLAW_TENANT_CONFIG_DIR:-$OPENCLAW_TENANT_BASE_DIR/config}"
+OPENCLAW_TENANT_TEMPLATES_DIR="${OPENCLAW_TENANT_TEMPLATES_DIR:-$OPENCLAW_TENANT_CONFIG_DIR/templates}"
 OPENCLAW_QMD_WRAPPER="${OPENCLAW_QMD_WRAPPER:-/usr/local/bin/clawbot-qmd-tenant}"
 OPENCLAW_TRANSCRIPT_IMPORTER="${OPENCLAW_TRANSCRIPT_IMPORTER:-/usr/local/bin/clawbot-import-podcast-transcripts}"
 OPENCLAW_OBSERVATION_REVIEW_TOOL="${OPENCLAW_OBSERVATION_REVIEW_TOOL:-/usr/local/bin/clawbot-observation-review}"
@@ -4744,9 +4746,19 @@ seed_canonical_memory_file() {
   cat >"$target_path"
 }
 
+seed_tenant_template_file() {
+  local target_path="$1"
+  shift
+  if [[ -e "$target_path" ]]; then
+    return 0
+  fi
+  cat >"$target_path"
+}
+
 configure_tenant_memory_roots() {
   local shared_dir="$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR/shared"
   local bots_dir="$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR/bots"
+  local templates_dir="$OPENCLAW_TENANT_TEMPLATES_DIR"
 
   install -d -m 0750 -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" \
     "$shared_dir" \
@@ -4765,8 +4777,56 @@ configure_tenant_memory_roots() {
     "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/number5" \
     "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/qa" \
     "$OPENCLAW_TENANT_OUTPUTS_DIR/bots/security" \
+    "$templates_dir" \
     "$OPENCLAW_TENANT_RETRIEVAL_MEMORY_DIR" \
     "$OPENCLAW_TENANT_SESSION_MEMORY_DIR"
+
+  seed_tenant_template_file "$templates_dir/episode-package-template.md" <<'EOF'
+# Satoshi's Plebs - Episode {{episode_number}} Package
+
+## Title
+{{title}}
+
+## Subtitle
+{{subtitle}}
+
+## Episode Thesis
+{{episode_thesis}}
+
+## Episode Summary
+{{episode_summary}}
+
+## Show Notes Draft
+{{show_notes_draft}}
+
+## Run of Show
+### Cold Open & Framing
+{{cold_open}}
+
+### Main Segment 1
+{{segment_1}}
+
+### Main Segment 2
+{{segment_2}}
+
+### Main Segment 3
+{{segment_3}}
+
+### Close
+{{close}}
+
+## Question of the Week
+{{question_of_the_week}}
+
+## Social Post Draft
+{{social_post_draft}}
+
+## Promo Copy
+{{promo_copy}}
+
+## Open Questions / Missing Inputs
+{{open_questions}}
+EOF
 
   seed_canonical_memory_file "$shared_dir/shared-brand-voice-001.md" <<'EOF'
 ---
@@ -8734,6 +8794,7 @@ ensure_deliverable_mode_guidance() {
 ## Deliverable mode
 
 - Default operational work to queue tasks and tenant-local outputs under `/opt/clawbot/tenants/<tenant>/outputs/`.
+- Use the reusable episode package template at `/opt/clawbot/tenants/<tenant>/config/templates/episode-package-template.md` when coordinating episode-package work.
 - For content, drafts, episode packages, and other human-consumption artifacts, prefer direct chat output or saved tenant outputs.
 - Do not default to repo proposals, PRs, skills, framework docs, or config changes unless the operator explicitly asks for a repo or process change.
 - If an episode package or other artifact is requested, route the task and keep the work product out of `SKILLS/` by default.
@@ -8746,6 +8807,7 @@ EOF
 ## Deliverable mode
 
 - For episode packages, show notes, social drafts, promo copy, and other human-consumption artifacts, default to direct deliverable output.
+- Use `/opt/clawbot/tenants/<tenant>/config/templates/episode-package-template.md` as the default structure for episode-package work unless the operator says otherwise.
 - If the operator wants a saved artifact, write it to the tenant outputs area instead of proposing a repo change.
 - Do not create repo proposals, PRs, new skills, or framework docs unless the operator explicitly asks for repo or process changes.
 - Treat `SKILLS/` as reusable guidance, not the default home for one-off episode deliverables.
