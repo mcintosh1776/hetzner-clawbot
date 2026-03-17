@@ -21,6 +21,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.56] - 2026-03-17
+
+### Added
+- Added shared-tenant queue access for `Inspector Bot` (`qa`) and `Sentinel` (`security`) through their existing private runtime path, so both specialists can list assigned tasks, inspect individual tasks, and hand tasks back through the live queue.
+
+### Fixed
+- Fixed baseline memory-service wiring so `qa` and `security` receive the same queue-bridge capability that the specialist runtime commands depend on after a rebuild.
+- Fixed the pinned bootstrap runner checksum in [terragrunt.hcl](/home/mcintosh/repos/hetzner-clawbot/live/prod/fsn1/clawbot/terragrunt.hcl) for the current runner baseline used to provision the QA/Security queue extension.
+
+### Removed
+- _None yet._
+
+### Security
+- Kept QA and security queue actions scoped to tasks currently assigned to those specialists; neither bot gained broader queue mutation authority.
+
+### Changed
+- Changed `Inspector Bot` and `Sentinel` from live Telegram-only runtimes into queue-participating specialists on the shared tenant work queue.
+
 ## [0.7.55] - 2026-03-17
 
 ### Added
