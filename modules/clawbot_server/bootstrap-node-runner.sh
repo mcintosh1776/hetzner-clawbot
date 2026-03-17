@@ -68,7 +68,7 @@ OPENCLAW_TENANT_ID="${OPENCLAW_TENANT_ID:-tenant_0}"
 OPENCLAW_AGENT_SECRET_IDS=(orchestrator podcast_media research engineering business qa security)
 OPENCLAW_NOSTR_SIGNER_PUBLIC_IDS=(stacks jennifer)
 OPENCLAW_PROPOSAL_PUBLIC_IDS=(bob stacks jennifer steve number5)
-OPENCLAW_MEMORY_PUBLIC_IDS=(bob stacks jennifer steve number5)
+OPENCLAW_MEMORY_PUBLIC_IDS=(bob stacks jennifer steve number5 qa security)
 OPENCLAW_AGENT_CONFIG_DIR="${OPENCLAW_AGENT_CONFIG_DIR:-/opt/clawbot/config/agent-config}"
 OPENCLAW_LLM_SECRETS_FILE="/opt/clawbot/config/secrets/llm.env"
 OPENCLAW_TELEGRAM_SECRETS_FILE="/opt/clawbot/config/secrets/telegram.env"
@@ -1551,7 +1551,7 @@ def memory_service_configured() -> bool:
 
 
 def queue_runtime_enabled() -> bool:
-  return RUNTIME_AGENT_ID in {"engineering", "research"}
+  return RUNTIME_AGENT_ID in {"engineering", "research", "qa", "security"}
 
 
 async def request_nostr_signer(method: str, path: str, payload: dict | None = None) -> dict:
