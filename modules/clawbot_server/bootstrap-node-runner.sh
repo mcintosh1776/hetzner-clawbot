@@ -105,7 +105,7 @@ OPENCLAW_MEMORY_SOCKET_BASE_DIR="${OPENCLAW_MEMORY_SOCKET_BASE_DIR:-$OPENCLAW_TE
 OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR_LEGACY:-/opt/clawbot/state/private-runtimes}"
 OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR="${OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR:-$OPENCLAW_TENANT_BOTS_STATE_DIR}"
 OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT="${OPENCLAW_PRIVATE_RUNTIME_MODEL_DEFAULT:-$OPENCLAW_STACKS_RUNTIME_MODEL}"
-OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
+OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5 qa security)
 OPENCLAW_PRIVATE_RUNTIME_IMAGE="${OPENCLAW_PRIVATE_RUNTIME_IMAGE:-localhost/clawbot-private-runtime:local}"
 OPENCLAW_PRIVATE_RUNTIME_CONTAINERFILE="${OPENCLAW_PRIVATE_RUNTIME_BASE_DIR}/Containerfile"
 OPENCLAW_TENANT_REPOS_DIR="${OPENCLAW_TENANT_REPOS_DIR:-$OPENCLAW_TENANT_BASE_DIR/repos}"
@@ -125,10 +125,10 @@ OPENCLAW_LETSENCRYPT_EMAIL="${OPENCLAW_LETSENCRYPT_EMAIL:-}"
 OPENCLAW_ENABLE_WEBHOOK_PROXY="${OPENCLAW_ENABLE_WEBHOOK_PROXY:-false}"
 OPENCLAW_ENABLE_WEBHOOK_PROXY="$(normalize_bool "$OPENCLAW_ENABLE_WEBHOOK_PROXY")"
 OPENCLAW_WEBHOOK_RECEIVER_PORT="${OPENCLAW_WEBHOOK_RECEIVER_PORT:-9000}"
-OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV="${OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV:-bob,stacks,jennifer,steve,number5}"
+OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV="${OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV:-bob,stacks,jennifer,steve,number5,qa,security}"
 IFS=',' read -r -a OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS <<<"$OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS_CSV"
 if [[ "${#OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS[@]}" -eq 0 ]]; then
-  OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5)
+  OPENCLAW_PRIVATE_RUNTIME_PUBLIC_IDS=(bob stacks jennifer steve number5 qa security)
 fi
 
 BOOTSTRAP_MARKER="${BOOTSTRAP_MARKER:-}"
@@ -885,7 +885,7 @@ import httpx
 
 app = FastAPI()
 
-ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks"}
+ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks", "qa", "security"}
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
 OPENCLAW_WEBHOOK_TARGETS = {
   "bob": "http://127.0.0.1:18920/v1/inbound/telegram",
@@ -893,6 +893,8 @@ OPENCLAW_WEBHOOK_TARGETS = {
   "jennifer": "http://127.0.0.1:18922/v1/inbound/telegram",
   "steve": "http://127.0.0.1:18923/v1/inbound/telegram",
   "number5": "http://127.0.0.1:18924/v1/inbound/telegram",
+  "qa": "http://127.0.0.1:18925/v1/inbound/telegram",
+  "security": "http://127.0.0.1:18926/v1/inbound/telegram",
 }
 OPENCLAW_AGENT_SECRET_PROVIDER = os.getenv("OPENCLAW_AGENT_SECRET_PROVIDER", "/usr/local/bin/openclaw-agent-secret-provider")
 RUNTIME_AGENT_BY_PUBLIC_AGENT = {
@@ -901,6 +903,8 @@ RUNTIME_AGENT_BY_PUBLIC_AGENT = {
   "jennifer": "research",
   "steve": "engineering",
   "number5": "business",
+  "qa": "qa",
+  "security": "security",
 }
 TELEGRAM_TOKEN_ENV_BY_AGENT = {
   "bob": "TELEGRAM_BOT_TOKEN_BOB",
@@ -908,6 +912,8 @@ TELEGRAM_TOKEN_ENV_BY_AGENT = {
   "steve": "TELEGRAM_BOT_TOKEN_STEVE",
   "number5": "TELEGRAM_BOT_TOKEN_NUMBER5",
   "stacks": "TELEGRAM_BOT_TOKEN_STACKS",
+  "qa": "TELEGRAM_BOT_TOKEN_QA",
+  "security": "TELEGRAM_BOT_TOKEN_SECURITY",
 }
 OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_OPERATOR_TELEGRAM_USER_ID", "").strip()
 PENDING_STATE_BASE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR", "/opt/clawbot/state/private-runtimes").strip()
@@ -1338,6 +1344,8 @@ private_runtime_agent_id() {
     jennifer) echo "research" ;;
     steve) echo "engineering" ;;
     number5) echo "business" ;;
+    qa) echo "qa" ;;
+    security) echo "security" ;;
     *) return 1 ;;
   esac
 }
@@ -1349,6 +1357,8 @@ private_runtime_display_name() {
     jennifer) echo "Jennifer" ;;
     steve) echo "Steve" ;;
     number5) echo "Number 5" ;;
+    qa) echo "Inspector Bot" ;;
+    security) echo "Sentinel" ;;
     *) return 1 ;;
   esac
 }
@@ -1360,6 +1370,8 @@ private_runtime_prompt_file() {
     jennifer) echo "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" ;;
     steve) echo "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" ;;
     number5) echo "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" ;;
+    qa) echo "$OPENCLAW_AGENT_CONFIG_DIR/specialists/qa.md" ;;
+    security) echo "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md" ;;
     *) return 1 ;;
   esac
 }
@@ -1371,6 +1383,8 @@ private_runtime_port() {
     jennifer) echo "18922" ;;
     steve) echo "18923" ;;
     number5) echo "18924" ;;
+    qa) echo "18925" ;;
+    security) echo "18926" ;;
     *) return 1 ;;
   esac
 }
@@ -7813,6 +7827,55 @@ EOF
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md"
 fi
 
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/qa.md" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/qa.md" <<'EOF'
+# Specialist: qa (Inspector Bot)
+
+## Mission
+Review implementation work with a findings-first mindset.
+Catch regressions, missing checks, weak assumptions, and quality gaps before approval.
+
+## Scope
+- Code review
+- Functional verification planning
+- Regression risk review
+- Test-gap identification
+- Findings-first QA handoff responses
+
+## Constraints
+- No deploy authority
+- No publish authority
+- No secret authority
+EOF
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/qa.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/qa.md"
+fi
+
+if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md" ]]; then
+  cat >"$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md" <<'EOF'
+# Specialist: security (Sentinel)
+
+## Mission
+Review systems, configurations, and workflows for avoidable security risk.
+Surface findings clearly, rank them by severity, and recommend the smallest safe fix.
+
+## Scope
+- Permission and authority review
+- Secret-handling review
+- Network exposure review
+- Auth/authz review
+- Dependency and supply-chain review
+- Security-focused configuration review
+
+## Constraints
+- No deploy authority
+- No secret creation or rotation authority
+- No automatic remediation
+EOF
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md"
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md"
+fi
+
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" ]]; then
   if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" "$OPENCLAW_ORCHESTRATOR_POLICY_TEMPLATE_B64"; then
     cat >"$OPENCLAW_AGENT_CONFIG_DIR/orchestrator/policy.md" <<'EOF'
@@ -7969,6 +8032,8 @@ TELEGRAM_BOT_TOKEN_STACKS=...
 TELEGRAM_BOT_TOKEN_JENNIFER=...
 TELEGRAM_BOT_TOKEN_STEVE=...
 TELEGRAM_BOT_TOKEN_NUMBER5=...
+TELEGRAM_BOT_TOKEN_QA=...
+TELEGRAM_BOT_TOKEN_SECURITY=...
 EOF
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_TELEGRAM_SECRETS_FILE"
   chmod 600 "$OPENCLAW_TELEGRAM_SECRETS_FILE"
@@ -7978,8 +8043,8 @@ chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AG
 chmod 750 "$OPENCLAW_AGENT_CONFIG_DIR" "$OPENCLAW_AGENT_CONFIG_DIR/orchestrator" "$OPENCLAW_AGENT_CONFIG_DIR/specialists"
 
 if [[ -f "$BOOTSTRAP_MARKER" ]]; then
-  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" 2>/dev/null || true
-  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" 2>/dev/null || true
+  chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/qa.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md" 2>/dev/null || true
+  chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/podcast_media.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/research.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/engineering.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/business.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/qa.md" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md" 2>/dev/null || true
   run_step "Ensure ufw firewall rules" configure_ufw
   write_openclaw_ctl
   run_step "Configure webhook stack" configure_webhook_stack

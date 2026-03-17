@@ -69,6 +69,16 @@ integrations:
         display_name: Number 5
         token_env: TELEGRAM_BOT_TOKEN_NUMBER5
 
+      qa:
+        agent: qa
+        display_name: Inspector Bot
+        token_env: TELEGRAM_BOT_TOKEN_QA
+
+      security:
+        agent: security
+        display_name: Sentinel
+        token_env: TELEGRAM_BOT_TOKEN_SECURITY
+
 orchestrator:
   # existing keys preserved
   role: generic-orchestrator
@@ -179,3 +189,37 @@ specialists:
       rules:
         - ask for missing input when needed
         - output minimal SOP + next actions
+
+  - name: qa
+    role: quality assurance and findings-first review
+    primary_tasks:
+      - review implementation handoffs
+      - identify regressions and missing checks
+      - produce structured QA findings
+    token: qa
+
+    display_name: Inspector Bot
+    style:
+      tone: direct
+      verbosity: low
+      outputs:
+        - findings
+        - severity
+        - repro_steps
+
+  - name: security
+    role: security review and risk analysis
+    primary_tasks:
+      - review permissions and exposure
+      - identify security findings
+      - recommend smallest safe remediation
+    token: security
+
+    display_name: Sentinel
+    style:
+      tone: direct
+      verbosity: low
+      outputs:
+        - findings
+        - severity
+        - remediation
