@@ -3348,16 +3348,7 @@ async def inbound_telegram(
       try:
         queue_result = await request_queue_show(queue_task_id)
         task = (queue_result.get("queue") or {}).get("task") or {}
-        meta = task.get("meta") or {}
-        reply_lines = [
-          f"Task: {normalize_text(meta.get('task_id') or queue_task_id)}",
-          f"Status: {normalize_text(meta.get('status') or task.get('state') or 'unknown')}",
-          f"Owner: {normalize_text(meta.get('current_owner') or 'unknown')}",
-        ]
-        title_text = normalize_text(meta.get("title"))
-        if title_text:
-          reply_lines.append(f"Title: {title_text}")
-        reply_text = "\n".join(reply_lines)
+        reply_text = format_queue_show_reply(task)
       except Exception as exc:
         reply_text = f"Queue show failed: {type(exc).__name__}: {exc}"
       return {
