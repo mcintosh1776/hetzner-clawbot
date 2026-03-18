@@ -1422,6 +1422,7 @@ OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MEM
 OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_STATE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_DIR", "/runtime-state").strip()
 OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID", "").strip()
+OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE", "/opt/clawbot/tenants/tenant_0/config/templates/episode-package-template.md").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
@@ -1556,7 +1557,7 @@ def memory_service_configured() -> bool:
 
 
 def queue_runtime_enabled() -> bool:
-  return RUNTIME_AGENT_ID in {"orchestrator", "engineering", "research", "qa", "security"}
+  return RUNTIME_AGENT_ID in {"orchestrator", "podcast_media", "engineering", "research", "business", "qa", "security"}
 
 
 def queue_create_enabled() -> bool:
@@ -2331,6 +2332,33 @@ def extract_queue_handoff_request(text: str) -> dict | None:
     "status": match.group(3).strip(),
     "summary": match.group(4).strip(),
   }
+
+
+def extract_episode_template_request(text: str) -> bool:
+  return bool(
+    re.match(
+      r"^\s*(?:show|open|read)\s+(?:the\s+)?episode(?:\s+package)?\s+template\s*$",
+      normalize_text(text),
+      flags=re.IGNORECASE,
+    )
+  )
+
+
+def format_episode_template_reply() -> str:
+  template_path = Path(OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE)
+  if not template_path.exists():
+    return (
+      "Episode package template is not available.\n\n"
+      f"Expected path: {OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE}"
+    )
+  body = template_path.read_text(encoding="utf-8").strip()
+  return "\n".join(
+    [
+      f"Episode template: {template_path}",
+      "",
+      body[:12000],
+    ]
+  )
 
 
 def looks_like_output_list_request(text: str) -> bool:
@@ -3265,6 +3293,23 @@ async def inbound_telegram(
           }
         ],
       }
+
+  if extract_episode_template_request(text):
+    return {
+      "ok": True,
+      "actions": [
+        {
+          "type": "telegram.sendMessage",
+          "target": {
+            "chatId": chat.get("id"),
+            "replyToMessageId": event.get("messageId"),
+          },
+          "message": {
+            "text": format_episode_template_reply(),
+          },
+        }
+      ],
+    }
 
   if queue_runtime_enabled():
     if queue_create_enabled():
@@ -5689,6 +5734,7 @@ Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_ID=diagnostics/testMarker
 Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE=$test_marker
 Environment=OPENCLAW_PRIVATE_RUNTIME_STATE_DIR=/runtime-state
 Environment=OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID=$OPENCLAW_OPERATOR_TELEGRAM_USER_ID
+Environment=OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE=$OPENCLAW_TENANT_TEMPLATES_DIR/episode-package-template.md
 EOF
   if private_nostr_signer_enabled "$public_id"; then
     signer_token="$(read_agent_secret_value "$agent_id" internal signerToken)"
