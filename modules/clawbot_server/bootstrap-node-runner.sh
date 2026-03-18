@@ -5723,6 +5723,7 @@ Notify=no
 
 Volume=$runtime_dir:/app:ro
 Volume=$OPENCLAW_AGENT_CONFIG_DIR:$OPENCLAW_AGENT_CONFIG_DIR:ro
+Volume=$OPENCLAW_TENANT_TEMPLATES_DIR:$OPENCLAW_TENANT_TEMPLATES_DIR:ro
 Volume=$runtime_state_dir:/runtime-state:rw
 EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE
 Environment=OPENCLAW_PRIVATE_RUNTIME_AGENT_ID=$agent_id
