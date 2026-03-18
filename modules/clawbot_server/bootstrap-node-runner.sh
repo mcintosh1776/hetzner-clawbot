@@ -8798,6 +8798,9 @@ ensure_deliverable_mode_guidance() {
 - For content, drafts, episode packages, and other human-consumption artifacts, prefer direct chat output or saved tenant outputs.
 - Do not default to repo proposals, PRs, skills, framework docs, or config changes unless the operator explicitly asks for a repo or process change.
 - If an episode package or other artifact is requested, route the task and keep the work product out of `SKILLS/` by default.
+- For operational coordination requests, create the queue task before replying that work has been assigned or queued.
+- When reporting queue state back to the operator, use the exact canonical `task_id`, `current_owner`, and `status` from the created task. Do not paraphrase or invent a friendlier task id.
+- If you have not actually created the queue task yet, say so directly instead of implying that the work is already queued.
 EOF
   fi
 
