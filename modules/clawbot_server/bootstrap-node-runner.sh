@@ -2387,6 +2387,22 @@ def extract_episode_package_build_request(text: str) -> dict | None:
   }
 
 
+def extract_episode_topic_draft_build_request(text: str) -> dict | None:
+  match = re.match(
+    r"^\s*(?:build|produce|create)\s+(?:the\s+)?episode(?:\s+topic)?\s+draft\s+from\s+task\s+([a-z0-9][a-z0-9_-]{1,127})(?:\s+(?:to|into|as)\s+output\s+([a-z0-9][a-z0-9_-]{1,127}))?\s*$",
+    normalize_text(text),
+    flags=re.IGNORECASE,
+  )
+  if not match:
+    return None
+  task_id = match.group(1).strip()
+  output_id = (match.group(2) or f"{task_id}-draft").strip()
+  return {
+    "taskId": task_id,
+    "outputId": output_id,
+  }
+
+
 def build_episode_package_instruction(task: dict, template_text: str, output_id: str) -> str:
   meta = task.get("meta") or {}
   task_title = normalize_text(meta.get("title") or task.get("title") or "Episode package")
@@ -2404,6 +2420,47 @@ def build_episode_package_instruction(task: dict, template_text: str, output_id:
       "",
       "Template:",
       template_text,
+    ]
+  )
+
+
+def build_episode_topic_draft_instruction(task: dict, output_id: str) -> str:
+  meta = task.get("meta") or {}
+  task_title = normalize_text(meta.get("title") or task.get("title") or "Episode topic draft")
+  task_body = normalize_text(task.get("body"))
+  return "\n".join(
+    [
+      "Produce one complete episode topic draft in markdown.",
+      "This is the early creative draft, not the final production package.",
+      "Focus on the main topic material and return only completed markdown.",
+      "Do not add notes, disclaimers, or commentary outside the markdown.",
+      f"Save target output id: {output_id}",
+      "",
+      f"Task title: {task_title}",
+      "",
+      "Task details:",
+      task_body or "(no task body provided)",
+      "",
+      "Use exactly this structure:",
+      "# Satoshi's Plebs - Episode Topic Draft",
+      "",
+      "## Title",
+      "## Subtitle",
+      "## Episode Thesis",
+      "## Episode Summary",
+      "## Why This Topic Matters Now",
+      "## Run of Show",
+      "### Cold Open & Framing",
+      "### Main Segment 1",
+      "### Main Segment 2",
+      "### Main Segment 3",
+      "### Close",
+      "## Memorable Lines",
+      "## Question of the Week",
+      "## Social Post Draft",
+      "## Open Questions / Missing Inputs",
+      "",
+      "Prefer generating the main topic outline, thesis, summary, and segment framing from the task details even if recurring stats or late-breaking news are not available yet.",
     ]
   )
 
@@ -3357,6 +3414,58 @@ async def inbound_telegram(
         }
       ],
     }
+
+  topic_draft_request = extract_episode_topic_draft_build_request(text)
+  if topic_draft_request and RUNTIME_AGENT_ID == "podcast_media":
+    try:
+      queue_result = await request_queue_show(topic_draft_request["taskId"])
+      task = (queue_result.get("queue") or {}).get("task") or {}
+      generated_body = await generate_reply(
+        payload,
+        extra_instruction=build_episode_topic_draft_instruction(
+          task,
+          topic_draft_request["outputId"],
+        ),
+      )
+      output_result = await request_output_write(
+        topic_draft_request["outputId"],
+        humanize_output_title(topic_draft_request["outputId"]),
+        generated_body,
+      )
+      item = (output_result.get("outputs") or {}).get("item") or {}
+      meta = item.get("meta") or {}
+      output_id = normalize_text(meta.get("output_id") or topic_draft_request["outputId"])
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Saved output {output_id}.",
+            },
+          }
+        ],
+      }
+    except Exception as exc:
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Blocked: {type(exc).__name__}: {exc}",
+            },
+          }
+        ],
+      }
 
   build_request = extract_episode_package_build_request(text)
   if build_request and RUNTIME_AGENT_ID == "podcast_media":
