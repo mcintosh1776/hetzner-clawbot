@@ -2178,6 +2178,33 @@ def build_task_body_from_fields(fields: dict) -> str:
 
 def parse_task_packet(raw_value: str, default_title: str = "") -> dict:
   normalized = normalize_text(raw_value)
+  label_matches = list(
+    re.finditer(
+      r"(?im)\b(title|objective|constraints|artifacts|verify|notes)\s*:\s*",
+      normalized,
+    )
+  )
+  if label_matches:
+    extracted = {
+      "title": default_title,
+      "objective": "",
+      "constraints": "",
+      "artifacts": "",
+      "verify": "",
+      "notes": "",
+    }
+    for index, match in enumerate(label_matches):
+      key = match.group(1).lower()
+      start = match.end()
+      end = label_matches[index + 1].start() if index + 1 < len(label_matches) else len(normalized)
+      extracted[key] = normalize_text(normalized[start:end])
+    if not extracted["objective"]:
+      extracted["objective"] = extracted["title"] or default_title
+    return {
+      "title": normalize_text(extracted["title"]) or default_title,
+      "body": build_task_body_from_fields(extracted),
+    }
+
   lines = [line.strip() for line in normalized.splitlines() if line.strip()]
   fields = {
     "title": default_title,
@@ -2210,6 +2237,39 @@ def parse_task_packet(raw_value: str, default_title: str = "") -> dict:
   return {
     "title": normalize_text(fields["title"]) or default_title,
     "body": build_task_body_from_fields(fields),
+  }
+
+
+def extract_orchestrator_queue_create_request(text: str) -> dict | None:
+  if RUNTIME_AGENT_ID != "orchestrator":
+    return None
+
+  normalized = normalize_text(text)
+  lowered = normalized.lower()
+  if "primary owner:" not in lowered:
+    return None
+  if "create and manage the work" not in lowered and "create a structured queue task" not in lowered:
+    return None
+
+  owner_match = re.search(r"(?im)\bprimary owner\s*:\s*([a-z0-9][a-z0-9_-]{1,63})\b", normalized)
+  if not owner_match:
+    return None
+  owner = owner_match.group(1).strip().lower()
+
+  status_match = re.search(r"(?im)\bstatus\s*:\s*([a-z_]{2,64})\b", normalized)
+  status = (status_match.group(1).strip().lower() if status_match else "todo")
+
+  packet = parse_task_packet(normalized)
+  title_text = normalize_text(packet.get("title") or "")
+  if not title_text:
+    return None
+
+  return {
+    "taskId": f"{owner}-{slugify_queue_task_id(title_text)}",
+    "owner": owner,
+    "status": status,
+    "title": title_text,
+    "body": packet.get("body") or "",
   }
 
 
@@ -3208,7 +3268,7 @@ async def inbound_telegram(
 
   if queue_runtime_enabled():
     if queue_create_enabled():
-      create_request = extract_queue_create_request(text)
+      create_request = extract_queue_create_request(text) or extract_orchestrator_queue_create_request(text)
       if create_request:
         queue_result = await request_queue_create(
           create_request["taskId"],
