@@ -21,6 +21,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.60] - 2026-03-18
+
+### Added
+- Added a Bob-only natural-language queue bridge so structured operator requests with fields like `Primary owner:`, `Title:`, `Objective:`, `Constraints:`, `Artifacts:`, `Verify:`, and `Notes:` can create real queue tasks without exact `create task ...` syntax.
+- Added more flexible labeled-field parsing for task packets so Bob can extract queue-create inputs from structured prose, not just line-perfect command blocks.
+
+### Fixed
+- Fixed the episode-task coordination gap where Bob could honestly refuse to fabricate queue state but still fail to convert a normal operator orchestration request into a real queue write.
+- Fixed the live operator workflow so Bob now creates the canonical queue task and reports the exact `task_id`, owner, and status returned by queue-backed creation.
+
+### Removed
+- _None._
+
+### Security
+- _None._
+
+### Changed
+- Kept Bob’s stricter queue-reporting discipline while extending it with actual natural-language queue creation, so orchestration requests now become real queue state instead of only truthful refusal.
+
 ## [0.7.59] - 2026-03-17
 
 ### Added
