@@ -2361,6 +2361,53 @@ def format_episode_template_reply() -> str:
   )
 
 
+def load_episode_template_text() -> str:
+  template_path = Path(OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE)
+  if not template_path.exists():
+    raise HTTPException(
+      status_code=500,
+      detail=f"episode package template is not available at {OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE}",
+    )
+  return template_path.read_text(encoding="utf-8").strip()
+
+
+def extract_episode_package_build_request(text: str) -> dict | None:
+  match = re.match(
+    r"^\s*(?:build|produce|create)\s+(?:the\s+)?episode(?:\s+package)?\s+from\s+task\s+([a-z0-9][a-z0-9_-]{1,127})(?:\s+(?:to|into|as)\s+output\s+([a-z0-9][a-z0-9_-]{1,127}))?\s*$",
+    normalize_text(text),
+    flags=re.IGNORECASE,
+  )
+  if not match:
+    return None
+  task_id = match.group(1).strip()
+  output_id = (match.group(2) or task_id).strip()
+  return {
+    "taskId": task_id,
+    "outputId": output_id,
+  }
+
+
+def build_episode_package_instruction(task: dict, template_text: str, output_id: str) -> str:
+  meta = task.get("meta") or {}
+  task_title = normalize_text(meta.get("title") or task.get("title") or "Episode package")
+  task_body = normalize_text(task.get("body"))
+  return "\n".join(
+    [
+      "Produce one complete episode package in markdown using the template and task details below.",
+      "Return only the completed markdown body. Do not add notes, disclaimers, or commentary.",
+      f"Save target output id: {output_id}",
+      "",
+      f"Task title: {task_title}",
+      "",
+      "Task details:",
+      task_body or "(no task body provided)",
+      "",
+      "Template:",
+      template_text,
+    ]
+  )
+
+
 def looks_like_output_list_request(text: str) -> bool:
   lowered = normalize_text(text).lower()
   phrases = (
@@ -3310,6 +3357,60 @@ async def inbound_telegram(
         }
       ],
     }
+
+  build_request = extract_episode_package_build_request(text)
+  if build_request and RUNTIME_AGENT_ID == "podcast_media":
+    try:
+      queue_result = await request_queue_show(build_request["taskId"])
+      task = (queue_result.get("queue") or {}).get("task") or {}
+      template_text = load_episode_template_text()
+      generated_body = await generate_reply(
+        payload,
+        extra_instruction=build_episode_package_instruction(
+          task,
+          template_text,
+          build_request["outputId"],
+        ),
+      )
+      output_result = await request_output_write(
+        build_request["outputId"],
+        humanize_output_title(build_request["outputId"]),
+        generated_body,
+      )
+      item = (output_result.get("outputs") or {}).get("item") or {}
+      meta = item.get("meta") or {}
+      output_id = normalize_text(meta.get("output_id") or build_request["outputId"])
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Saved output {output_id}.",
+            },
+          }
+        ],
+      }
+    except Exception as exc:
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Blocked: {type(exc).__name__}: {exc}",
+            },
+          }
+        ],
+      }
 
   if queue_runtime_enabled():
     if queue_create_enabled():
