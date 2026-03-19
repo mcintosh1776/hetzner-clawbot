@@ -2615,34 +2615,39 @@ async def build_refresh_live_snapshot() -> str:
   if not software_repos:
     lines.append("- no approved GitHub repositories configured")
   else:
-    current_group = ""
+    grouped_lines: dict[str, list[str]] = {}
     for repo_entry in software_repos:
       repo = str(repo_entry.get("repo") or "").strip()
       repo_name = str(repo_entry.get("name") or repo or "repo").strip()
       repo_group = str(repo_entry.get("group") or "").strip()
-      if repo_group and repo_group != current_group:
-        current_group = repo_group
-        lines.append(f"- {repo_group}:")
       if not repo:
-        lines.append(f"  - {repo_name}: missing repo identifier")
         continue
       try:
         releases = await fetch_recent_github_releases(repo, days=7, limit=2)
         if releases:
-          lines.append(f"  - {repo_name}:")
+          bucket = grouped_lines.setdefault(repo_group or "other", [])
+          bucket.append(f"- {repo_name}:")
           for release in releases:
             release_line = (
-              f"    - {release.get('tag') or release.get('name')} "
+              f"  - {release.get('tag') or release.get('name')} "
               f"published {release.get('published_at')} — {release.get('url')}"
             )
-            lines.append(release_line)
+            bucket.append(release_line)
             notes = str(release.get("notes") or "").strip()
             if notes:
-              lines.append(f"      notes: {notes}")
-        else:
-          lines.append(f"  - {repo_name}: no releases in the last 7 days")
-      except Exception as exc:
-        lines.append(f"  - {repo_name}: unavailable ({exc})")
+              bucket.append(f"    notes: {notes}")
+      except Exception:
+        continue
+
+    if not grouped_lines:
+      lines.append("- no releases in the last 7 days from the approved watchlist")
+    else:
+      for group_name in ("bitcoin", "nostr", "other"):
+        bucket = grouped_lines.get(group_name) or []
+        if not bucket:
+          continue
+        lines.append(f"- {group_name}:")
+        lines.extend(bucket)
 
   return "\n".join(lines)
 
@@ -5686,9 +5691,25 @@ sections:
           repo: bluewallet/bluewallet
           url: https://github.com/bluewallet/bluewallet
           notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: BTCPay Server
+          repo: btcpayserver/btcpayserver
+          url: https://github.com/btcpayserver/btcpayserver
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Electrs
+          repo: romanz/electrs
+          url: https://github.com/romanz/electrs
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Electrum
+          repo: spesmilo/electrum
+          url: https://github.com/spesmilo/electrum
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
         - name: LND
           repo: lightningnetwork/lnd
           url: https://github.com/lightningnetwork/lnd
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Peach Bitcoin App
+          repo: Peach2Peach/peach-app
+          url: https://github.com/Peach2Peach/peach-app
           notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
         - name: Phoenix Wallet
           repo: ACINQ/phoenix
