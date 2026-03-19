@@ -2382,6 +2382,74 @@ def load_refresh_sources_text() -> str:
   return sources_path.read_text(encoding="utf-8").strip()
 
 
+async def fetch_json_url(url: str) -> dict:
+  async with httpx.AsyncClient(timeout=10) as client:
+    response = await client.get(url)
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+      raise ValueError(f"expected object payload from {url}")
+    return payload
+
+
+async def fetch_text_url(url: str) -> str:
+  async with httpx.AsyncClient(timeout=10) as client:
+    response = await client.get(url)
+    response.raise_for_status()
+    return response.text.strip()
+
+
+async def build_refresh_live_snapshot() -> str:
+  lines = [
+    "Live data snapshot from approved sources:",
+  ]
+
+  try:
+    prices = await fetch_json_url("https://mempool.space/api/v1/prices")
+    usd = prices.get("USD")
+    eur = prices.get("EUR")
+    price_parts = []
+    if usd is not None:
+      price_parts.append(f"USD={usd}")
+    if eur is not None:
+      price_parts.append(f"EUR={eur}")
+    lines.append("- Bitcoin price (mempool.space): " + (", ".join(price_parts) if price_parts else "available but fields missing"))
+  except Exception as exc:
+    lines.append(f"- Bitcoin price (mempool.space): unavailable ({exc})")
+
+  try:
+    fees = await fetch_json_url("https://mempool.space/api/v1/fees/recommended")
+    lines.append(
+      "- Recommended fees (mempool.space): "
+      f"fastest={fees.get('fastestFee')} sat/vB, "
+      f"halfHour={fees.get('halfHourFee')} sat/vB, "
+      f"hour={fees.get('hourFee')} sat/vB, "
+      f"economy={fees.get('economyFee')} sat/vB, "
+      f"minimum={fees.get('minimumFee')} sat/vB"
+    )
+  except Exception as exc:
+    lines.append(f"- Recommended fees (mempool.space): unavailable ({exc})")
+
+  try:
+    mempool = await fetch_json_url("https://mempool.space/api/mempool")
+    lines.append(
+      "- Mempool state (mempool.space): "
+      f"count={mempool.get('count')}, "
+      f"vsize={mempool.get('vsize')}, "
+      f"total_fee={mempool.get('total_fee')}"
+    )
+  except Exception as exc:
+    lines.append(f"- Mempool state (mempool.space): unavailable ({exc})")
+
+  try:
+    tip_height = await fetch_text_url("https://mempool.space/api/blocks/tip/height")
+    lines.append(f"- Chain tip height (mempool.space): {tip_height}")
+  except Exception as exc:
+    lines.append(f"- Chain tip height (mempool.space): unavailable ({exc})")
+
+  return "\n".join(lines)
+
+
 def extract_episode_package_build_request(text: str) -> dict | None:
   match = re.match(
     r"^\s*(?:build|produce|create)\s+(?:the\s+)?episode(?:\s+package)?\s+from\s+task\s+([a-z0-9][a-z0-9_-]{1,127})(?:\s+(?:to|into|as)\s+output\s+([a-z0-9][a-z0-9_-]{1,127}))?\s*$",
@@ -2507,7 +2575,7 @@ def build_episode_topic_draft_instruction(task: dict, output_id: str) -> str:
   )
 
 
-def build_episode_refresh_block_instruction(task: dict, output_id: str) -> str:
+def build_episode_refresh_block_instruction(task: dict, output_id: str, live_snapshot_text: str) -> str:
   meta = task.get("meta") or {}
   task_title = normalize_text(meta.get("title") or task.get("title") or "Episode refresh block")
   task_body = normalize_text(task.get("body"))
@@ -2525,6 +2593,8 @@ def build_episode_refresh_block_instruction(task: dict, output_id: str) -> str:
       "",
       "Task details:",
       task_body or "(no task body provided)",
+      "",
+      live_snapshot_text,
       "",
       "Approved refresh sources (YAML):",
       refresh_sources_text,
@@ -3573,11 +3643,13 @@ async def inbound_telegram(
     try:
       queue_result = await request_queue_show(refresh_block_request["taskId"])
       task = (queue_result.get("queue") or {}).get("task") or {}
+      live_snapshot_text = await build_refresh_live_snapshot()
       generated_body = await generate_reply(
         payload,
         extra_instruction=build_episode_refresh_block_instruction(
           task,
           refresh_block_request["outputId"],
+          live_snapshot_text,
         ),
       )
       output_result = await request_output_write(
