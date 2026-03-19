@@ -1402,6 +1402,7 @@ import os
 import re
 import time
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 from fastapi import FastAPI, Header, HTTPException, Request
 import httpx
@@ -2399,6 +2400,20 @@ async def fetch_text_url(url: str) -> str:
     return response.text.strip()
 
 
+async def fetch_rss_items(url: str, limit: int = 3) -> list[str]:
+  raw = await fetch_text_url(url)
+  root = ET.fromstring(raw)
+  items = []
+  for item in root.findall(".//channel/item"):
+    title = (item.findtext("title") or "").strip()
+    link = (item.findtext("link") or "").strip()
+    if title:
+      items.append(f"{title} — {link}" if link else title)
+    if len(items) >= limit:
+      break
+  return items
+
+
 async def build_refresh_live_snapshot() -> str:
   lines = [
     "Live data snapshot from approved sources:",
@@ -2446,6 +2461,29 @@ async def build_refresh_live_snapshot() -> str:
     lines.append(f"- Chain tip height (mempool.space): {tip_height}")
   except Exception as exc:
     lines.append(f"- Chain tip height (mempool.space): unavailable ({exc})")
+
+  news_feeds = [
+    ("bitcoin_magazine", "https://bitcoinmagazine.com/.rss/full/"),
+    ("coindesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+  ]
+
+  lines.append("")
+  lines.append("Live news snapshot from approved sources:")
+  for source_name, feed_url in news_feeds:
+    try:
+      items = await fetch_rss_items(feed_url, limit=3)
+      if items:
+        lines.append(f"- {source_name}:")
+        for item in items:
+          lines.append(f"  - {item}")
+      else:
+        lines.append(f"- {source_name}: feed returned no items")
+    except Exception as exc:
+      lines.append(f"- {source_name}: unavailable ({exc})")
+
+  lines.append("- atlas21: no feed integrated yet; manual review still required")
+  lines.append("- ap_bitcoin: no feed integrated yet; manual review still required")
+  lines.append("- bitcoin_com_news: no feed integrated yet; manual review still required")
 
   return "\n".join(lines)
 
