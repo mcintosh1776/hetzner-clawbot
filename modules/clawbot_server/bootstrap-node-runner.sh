@@ -1404,6 +1404,7 @@ import time
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from urllib.parse import urlparse
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, Header, HTTPException, Request
 import httpx
@@ -2403,6 +2404,33 @@ def extract_refresh_section_urls(section_name: str) -> list[str]:
   return urls
 
 
+def extract_refresh_github_repos(section_name: str) -> list[dict]:
+  text = load_refresh_sources_text()
+  lines = text.splitlines()
+  in_section = False
+  repos: list[dict] = []
+  current: dict | None = None
+  section_prefix = f"  {section_name}:"
+  for line in lines:
+    if line.startswith("  ") and not line.startswith("    "):
+      in_section = line.strip() == section_prefix.strip()
+      current = None
+      continue
+    if not in_section:
+      continue
+    repo_match = re.match(r"^\s*-\s+name:\s*(\S+)\s*$", line)
+    if repo_match:
+      current = {"name": repo_match.group(1).strip()}
+      repos.append(current)
+      continue
+    if current is None:
+      continue
+    key_match = re.match(r"^\s*(repo|url|notes):\s*(.+?)\s*$", line)
+    if key_match:
+      current[key_match.group(1).strip()] = key_match.group(2).strip()
+  return repos
+
+
 async def fetch_json_url(url: str) -> dict:
   async with httpx.AsyncClient(timeout=10) as client:
     response = await client.get(url)
@@ -2465,6 +2493,43 @@ async def search_brave_news_for_domain(domain: str, limit: int = 3) -> list[str]
     if link:
       parts.append(link)
     items.append(" — ".join(parts))
+  return items
+
+
+async def fetch_recent_github_releases(repo: str, days: int = 7, limit: int = 3) -> list[dict]:
+  async with httpx.AsyncClient(timeout=15, headers={"Accept": "application/vnd.github+json"}) as client:
+    response = await client.get(f"https://api.github.com/repos/{repo}/releases")
+    response.raise_for_status()
+    payload = response.json()
+  if not isinstance(payload, list):
+    return []
+  cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+  items: list[dict] = []
+  for entry in payload:
+    if not isinstance(entry, dict):
+      continue
+    published_at = str(entry.get("published_at") or "").strip()
+    if not published_at:
+      continue
+    try:
+      published_dt = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+    except Exception:
+      continue
+    if published_dt < cutoff:
+      continue
+    body = str(entry.get("body") or "").strip()
+    body = re.sub(r"\s+", " ", body)
+    items.append(
+      {
+        "name": str(entry.get("name") or entry.get("tag_name") or "").strip(),
+        "tag": str(entry.get("tag_name") or "").strip(),
+        "url": str(entry.get("html_url") or "").strip(),
+        "published_at": published_at,
+        "notes": body[:500].strip(),
+      }
+    )
+    if len(items) >= limit:
+      break
   return items
 
 
@@ -2536,6 +2601,36 @@ async def build_refresh_live_snapshot() -> str:
         lines.append(f"- {domain}: no results returned")
     except Exception as exc:
       lines.append(f"- {domain}: unavailable ({exc})")
+
+  software_repos = extract_refresh_github_repos("software_updates")
+  lines.append("")
+  lines.append("Recent software releases from approved repositories (last 7 days):")
+  if not software_repos:
+    lines.append("- no approved GitHub repositories configured")
+  else:
+    for repo_entry in software_repos:
+      repo = str(repo_entry.get("repo") or "").strip()
+      repo_name = str(repo_entry.get("name") or repo or "repo").strip()
+      if not repo:
+        lines.append(f"- {repo_name}: missing repo identifier")
+        continue
+      try:
+        releases = await fetch_recent_github_releases(repo, days=7, limit=2)
+        if releases:
+          lines.append(f"- {repo_name}:")
+          for release in releases:
+            release_line = (
+              f"  - {release.get('tag') or release.get('name')} "
+              f"published {release.get('published_at')} — {release.get('url')}"
+            )
+            lines.append(release_line)
+            notes = str(release.get("notes") or "").strip()
+            if notes:
+              lines.append(f"    notes: {notes}")
+        else:
+          lines.append(f"- {repo_name}: no releases in the last 7 days")
+      except Exception as exc:
+        lines.append(f"- {repo_name}: unavailable ({exc})")
 
   return "\n".join(lines)
 
@@ -2677,6 +2772,8 @@ def build_episode_refresh_block_instruction(task: dict, output_id: str, live_sna
       "Focus on current notes, software updates, network statistics, and any missing inputs needed before recording.",
       "Use only the approved refresh sources listed below unless the operator explicitly expands the source list.",
       "Return only completed markdown.",
+      "For News & Notes, include source name, article URL, and a fuller 2-4 sentence summary for each included item.",
+      "For Software Updates, include release tag/version, release URL, publish date, and a concise note drawn from the release notes when available.",
       f"Save target output id: {output_id}",
       "",
       f"Task title: {task_title}",
@@ -5555,7 +5652,15 @@ sections:
         notes: Not Bitcoin-only. Use only clearly Bitcoin-relevant items.
 
   software_updates:
-    sources: []
+    github_repos:
+      - name: bitcoin_core
+        repo: bitcoin/bitcoin
+        url: https://github.com/bitcoin/bitcoin
+        notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+      - name: alby_hub
+        repo: getAlby/hub
+        url: https://github.com/getAlby/hub
+        notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
 
   bitcoin_price:
     sources:
