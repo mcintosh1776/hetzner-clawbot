@@ -2419,6 +2419,21 @@ def extract_episode_refresh_block_build_request(text: str) -> dict | None:
   }
 
 
+def extract_episode_package_merge_request(text: str) -> dict | None:
+  match = re.match(
+    r"^\s*(?:build|merge|create)\s+(?:the\s+)?final\s+episode\s+package\s+from\s+output\s+([a-z0-9][a-z0-9_-]{1,127})\s+and\s+output\s+([a-z0-9][a-z0-9_-]{1,127})(?:\s+(?:to|into|as)\s+output\s+([a-z0-9][a-z0-9_-]{1,127}))?\s*$",
+    normalize_text(text),
+    flags=re.IGNORECASE,
+  )
+  if not match:
+    return None
+  return {
+    "topicDraftOutputId": match.group(1).strip(),
+    "refreshBlockOutputId": match.group(2).strip(),
+    "outputId": (match.group(3) or "episode-package").strip(),
+  }
+
+
 def build_episode_package_instruction(task: dict, template_text: str, output_id: str) -> str:
   meta = task.get("meta") or {}
   task_title = normalize_text(meta.get("title") or task.get("title") or "Episode package")
@@ -2509,6 +2524,28 @@ def build_episode_refresh_block_instruction(task: dict, output_id: str) -> str:
       "## Open Questions / Missing Inputs",
       "",
       "If live facts are missing from the task details, state that clearly under Open Questions / Missing Inputs instead of inventing them.",
+    ]
+  )
+
+
+def build_episode_package_merge_instruction(topic_draft_body: str, refresh_block_body: str, template_text: str, output_id: str) -> str:
+  return "\n".join(
+    [
+      "Merge the topic draft and refresh block below into one complete episode package in markdown.",
+      "Use the episode package template as the target structure.",
+      "Return only the completed markdown body.",
+      "Keep strong material from the topic draft and incorporate the refresh block into the appropriate recurring sections.",
+      "If the refresh block contains missing data notices, preserve them instead of inventing facts.",
+      f"Save target output id: {output_id}",
+      "",
+      "Episode package template:",
+      template_text,
+      "",
+      "Topic draft:",
+      topic_draft_body.strip() or "(missing topic draft body)",
+      "",
+      "Refresh block:",
+      refresh_block_body.strip() or "(missing refresh block body)",
     ]
   )
 
@@ -3535,6 +3572,67 @@ async def inbound_telegram(
       item = (output_result.get("outputs") or {}).get("item") or {}
       meta = item.get("meta") or {}
       output_id = normalize_text(meta.get("output_id") or refresh_block_request["outputId"])
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Saved output {output_id}.",
+            },
+          }
+        ],
+      }
+    except Exception as exc:
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Blocked: {type(exc).__name__}: {exc}",
+            },
+          }
+        ],
+      }
+
+  merge_request = extract_episode_package_merge_request(text)
+  if merge_request and RUNTIME_AGENT_ID == "orchestrator":
+    try:
+      topic_output_result = await request_output_show(merge_request["topicDraftOutputId"])
+      topic_item = (topic_output_result.get("outputs") or {}).get("item") or {}
+      topic_body = normalize_text(topic_item.get("body"))
+
+      refresh_output_result = await request_output_show(merge_request["refreshBlockOutputId"])
+      refresh_item = (refresh_output_result.get("outputs") or {}).get("item") or {}
+      refresh_body = normalize_text(refresh_item.get("body"))
+
+      template_text = load_episode_template_text()
+      generated_body = await generate_reply(
+        payload,
+        extra_instruction=build_episode_package_merge_instruction(
+          topic_body,
+          refresh_body,
+          template_text,
+          merge_request["outputId"],
+        ),
+      )
+      output_result = await request_output_write(
+        merge_request["outputId"],
+        humanize_output_title(merge_request["outputId"]),
+        generated_body,
+      )
+      item = (output_result.get("outputs") or {}).get("item") or {}
+      meta = item.get("meta") or {}
+      output_id = normalize_text(meta.get("output_id") or merge_request["outputId"])
       return {
         "ok": True,
         "actions": [
