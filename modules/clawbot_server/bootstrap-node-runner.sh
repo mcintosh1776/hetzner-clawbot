@@ -2410,17 +2410,24 @@ def extract_refresh_github_repos(section_name: str) -> list[dict]:
   in_section = False
   repos: list[dict] = []
   current: dict | None = None
+  current_group = ""
   section_prefix = f"  {section_name}:"
   for line in lines:
     if line.startswith("  ") and not line.startswith("    "):
       in_section = line.strip() == section_prefix.strip()
       current = None
+      current_group = ""
       continue
     if not in_section:
       continue
-    repo_match = re.match(r"^\s*-\s+name:\s*(\S+)\s*$", line)
+    group_match = re.match(r"^\s{4}([a-z_]+):\s*$", line)
+    if group_match and group_match.group(1).strip() != "github_repos":
+      current_group = group_match.group(1).strip()
+      current = None
+      continue
+    repo_match = re.match(r"^\s*-\s+name:\s*(.+?)\s*$", line)
     if repo_match:
-      current = {"name": repo_match.group(1).strip()}
+      current = {"name": repo_match.group(1).strip(), "group": current_group}
       repos.append(current)
       continue
     if current is None:
@@ -2608,29 +2615,34 @@ async def build_refresh_live_snapshot() -> str:
   if not software_repos:
     lines.append("- no approved GitHub repositories configured")
   else:
+    current_group = ""
     for repo_entry in software_repos:
       repo = str(repo_entry.get("repo") or "").strip()
       repo_name = str(repo_entry.get("name") or repo or "repo").strip()
+      repo_group = str(repo_entry.get("group") or "").strip()
+      if repo_group and repo_group != current_group:
+        current_group = repo_group
+        lines.append(f"- {repo_group}:")
       if not repo:
-        lines.append(f"- {repo_name}: missing repo identifier")
+        lines.append(f"  - {repo_name}: missing repo identifier")
         continue
       try:
         releases = await fetch_recent_github_releases(repo, days=7, limit=2)
         if releases:
-          lines.append(f"- {repo_name}:")
+          lines.append(f"  - {repo_name}:")
           for release in releases:
             release_line = (
-              f"  - {release.get('tag') or release.get('name')} "
+              f"    - {release.get('tag') or release.get('name')} "
               f"published {release.get('published_at')} — {release.get('url')}"
             )
             lines.append(release_line)
             notes = str(release.get("notes") or "").strip()
             if notes:
-              lines.append(f"    notes: {notes}")
+              lines.append(f"      notes: {notes}")
         else:
-          lines.append(f"- {repo_name}: no releases in the last 7 days")
+          lines.append(f"  - {repo_name}: no releases in the last 7 days")
       except Exception as exc:
-        lines.append(f"- {repo_name}: unavailable ({exc})")
+        lines.append(f"  - {repo_name}: unavailable ({exc})")
 
   return "\n".join(lines)
 
@@ -5652,15 +5664,58 @@ sections:
         notes: Not Bitcoin-only. Use only clearly Bitcoin-relevant items.
 
   software_updates:
-    github_repos:
-      - name: bitcoin_core
-        repo: bitcoin/bitcoin
-        url: https://github.com/bitcoin/bitcoin
-        notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
-      - name: alby_hub
-        repo: getAlby/hub
-        url: https://github.com/getAlby/hub
-        notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+    bitcoin:
+      github_repos:
+        - name: Alby Hub
+          repo: getAlby/hub
+          url: https://github.com/getAlby/hub
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Bisq Network
+          repo: bisq-network/bisq2
+          url: https://github.com/bisq-network/bisq2
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Bitcoin Core
+          repo: bitcoin/bitcoin
+          url: https://github.com/bitcoin/bitcoin
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Bitcoin Safe
+          repo: andreasgriffin/bitcoin-safe
+          url: https://github.com/andreasgriffin/bitcoin-safe
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: BlueWallet
+          repo: bluewallet/bluewallet
+          url: https://github.com/bluewallet/bluewallet
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: LND
+          repo: lightningnetwork/lnd
+          url: https://github.com/lightningnetwork/lnd
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Phoenix Wallet
+          repo: ACINQ/phoenix
+          url: https://github.com/ACINQ/phoenix
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Sparrow Wallet
+          repo: sparrowwallet/sparrow
+          url: https://github.com/sparrowwallet/sparrow
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+    nostr:
+      github_repos:
+        - name: Amethyst
+          repo: vitorpamplona/amethyst
+          url: https://github.com/vitorpamplona/amethyst
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Primal Android App
+          repo: PrimalHQ/primal-android-app
+          url: https://github.com/PrimalHQ/primal-android-app
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: Primal iOS App
+          repo: PrimalHQ/primal-ios-app
+          url: https://github.com/PrimalHQ/primal-ios-app
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
+        - name: White Noise Flutter App
+          repo: marmot-protocol/whitenoise
+          url: https://github.com/marmot-protocol/whitenoise
+          notes: Monitor GitHub releases directly. Include only releases published in the last 7 days.
 
   bitcoin_price:
     sources:
