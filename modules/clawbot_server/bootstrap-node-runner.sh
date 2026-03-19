@@ -1423,6 +1423,7 @@ OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MEMO
 OPENCLAW_PRIVATE_RUNTIME_STATE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_DIR", "/runtime-state").strip()
 OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE", "/opt/clawbot/tenants/tenant_0/config/templates/episode-package-template.md").strip()
+OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE", "/opt/clawbot/tenants/tenant_0/config/templates/episode-refresh-sources.yaml").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
@@ -2371,6 +2372,16 @@ def load_episode_template_text() -> str:
   return template_path.read_text(encoding="utf-8").strip()
 
 
+def load_refresh_sources_text() -> str:
+  sources_path = Path(OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE)
+  if not sources_path.exists():
+    raise HTTPException(
+      status_code=500,
+      detail=f"episode refresh sources are not available at {OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE}",
+    )
+  return sources_path.read_text(encoding="utf-8").strip()
+
+
 def extract_episode_package_build_request(text: str) -> dict | None:
   match = re.match(
     r"^\s*(?:build|produce|create)\s+(?:the\s+)?episode(?:\s+package)?\s+from\s+task\s+([a-z0-9][a-z0-9_-]{1,127})(?:\s+(?:to|into|as)\s+output\s+([a-z0-9][a-z0-9_-]{1,127}))?\s*$",
@@ -2500,11 +2511,13 @@ def build_episode_refresh_block_instruction(task: dict, output_id: str) -> str:
   meta = task.get("meta") or {}
   task_title = normalize_text(meta.get("title") or task.get("title") or "Episode refresh block")
   task_body = normalize_text(task.get("body"))
+  refresh_sources_text = load_refresh_sources_text()
   return "\n".join(
     [
       "Produce one complete episode refresh block in markdown.",
       "This is the Tuesday time-sensitive block, not the full episode package.",
       "Focus on current notes, software updates, network statistics, and any missing inputs needed before recording.",
+      "Use only the approved refresh sources listed below unless the operator explicitly expands the source list.",
       "Return only completed markdown.",
       f"Save target output id: {output_id}",
       "",
@@ -2512,6 +2525,9 @@ def build_episode_refresh_block_instruction(task: dict, output_id: str) -> str:
       "",
       "Task details:",
       task_body or "(no task body provided)",
+      "",
+      "Approved refresh sources (YAML):",
+      refresh_sources_text,
       "",
       "Use exactly this structure:",
       "# Satoshi's Plebs - Episode Refresh Block",
@@ -5342,6 +5358,71 @@ configure_tenant_memory_roots() {
 {{open_questions}}
 EOF
 
+  seed_tenant_template_file "$templates_dir/episode-refresh-sources.yaml" <<'EOF'
+version: 1
+tenant: tenant_0
+policy:
+  mode: allowlist
+  notes:
+    - Use approved sources only unless the operator explicitly expands this list.
+    - Prefer Bitcoin-specific sources where possible.
+    - If a source is broad or not Bitcoin-only, extract only Bitcoin-relevant material.
+
+sections:
+  news_and_notes:
+    sources:
+      - name: atlas21
+        url: https://atlas21.com/
+        scope: bitcoin_relevant_only
+        notes: Bitcoin-focused source.
+      - name: bitcoin_magazine
+        url: https://bitcoinmagazine.com/
+        scope: bitcoin_relevant_only
+        notes: Bitcoin-focused source.
+      - name: bitcoin_com_news
+        url: https://news.bitcoin.com/
+        scope: bitcoin_relevant_only
+        notes: Not all coverage may be useful. Prefer clearly Bitcoin-relevant items only.
+      - name: ap_bitcoin
+        url: https://apnews.com/hub/bitcoin
+        scope: bitcoin_relevant_only
+        notes: Use only Bitcoin-specific items from the AP Bitcoin hub.
+      - name: coindesk
+        url: https://www.coindesk.com/
+        scope: bitcoin_relevant_only
+        notes: Not Bitcoin-only. Use only clearly Bitcoin-relevant items.
+
+  software_updates:
+    sources: []
+
+  bitcoin_price:
+    sources:
+      - name: mempool_space
+        url: https://mempool.space/
+        notes: Acceptable for current Bitcoin price reference if operator does not provide a stricter exchange source.
+      - name: clark_moody
+        url: https://bitcoin.clarkmoody.com/dashboard/
+        notes: Acceptable for current Bitcoin price reference and related dashboard metrics.
+
+  fees_and_mempool:
+    sources:
+      - name: mempool_space
+        url: https://mempool.space/
+        notes: Primary source for mempool state and fee environment.
+      - name: clark_moody
+        url: https://bitcoin.clarkmoody.com/dashboard/
+        notes: Secondary source for mempool and fee confirmation.
+
+  nodes_distribution:
+    sources:
+      - name: mempool_space
+        url: https://mempool.space/
+        notes: Acceptable supplemental network view if needed.
+      - name: clark_moody
+        url: https://bitcoin.clarkmoody.com/dashboard/
+        notes: Supplemental network dashboard source.
+EOF
+
   seed_canonical_memory_file "$shared_dir/shared-brand-voice-001.md" <<'EOF'
 ---
 id: shared-brand-voice-001
@@ -6145,6 +6226,7 @@ Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE=$test_marker
 Environment=OPENCLAW_PRIVATE_RUNTIME_STATE_DIR=/runtime-state
 Environment=OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID=$OPENCLAW_OPERATOR_TELEGRAM_USER_ID
 Environment=OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE=$OPENCLAW_TENANT_TEMPLATES_DIR/episode-package-template.md
+Environment=OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE=$OPENCLAW_TENANT_TEMPLATES_DIR/episode-refresh-sources.yaml
 EOF
   if private_nostr_signer_enabled "$public_id"; then
     signer_token="$(read_agent_secret_value "$agent_id" internal signerToken)"
