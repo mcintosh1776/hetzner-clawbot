@@ -2421,7 +2421,7 @@ def extract_episode_refresh_block_build_request(text: str) -> dict | None:
 
 def extract_episode_package_merge_request(text: str) -> dict | None:
   match = re.match(
-    r"^\s*(?:build|merge|create)\s+(?:the\s+)?final\s+episode\s+package\s+from\s+output\s+([a-z0-9][a-z0-9_-]{1,127})\s+and\s+output\s+([a-z0-9][a-z0-9_-]{1,127})(?:\s+(?:to|into|as)\s+output\s+([a-z0-9][a-z0-9_-]{1,127}))?\s*$",
+    r"^\s*(?:build|merge|create)\s+(?:the\s+)?final\s+episode\s+package\s+from\s+output\s+((?:[a-z0-9][a-z0-9_-]{1,63}/)?[a-z0-9][a-z0-9_-]{1,127})\s+and\s+output\s+((?:[a-z0-9][a-z0-9_-]{1,63}/)?[a-z0-9][a-z0-9_-]{1,127})(?:\s+(?:to|into|as)\s+output\s+([a-z0-9][a-z0-9_-]{1,127}))?\s*$",
     normalize_text(text),
     flags=re.IGNORECASE,
   )
@@ -4580,18 +4580,28 @@ async def outputs_list(
   }
 
 
-@app.get("/v1/outputs/{output_id}")
+@app.get("/v1/outputs/{output_id:path}")
 async def outputs_show(
   output_id: str,
   authorization: str | None = Header(default=None),
 ):
   verify_memory_token(authorization)
-  payload = output_json("show", TENANT_ID, RUNTIME_PUBLIC_ID, output_id)
+  requested_bot_id = RUNTIME_PUBLIC_ID
+  requested_output_id = output_id
+  if "/" in output_id:
+    requested_bot_id, requested_output_id = output_id.split("/", 1)
+    requested_bot_id = requested_bot_id.strip()
+    requested_output_id = requested_output_id.strip()
+    if not requested_bot_id or not requested_output_id:
+      raise HTTPException(status_code=400, detail="invalid output reference")
+    if requested_bot_id != RUNTIME_PUBLIC_ID and not queue_is_orchestrator():
+      raise HTTPException(status_code=403, detail="cross-bot output access is not allowed for this bot")
+  payload = output_json("show", TENANT_ID, requested_bot_id, requested_output_id)
   return {
     "ok": True,
     "outputs": {
       "tenantId": TENANT_ID,
-      "botId": RUNTIME_PUBLIC_ID,
+      "botId": requested_bot_id,
       "item": payload.get("item") or {},
     },
   }
