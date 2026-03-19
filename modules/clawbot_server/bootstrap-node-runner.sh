@@ -2403,6 +2403,22 @@ def extract_episode_topic_draft_build_request(text: str) -> dict | None:
   }
 
 
+def extract_episode_refresh_block_build_request(text: str) -> dict | None:
+  match = re.match(
+    r"^\s*(?:build|produce|create)\s+(?:the\s+)?episode(?:\s+refresh)?\s+block\s+from\s+task\s+([a-z0-9][a-z0-9_-]{1,127})(?:\s+(?:to|into|as)\s+output\s+([a-z0-9][a-z0-9_-]{1,127}))?\s*$",
+    normalize_text(text),
+    flags=re.IGNORECASE,
+  )
+  if not match:
+    return None
+  task_id = match.group(1).strip()
+  output_id = (match.group(2) or f"{task_id}-refresh").strip()
+  return {
+    "taskId": task_id,
+    "outputId": output_id,
+  }
+
+
 def build_episode_package_instruction(task: dict, template_text: str, output_id: str) -> str:
   meta = task.get("meta") or {}
   task_title = normalize_text(meta.get("title") or task.get("title") or "Episode package")
@@ -2461,6 +2477,38 @@ def build_episode_topic_draft_instruction(task: dict, output_id: str) -> str:
       "## Open Questions / Missing Inputs",
       "",
       "Prefer generating the main topic outline, thesis, summary, and segment framing from the task details even if recurring stats or late-breaking news are not available yet.",
+    ]
+  )
+
+
+def build_episode_refresh_block_instruction(task: dict, output_id: str) -> str:
+  meta = task.get("meta") or {}
+  task_title = normalize_text(meta.get("title") or task.get("title") or "Episode refresh block")
+  task_body = normalize_text(task.get("body"))
+  return "\n".join(
+    [
+      "Produce one complete episode refresh block in markdown.",
+      "This is the Tuesday time-sensitive block, not the full episode package.",
+      "Focus on current notes, software updates, network statistics, and any missing inputs needed before recording.",
+      "Return only completed markdown.",
+      f"Save target output id: {output_id}",
+      "",
+      f"Task title: {task_title}",
+      "",
+      "Task details:",
+      task_body or "(no task body provided)",
+      "",
+      "Use exactly this structure:",
+      "# Satoshi's Plebs - Episode Refresh Block",
+      "",
+      "## News & Notes",
+      "## Software Updates",
+      "## Bitcoin Price at Time of Recording",
+      "## Fees and Mempool",
+      "## Nodes Distribution",
+      "## Open Questions / Missing Inputs",
+      "",
+      "If live facts are missing from the task details, state that clearly under Open Questions / Missing Inputs instead of inventing them.",
     ]
   )
 
@@ -3435,6 +3483,58 @@ async def inbound_telegram(
       item = (output_result.get("outputs") or {}).get("item") or {}
       meta = item.get("meta") or {}
       output_id = normalize_text(meta.get("output_id") or topic_draft_request["outputId"])
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Saved output {output_id}.",
+            },
+          }
+        ],
+      }
+    except Exception as exc:
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Blocked: {type(exc).__name__}: {exc}",
+            },
+          }
+        ],
+      }
+
+  refresh_block_request = extract_episode_refresh_block_build_request(text)
+  if refresh_block_request and RUNTIME_AGENT_ID == "research":
+    try:
+      queue_result = await request_queue_show(refresh_block_request["taskId"])
+      task = (queue_result.get("queue") or {}).get("task") or {}
+      generated_body = await generate_reply(
+        payload,
+        extra_instruction=build_episode_refresh_block_instruction(
+          task,
+          refresh_block_request["outputId"],
+        ),
+      )
+      output_result = await request_output_write(
+        refresh_block_request["outputId"],
+        humanize_output_title(refresh_block_request["outputId"]),
+        generated_body,
+      )
+      item = (output_result.get("outputs") or {}).get("item") or {}
+      meta = item.get("meta") or {}
+      output_id = normalize_text(meta.get("output_id") or refresh_block_request["outputId"])
       return {
         "ok": True,
         "actions": [
