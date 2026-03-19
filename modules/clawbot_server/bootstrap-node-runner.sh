@@ -2463,7 +2463,7 @@ async def build_refresh_live_snapshot() -> str:
     lines.append(f"- Chain tip height (mempool.space): unavailable ({exc})")
 
   news_feeds = [
-    ("bitcoin_magazine", "https://bitcoinmagazine.com/.rss/full/"),
+    ("bitcoin_magazine", "https://bitcoinmagazine.com/feed"),
     ("coindesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
   ]
 
