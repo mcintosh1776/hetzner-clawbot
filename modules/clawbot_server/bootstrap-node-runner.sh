@@ -1403,6 +1403,7 @@ import re
 import time
 from pathlib import Path
 import xml.etree.ElementTree as ET
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, Header, HTTPException, Request
 import httpx
@@ -1425,6 +1426,7 @@ OPENCLAW_PRIVATE_RUNTIME_STATE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_D
 OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE", "/opt/clawbot/tenants/tenant_0/config/templates/episode-package-template.md").strip()
 OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE", "/opt/clawbot/tenants/tenant_0/config/templates/episode-refresh-sources.yaml").strip()
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
 OPENROUTER_X_TITLE = os.getenv("OPENROUTER_X_TITLE", "clawbot-private-runtime")
@@ -2383,6 +2385,24 @@ def load_refresh_sources_text() -> str:
   return sources_path.read_text(encoding="utf-8").strip()
 
 
+def extract_refresh_section_urls(section_name: str) -> list[str]:
+  text = load_refresh_sources_text()
+  lines = text.splitlines()
+  in_section = False
+  urls: list[str] = []
+  section_prefix = f"  {section_name}:"
+  for line in lines:
+    if line.startswith("  ") and not line.startswith("    "):
+      in_section = line.strip() == section_prefix.strip()
+      continue
+    if not in_section:
+      continue
+    match = re.match(r"^\s*url:\s*(\S+)\s*$", line)
+    if match:
+      urls.append(match.group(1).strip())
+  return urls
+
+
 async def fetch_json_url(url: str) -> dict:
   async with httpx.AsyncClient(timeout=10) as client:
     response = await client.get(url)
@@ -2411,6 +2431,40 @@ async def fetch_rss_items(url: str, limit: int = 3) -> list[str]:
       items.append(f"{title} — {link}" if link else title)
     if len(items) >= limit:
       break
+  return items
+
+
+async def search_brave_news_for_domain(domain: str, limit: int = 3) -> list[str]:
+  if not BRAVE_API_KEY:
+    raise RuntimeError("BRAVE_API_KEY is not configured")
+  async with httpx.AsyncClient(timeout=15) as client:
+    response = await client.get(
+      "https://api.search.brave.com/res/v1/web/search",
+      headers={"X-Subscription-Token": BRAVE_API_KEY},
+      params={
+        "q": f"bitcoin news site:{domain}",
+        "count": str(limit),
+        "safesearch": "moderate",
+      },
+    )
+    response.raise_for_status()
+    payload = response.json()
+  results = (((payload or {}).get("web") or {}).get("results") or [])
+  items: list[str] = []
+  for result in results[:limit]:
+    if not isinstance(result, dict):
+      continue
+    title = str(result.get("title") or "").strip()
+    link = str(result.get("url") or "").strip()
+    description = str(result.get("description") or "").strip()
+    if not title:
+      continue
+    parts = [title]
+    if description:
+      parts.append(description)
+    if link:
+      parts.append(link)
+    items.append(" — ".join(parts))
   return items
 
 
@@ -2462,28 +2516,26 @@ async def build_refresh_live_snapshot() -> str:
   except Exception as exc:
     lines.append(f"- Chain tip height (mempool.space): unavailable ({exc})")
 
-  news_feeds = [
-    ("bitcoin_magazine", "https://bitcoinmagazine.com/feed"),
-    ("coindesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
-  ]
-
   lines.append("")
   lines.append("Live news snapshot from approved sources:")
-  for source_name, feed_url in news_feeds:
+  approved_news_urls = extract_refresh_section_urls("news_and_notes")
+  for source_url in approved_news_urls:
+    parsed = urlparse(source_url)
+    domain = (parsed.netloc or "").strip().lower()
+    if domain.startswith("www."):
+      domain = domain[4:]
+    if not domain:
+      continue
     try:
-      items = await fetch_rss_items(feed_url, limit=3)
+      items = await search_brave_news_for_domain(domain, limit=3)
       if items:
-        lines.append(f"- {source_name}:")
+        lines.append(f"- {domain}:")
         for item in items:
           lines.append(f"  - {item}")
       else:
-        lines.append(f"- {source_name}: feed returned no items")
+        lines.append(f"- {domain}: no results returned")
     except Exception as exc:
-      lines.append(f"- {source_name}: unavailable ({exc})")
-
-  lines.append("- atlas21: no feed integrated yet; manual review still required")
-  lines.append("- ap_bitcoin: no feed integrated yet; manual review still required")
-  lines.append("- bitcoin_com_news: no feed integrated yet; manual review still required")
+      lines.append(f"- {domain}: unavailable ({exc})")
 
   return "\n".join(lines)
 
