@@ -101,6 +101,7 @@ OPENCLAW_TEMPLATE_LIBRARY_TOOL="${OPENCLAW_TEMPLATE_LIBRARY_TOOL:-/usr/local/bin
 OPENCLAW_WORK_QUEUE_TOOL="${OPENCLAW_WORK_QUEUE_TOOL:-/usr/local/bin/clawbot-work-queue}"
 OPENCLAW_WORK_OUTPUT_TOOL="${OPENCLAW_WORK_OUTPUT_TOOL:-/usr/local/bin/clawbot-work-output}"
 OPENCLAW_EPISODE_SCHEDULE_TOOL="${OPENCLAW_EPISODE_SCHEDULE_TOOL:-/usr/local/bin/clawbot-episode-schedule}"
+OPENCLAW_EPISODE_ARCHIVE_TOOL="${OPENCLAW_EPISODE_ARCHIVE_TOOL:-/usr/local/bin/clawbot-episode-archive}"
 OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
 OPENCLAW_QMD_NODE_MAJOR="${OPENCLAW_QMD_NODE_MAJOR:-22}"
 OPENCLAW_PODCAST_RSS_FEED="${OPENCLAW_PODCAST_RSS_FEED:-https://serve.podhome.fm/rss/3d1d205b-b9f7-5253-b09d-df1c8ec4fc25}"
@@ -5688,6 +5689,156 @@ EOF
   chmod 0755 "$OPENCLAW_EPISODE_SCHEDULE_TOOL"
 }
 
+write_episode_archive_tool() {
+  cat >"$OPENCLAW_EPISODE_ARCHIVE_TOOL" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="${OPENCLAW_EPISODE_ARCHIVE_FILE:-/opt/clawbot/tenants/tenant_0/config/templates/episode-archive.yaml}"
+OUTPUT_ROOT="${OPENCLAW_TENANT_OUTPUTS_DIR:-/opt/clawbot/tenants/tenant_0/outputs/bots}"
+
+read_config_value() {
+  local key="$1"
+  awk -F': ' -v target="$key" '$1 == target {print $2; exit}' "$CONFIG_FILE" | sed 's/^"//; s/"$//'
+}
+
+require_checkout() {
+  local checkout_path="$1"
+  if [[ ! -d "$checkout_path/.git" ]]; then
+    echo "archive checkout missing git repo: ${checkout_path}" >&2
+    exit 1
+  fi
+}
+
+episode_number_from_slug() {
+  local episode_slug="$1"
+  printf '%s' "${episode_slug#ep}"
+}
+
+branch_name_from_slug() {
+  local episode_slug="$1"
+  printf 'episode-%s' "$(episode_number_from_slug "$episode_slug")"
+}
+
+copy_output() {
+  local bot="$1"
+  local output_id="$2"
+  local target_path="$3"
+  local source_path="${OUTPUT_ROOT}/${bot}/${output_id}.md"
+  if [[ ! -f "$source_path" ]]; then
+    echo "missing source output: ${source_path}" >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$target_path")"
+  cp "$source_path" "$target_path"
+}
+
+git_in_checkout() {
+  local checkout_path="$1"
+  shift
+  git -C "$checkout_path" "$@"
+}
+
+ensure_branch() {
+  local checkout_path="$1"
+  local branch_name="$2"
+  require_checkout "$checkout_path"
+  git_in_checkout "$checkout_path" fetch origin >/dev/null 2>&1 || true
+  if git_in_checkout "$checkout_path" show-ref --verify --quiet "refs/heads/${branch_name}"; then
+    git_in_checkout "$checkout_path" checkout "$branch_name" >/dev/null
+    return
+  fi
+  if git_in_checkout "$checkout_path" ls-remote --exit-code --heads origin "$branch_name" >/dev/null 2>&1; then
+    git_in_checkout "$checkout_path" checkout -b "$branch_name" "origin/${branch_name}" >/dev/null
+    return
+  fi
+  git_in_checkout "$checkout_path" checkout -B "$branch_name" origin/main >/dev/null
+}
+
+commit_if_changed() {
+  local checkout_path="$1"
+  local commit_message="$2"
+  if ! git_in_checkout "$checkout_path" diff --quiet -- episodes; then
+    git_in_checkout "$checkout_path" add episodes
+    git_in_checkout "$checkout_path" commit -m "$commit_message" >/dev/null
+    echo "Committed archive update: ${commit_message}"
+  else
+    echo "No archive changes to commit."
+  fi
+}
+
+load_archive_config() {
+  CHECKOUT_PATH="$(read_config_value "checkout_path")"
+  EPISODE_SLUG="$(read_config_value "episode_slug")"
+  TOPIC_OUTPUT_ID="$(read_config_value "topic_output_id")"
+  REFRESH_OUTPUT_ID="$(read_config_value "refresh_output_id")"
+  FINAL_OUTPUT_ID="$(read_config_value "final_output_id")"
+  EPISODE_NUMBER="$(episode_number_from_slug "$EPISODE_SLUG")"
+  BRANCH_NAME="$(branch_name_from_slug "$EPISODE_SLUG")"
+}
+
+run_export() {
+  local checkout_path episode_slug topic_output_id refresh_output_id final_output_id
+  checkout_path="$(read_config_value "checkout_path")"
+  episode_slug="$(read_config_value "episode_slug")"
+  topic_output_id="$(read_config_value "topic_output_id")"
+  refresh_output_id="$(read_config_value "refresh_output_id")"
+  final_output_id="$(read_config_value "final_output_id")"
+
+  if [[ -z "$checkout_path" || -z "$episode_slug" ]]; then
+    echo "archive config missing checkout_path or episode_slug" >&2
+    exit 1
+  fi
+
+  copy_output "stacks" "$topic_output_id" "${checkout_path}/episodes/${episode_slug}/topic-draft.md"
+  copy_output "jennifer" "$refresh_output_id" "${checkout_path}/episodes/${episode_slug}/news-and-statistics.md"
+  copy_output "bob" "$final_output_id" "${checkout_path}/episodes/${episode_slug}/episode-${episode_slug#ep}.md"
+  echo "Exported episode artifacts to ${checkout_path}/episodes/${episode_slug}"
+}
+
+run_branch_init() {
+  load_archive_config
+  ensure_branch "$CHECKOUT_PATH" "$BRANCH_NAME"
+  mkdir -p "${CHECKOUT_PATH}/episodes/${EPISODE_SLUG}"
+  echo "Ready branch ${BRANCH_NAME} in ${CHECKOUT_PATH}"
+}
+
+run_export_topic() {
+  load_archive_config
+  ensure_branch "$CHECKOUT_PATH" "$BRANCH_NAME"
+  copy_output "stacks" "$TOPIC_OUTPUT_ID" "${CHECKOUT_PATH}/episodes/${EPISODE_SLUG}/topic-draft.md"
+  commit_if_changed "$CHECKOUT_PATH" "episode ${EPISODE_NUMBER}: add topic draft"
+}
+
+run_export_refresh() {
+  load_archive_config
+  ensure_branch "$CHECKOUT_PATH" "$BRANCH_NAME"
+  copy_output "jennifer" "$REFRESH_OUTPUT_ID" "${CHECKOUT_PATH}/episodes/${EPISODE_SLUG}/news-and-statistics.md"
+  commit_if_changed "$CHECKOUT_PATH" "episode ${EPISODE_NUMBER}: add news and statistics"
+}
+
+run_export_final() {
+  load_archive_config
+  ensure_branch "$CHECKOUT_PATH" "$BRANCH_NAME"
+  copy_output "bob" "$FINAL_OUTPUT_ID" "${CHECKOUT_PATH}/episodes/${EPISODE_SLUG}/episode-${EPISODE_NUMBER}.md"
+  commit_if_changed "$CHECKOUT_PATH" "episode ${EPISODE_NUMBER}: add final package"
+}
+
+case "${1:-}" in
+  init-branch) run_branch_init ;;
+  export-topic) run_export_topic ;;
+  export-refresh) run_export_refresh ;;
+  export-final) run_export_final ;;
+  export) run_export ;;
+  *)
+    echo "usage: clawbot-episode-archive <init-branch|export-topic|export-refresh|export-final|export>" >&2
+    exit 1
+    ;;
+esac
+EOF
+  chmod 0755 "$OPENCLAW_EPISODE_ARCHIVE_TOOL"
+}
+
 configure_tenant_memory_roots() {
   local shared_dir="$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR/shared"
   local bots_dir="$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR/bots"
@@ -5904,6 +6055,15 @@ refresh_schedule_timezone: Europe/Stockholm
 refresh_schedule_on_calendar: Tue *-*-* 18:00:00
 merge_schedule_timezone: Europe/Stockholm
 merge_schedule_on_calendar: Tue *-*-* 18:10:00
+EOF
+
+  seed_tenant_template_file "$templates_dir/episode-archive.yaml" <<'EOF'
+repo_url: https://github.com/mcintosh1775/satoshis-plebs-podcast
+checkout_path: /opt/clawbot/archive/satoshis-plebs-podcast
+episode_slug: ep249
+topic_output_id: ep249-topic-draft-v2
+refresh_output_id: ep249-refresh-block-v10
+final_output_id: ep249-package-v3
 EOF
 
   seed_canonical_memory_file "$shared_dir/shared-brand-voice-001.md" <<'EOF'
@@ -9937,6 +10097,7 @@ run_step "Configure nostr signer services" configure_nostr_signers
 run_step "Configure memory services" configure_memory_services
 run_step "Configure proposal services" configure_proposal_services
 run_step "Configure episode schedule" configure_episode_schedule
+run_step "Install episode archive tool" write_episode_archive_tool
 run_step "Prepare bootstrap runtime directory" prepare_runtime_config_directory
 ensure_gateway_token
 
