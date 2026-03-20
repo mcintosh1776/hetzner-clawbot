@@ -899,6 +899,8 @@ OPENCLAW_LOG_LEVEL = os.getenv("OPENCLAW_LOG_LEVEL", "INFO").strip().upper() or 
 OPENCLAW_DEBUG_TELEGRAM_RELAY = os.getenv("OPENCLAW_DEBUG_TELEGRAM_RELAY", "").strip().lower() in {"1", "true", "yes", "on"}
 logging.basicConfig(level=getattr(logging, OPENCLAW_LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("openclaw.telegram_webhook")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks", "qa", "security"}
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
