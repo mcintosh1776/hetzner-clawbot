@@ -102,6 +102,8 @@ OPENCLAW_WORK_QUEUE_TOOL="${OPENCLAW_WORK_QUEUE_TOOL:-/usr/local/bin/clawbot-wor
 OPENCLAW_WORK_OUTPUT_TOOL="${OPENCLAW_WORK_OUTPUT_TOOL:-/usr/local/bin/clawbot-work-output}"
 OPENCLAW_EPISODE_SCHEDULE_TOOL="${OPENCLAW_EPISODE_SCHEDULE_TOOL:-/usr/local/bin/clawbot-episode-schedule}"
 OPENCLAW_EPISODE_ARCHIVE_TOOL="${OPENCLAW_EPISODE_ARCHIVE_TOOL:-/usr/local/bin/clawbot-episode-archive}"
+OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR="${OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR:-/opt/clawbot/archive/satoshis-plebs-podcast}"
+OPENCLAW_EPISODE_ARCHIVE_TENANT_ID="${OPENCLAW_EPISODE_ARCHIVE_TENANT_ID:-tenant_0}"
 OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
 OPENCLAW_QMD_NODE_MAJOR="${OPENCLAW_QMD_NODE_MAJOR:-22}"
 OPENCLAW_PODCAST_RSS_FEED="${OPENCLAW_PODCAST_RSS_FEED:-https://serve.podhome.fm/rss/3d1d205b-b9f7-5253-b09d-df1c8ec4fc25}"
@@ -1496,7 +1498,10 @@ OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN = os.getenv("OPENCLAW_PRIVATE_RUNTIME_MEMO
 OPENCLAW_PRIVATE_RUNTIME_STATE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_DIR", "/runtime-state").strip()
 OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID", "").strip()
 OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE", "/opt/clawbot/tenants/tenant_0/config/templates/episode-package-template.md").strip()
-OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE", "/opt/clawbot/tenants/tenant_0/config/templates/episode-refresh-sources.yaml").strip()
+OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE", "/opt/clawbot/archive/satoshis-plebs-podcast/tenants/tenant_0/config/episode-refresh-sources.yaml").strip()
+OPENCLAW_PRIVATE_RUNTIME_NEWS_SOURCES_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_NEWS_SOURCES_FILE", "/opt/clawbot/archive/satoshis-plebs-podcast/tenants/tenant_0/config/news-sources.yaml").strip()
+OPENCLAW_PRIVATE_RUNTIME_SOFTWARE_WATCHLIST_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_SOFTWARE_WATCHLIST_FILE", "/opt/clawbot/archive/satoshis-plebs-podcast/tenants/tenant_0/config/software-watchlist.yaml").strip()
+OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FALLBACK_FILE = os.getenv("OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FALLBACK_FILE", "/opt/clawbot/tenants/tenant_0/config/templates/episode-refresh-sources.yaml").strip()
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY", "").strip()
 OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 OPENROUTER_HTTP_REFERER = os.getenv("OPENROUTER_HTTP_REFERER", "https://agents.satoshis-plebs.com/")
@@ -2449,9 +2454,37 @@ def load_episode_template_text() -> str:
 def load_refresh_sources_text() -> str:
   sources_path = Path(OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE)
   if not sources_path.exists():
+    news_path = Path(OPENCLAW_PRIVATE_RUNTIME_NEWS_SOURCES_FILE)
+    software_path = Path(OPENCLAW_PRIVATE_RUNTIME_SOFTWARE_WATCHLIST_FILE)
+    news_payload = None
+    software_payload = None
+    if news_path.exists():
+      news_payload = yaml.safe_load(news_path.read_text(encoding="utf-8")) or {}
+    if software_path.exists():
+      software_payload = yaml.safe_load(software_path.read_text(encoding="utf-8")) or {}
+    if news_payload or software_payload:
+      combined_sections: dict[str, Any] = {}
+      if isinstance(news_payload, dict):
+        for key in ("news_and_notes", "bitcoin_price", "fees_and_mempool", "nodes_distribution"):
+          if key in news_payload:
+            combined_sections[key] = news_payload[key]
+      if isinstance(software_payload, dict) and "software_updates" in software_payload:
+        combined_sections["software_updates"] = software_payload["software_updates"]
+      if combined_sections:
+        return yaml.safe_dump({"sections": combined_sections}, sort_keys=False).strip()
+    fallback_path = Path(OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FALLBACK_FILE)
+    if fallback_path.exists():
+      sources_path = fallback_path
+  if not sources_path.exists():
     raise HTTPException(
       status_code=500,
-      detail=f"episode refresh sources are not available at {OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE}",
+      detail=(
+        "episode refresh sources are not available at "
+        f"{OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE} "
+        f"or split config files {OPENCLAW_PRIVATE_RUNTIME_NEWS_SOURCES_FILE} "
+        f"and {OPENCLAW_PRIVATE_RUNTIME_SOFTWARE_WATCHLIST_FILE} "
+        f"or fallback {OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FALLBACK_FILE}"
+      ),
     )
   return sources_path.read_text(encoding="utf-8").strip()
 
@@ -5696,6 +5729,7 @@ set -euo pipefail
 
 CONFIG_FILE="${OPENCLAW_EPISODE_ARCHIVE_FILE:-/opt/clawbot/tenants/tenant_0/config/templates/episode-archive.yaml}"
 OUTPUT_ROOT="${OPENCLAW_TENANT_OUTPUTS_DIR:-/opt/clawbot/tenants/tenant_0/outputs/bots}"
+TENANT_ID="${OPENCLAW_EPISODE_ARCHIVE_TENANT_ID:-tenant_0}"
 
 read_config_value() {
   local key="$1"
@@ -5758,8 +5792,8 @@ ensure_branch() {
 commit_if_changed() {
   local checkout_path="$1"
   local commit_message="$2"
-  if ! git_in_checkout "$checkout_path" diff --quiet -- episodes; then
-    git_in_checkout "$checkout_path" add episodes
+  if ! git_in_checkout "$checkout_path" diff --quiet -- tenants; then
+    git_in_checkout "$checkout_path" add tenants
     git_in_checkout "$checkout_path" commit -m "$commit_message" >/dev/null
     echo "Committed archive update: ${commit_message}"
   else
@@ -5769,6 +5803,8 @@ commit_if_changed() {
 
 load_archive_config() {
   CHECKOUT_PATH="$(read_config_value "checkout_path")"
+  TENANT_ID="$(read_config_value "tenant_id")"
+  TENANT_ID="${TENANT_ID:-${OPENCLAW_EPISODE_ARCHIVE_TENANT_ID:-tenant_0}}"
   EPISODE_SLUG="$(read_config_value "episode_slug")"
   TOPIC_OUTPUT_ID="$(read_config_value "topic_output_id")"
   REFRESH_OUTPUT_ID="$(read_config_value "refresh_output_id")"
@@ -5790,37 +5826,37 @@ run_export() {
     exit 1
   fi
 
-  copy_output "stacks" "$topic_output_id" "${checkout_path}/episodes/${episode_slug}/topic-draft.md"
-  copy_output "jennifer" "$refresh_output_id" "${checkout_path}/episodes/${episode_slug}/news-and-statistics.md"
-  copy_output "bob" "$final_output_id" "${checkout_path}/episodes/${episode_slug}/episode-${episode_slug#ep}.md"
-  echo "Exported episode artifacts to ${checkout_path}/episodes/${episode_slug}"
+  copy_output "stacks" "$topic_output_id" "${checkout_path}/tenants/${TENANT_ID}/episodes/${episode_slug}/topic-draft.md"
+  copy_output "jennifer" "$refresh_output_id" "${checkout_path}/tenants/${TENANT_ID}/episodes/${episode_slug}/news-and-statistics.md"
+  copy_output "bob" "$final_output_id" "${checkout_path}/tenants/${TENANT_ID}/episodes/${episode_slug}/episode-${episode_slug#ep}.md"
+  echo "Exported episode artifacts to ${checkout_path}/tenants/${TENANT_ID}/episodes/${episode_slug}"
 }
 
 run_branch_init() {
   load_archive_config
   ensure_branch "$CHECKOUT_PATH" "$BRANCH_NAME"
-  mkdir -p "${CHECKOUT_PATH}/episodes/${EPISODE_SLUG}"
+  mkdir -p "${CHECKOUT_PATH}/tenants/${TENANT_ID}/episodes/${EPISODE_SLUG}"
   echo "Ready branch ${BRANCH_NAME} in ${CHECKOUT_PATH}"
 }
 
 run_export_topic() {
   load_archive_config
   ensure_branch "$CHECKOUT_PATH" "$BRANCH_NAME"
-  copy_output "stacks" "$TOPIC_OUTPUT_ID" "${CHECKOUT_PATH}/episodes/${EPISODE_SLUG}/topic-draft.md"
+  copy_output "stacks" "$TOPIC_OUTPUT_ID" "${CHECKOUT_PATH}/tenants/${TENANT_ID}/episodes/${EPISODE_SLUG}/topic-draft.md"
   commit_if_changed "$CHECKOUT_PATH" "episode ${EPISODE_NUMBER}: add topic draft"
 }
 
 run_export_refresh() {
   load_archive_config
   ensure_branch "$CHECKOUT_PATH" "$BRANCH_NAME"
-  copy_output "jennifer" "$REFRESH_OUTPUT_ID" "${CHECKOUT_PATH}/episodes/${EPISODE_SLUG}/news-and-statistics.md"
+  copy_output "jennifer" "$REFRESH_OUTPUT_ID" "${CHECKOUT_PATH}/tenants/${TENANT_ID}/episodes/${EPISODE_SLUG}/news-and-statistics.md"
   commit_if_changed "$CHECKOUT_PATH" "episode ${EPISODE_NUMBER}: add news and statistics"
 }
 
 run_export_final() {
   load_archive_config
   ensure_branch "$CHECKOUT_PATH" "$BRANCH_NAME"
-  copy_output "bob" "$FINAL_OUTPUT_ID" "${CHECKOUT_PATH}/episodes/${EPISODE_SLUG}/episode-${EPISODE_NUMBER}.md"
+  copy_output "bob" "$FINAL_OUTPUT_ID" "${CHECKOUT_PATH}/tenants/${TENANT_ID}/episodes/${EPISODE_SLUG}/episode-${EPISODE_NUMBER}.md"
   commit_if_changed "$CHECKOUT_PATH" "episode ${EPISODE_NUMBER}: add final package"
 }
 
@@ -6060,6 +6096,7 @@ EOF
   seed_tenant_template_file "$templates_dir/episode-archive.yaml" <<'EOF'
 repo_url: https://github.com/mcintosh1775/satoshis-plebs-podcast
 checkout_path: /opt/clawbot/archive/satoshis-plebs-podcast
+tenant_id: tenant_0
 episode_slug: ep249
 topic_output_id: ep249-topic-draft-v2
 refresh_output_id: ep249-refresh-block-v10
@@ -6857,6 +6894,7 @@ Notify=no
 Volume=$runtime_dir:/app:ro
 Volume=$OPENCLAW_AGENT_CONFIG_DIR:$OPENCLAW_AGENT_CONFIG_DIR:ro
 Volume=$OPENCLAW_TENANT_TEMPLATES_DIR:$OPENCLAW_TENANT_TEMPLATES_DIR:ro
+Volume=$OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR:$OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR:ro
 Volume=$runtime_state_dir:/runtime-state:rw
 EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE
 Environment=OPENCLAW_PRIVATE_RUNTIME_AGENT_ID=$agent_id
@@ -6869,7 +6907,10 @@ Environment=OPENCLAW_PRIVATE_RUNTIME_TEST_SECRET_VALUE=$test_marker
 Environment=OPENCLAW_PRIVATE_RUNTIME_STATE_DIR=/runtime-state
 Environment=OPENCLAW_PRIVATE_RUNTIME_OPERATOR_TELEGRAM_USER_ID=$OPENCLAW_OPERATOR_TELEGRAM_USER_ID
 Environment=OPENCLAW_PRIVATE_RUNTIME_EPISODE_TEMPLATE_FILE=$OPENCLAW_TENANT_TEMPLATES_DIR/episode-package-template.md
-Environment=OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE=$OPENCLAW_TENANT_TEMPLATES_DIR/episode-refresh-sources.yaml
+Environment=OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FILE=$OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR/tenants/$OPENCLAW_EPISODE_ARCHIVE_TENANT_ID/config/episode-refresh-sources.yaml
+Environment=OPENCLAW_PRIVATE_RUNTIME_NEWS_SOURCES_FILE=$OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR/tenants/$OPENCLAW_EPISODE_ARCHIVE_TENANT_ID/config/news-sources.yaml
+Environment=OPENCLAW_PRIVATE_RUNTIME_SOFTWARE_WATCHLIST_FILE=$OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR/tenants/$OPENCLAW_EPISODE_ARCHIVE_TENANT_ID/config/software-watchlist.yaml
+Environment=OPENCLAW_PRIVATE_RUNTIME_REFRESH_SOURCES_FALLBACK_FILE=$OPENCLAW_TENANT_TEMPLATES_DIR/episode-refresh-sources.yaml
 EOF
   if private_nostr_signer_enabled "$public_id"; then
     signer_token="$(read_agent_secret_value "$agent_id" internal signerToken)"
