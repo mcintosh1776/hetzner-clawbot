@@ -1344,6 +1344,35 @@ Environment=OPENCLAW_OPERATOR_TELEGRAM_USER_ID=$OPENCLAW_OPERATOR_TELEGRAM_USER_
 ExecStart=$OPENCLAW_EPISODE_SCHEDULE_TOOL refresh
 EOF
 
+  cat >/etc/systemd/system/clawbot-episode-topic.service <<EOF
+[Unit]
+Description=Clawbot weekly Friday episode topic draft
+After=network-online.target clawbot-stacks-runtime.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=OPENCLAW_EPISODE_SCHEDULE_FILE=$config_file
+Environment=OPENCLAW_EPISODE_ARCHIVE_FILE=$OPENCLAW_TENANT_TEMPLATES_DIR/episode-archive.yaml
+Environment=OPENCLAW_TELEGRAM_SECRETS_FILE=$OPENCLAW_TELEGRAM_SECRETS_FILE
+Environment=OPENCLAW_OPERATOR_TELEGRAM_USER_ID=$OPENCLAW_OPERATOR_TELEGRAM_USER_ID
+ExecStart=$OPENCLAW_EPISODE_SCHEDULE_TOOL topic
+EOF
+
+  cat >/etc/systemd/system/clawbot-episode-topic.timer <<EOF
+[Unit]
+Description=Run Clawbot weekly Friday episode topic draft
+
+[Timer]
+Timezone=UTC
+OnCalendar=Fri *-*-* 11:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
   cat >/etc/systemd/system/clawbot-episode-refresh.timer <<EOF
 [Unit]
 Description=Run Clawbot weekly Tuesday episode refresh
@@ -1387,6 +1416,8 @@ WantedBy=timers.target
 EOF
 
   chmod 0644 /etc/systemd/system/clawbot-episode-refresh.service \
+    /etc/systemd/system/clawbot-episode-topic.service \
+    /etc/systemd/system/clawbot-episode-topic.timer \
     /etc/systemd/system/clawbot-episode-refresh.timer \
     /etc/systemd/system/clawbot-episode-merge.service \
     /etc/systemd/system/clawbot-episode-merge.timer
@@ -1396,6 +1427,7 @@ configure_episode_schedule() {
   write_episode_schedule_tool
   write_episode_schedule_units
   run_step "Reload systemd for episode schedule" systemctl daemon-reload
+  run_step "Enable episode topic timer" systemctl enable --now clawbot-episode-topic.timer
   run_step "Enable episode refresh timer" systemctl enable --now clawbot-episode-refresh.timer
   run_step "Enable episode merge timer" systemctl enable --now clawbot-episode-merge.timer
 }
@@ -6201,6 +6233,8 @@ topic_output_id: ep249-topic-draft-v2
 refresh_task_id: jennifer-episode-249-refresh-block
 refresh_output_id: ep249-refresh-block-v10
 final_output_id: ep249-package-v3
+topic_schedule_timezone: UTC
+topic_schedule_on_calendar: Fri *-*-* 11:00:00
 refresh_schedule_timezone: Europe/Stockholm
 refresh_schedule_on_calendar: Tue *-*-* 18:00:00
 merge_schedule_timezone: Europe/Stockholm
