@@ -1338,6 +1338,9 @@ Wants=network-online.target
 Type=oneshot
 User=root
 Environment=OPENCLAW_EPISODE_SCHEDULE_FILE=$config_file
+Environment=OPENCLAW_EPISODE_ARCHIVE_FILE=$OPENCLAW_TENANT_TEMPLATES_DIR/episode-archive.yaml
+Environment=OPENCLAW_TELEGRAM_SECRETS_FILE=$OPENCLAW_TELEGRAM_SECRETS_FILE
+Environment=OPENCLAW_OPERATOR_TELEGRAM_USER_ID=$OPENCLAW_OPERATOR_TELEGRAM_USER_ID
 ExecStart=$OPENCLAW_EPISODE_SCHEDULE_TOOL refresh
 EOF
 
@@ -1364,6 +1367,9 @@ Wants=network-online.target
 Type=oneshot
 User=root
 Environment=OPENCLAW_EPISODE_SCHEDULE_FILE=$config_file
+Environment=OPENCLAW_EPISODE_ARCHIVE_FILE=$OPENCLAW_TENANT_TEMPLATES_DIR/episode-archive.yaml
+Environment=OPENCLAW_TELEGRAM_SECRETS_FILE=$OPENCLAW_TELEGRAM_SECRETS_FILE
+Environment=OPENCLAW_OPERATOR_TELEGRAM_USER_ID=$OPENCLAW_OPERATOR_TELEGRAM_USER_ID
 ExecStart=$OPENCLAW_EPISODE_SCHEDULE_TOOL merge
 EOF
 
@@ -5670,6 +5676,9 @@ write_episode_schedule_tool() {
 set -euo pipefail
 
 CONFIG_FILE="${OPENCLAW_EPISODE_SCHEDULE_FILE:-/opt/clawbot/tenants/tenant_0/config/templates/episode-schedule.yaml}"
+ARCHIVE_FILE="${OPENCLAW_EPISODE_ARCHIVE_FILE:-/opt/clawbot/tenants/tenant_0/config/templates/episode-archive.yaml}"
+TELEGRAM_SECRETS_FILE="${OPENCLAW_TELEGRAM_SECRETS_FILE:-/opt/clawbot/config/secrets/telegram.env}"
+OPERATOR_TELEGRAM_USER_ID="${OPENCLAW_OPERATOR_TELEGRAM_USER_ID:-}"
 
 read_config_value() {
   local key="$1"
@@ -5693,21 +5702,46 @@ send_runtime_command() {
     -d "{\"event\":{\"chat\":{\"id\":999900,\"type\":\"private\"},\"from\":{\"id\":1619231777,\"is_bot\":false,\"username\":\"mcintosh1776\",\"first_name\":\"McIntosh\"},\"messageId\":${message_id},\"text\":$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}}"
 }
 
+read_telegram_secret() {
+  local key="$1"
+  awk -F'=' -v target="$key" '$1 == target {sub(/^[^=]*=/,""); print $0; exit}' "$TELEGRAM_SECRETS_FILE"
+}
+
+send_operator_message_via_bob() {
+  local text="$1"
+  local bob_token
+  bob_token="$(read_telegram_secret "TELEGRAM_BOT_TOKEN_BOB")"
+  if [[ -z "$bob_token" || -z "$OPERATOR_TELEGRAM_USER_ID" ]]; then
+    echo "missing Bob Telegram token or operator Telegram user id" >&2
+    exit 1
+  fi
+  curl -fsS "https://api.telegram.org/bot${bob_token}/sendMessage" \
+    -H "Content-Type: application/json" \
+    -d "{\"chat_id\":\"${OPERATOR_TELEGRAM_USER_ID}\",\"text\":$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" >/dev/null
+}
+
 run_refresh() {
   local refresh_task_id refresh_output_id token
   refresh_task_id="$(read_config_value "refresh_task_id")"
   refresh_output_id="$(read_config_value "refresh_output_id")"
   token="$(runtime_token clawbot-jennifer-runtime)"
   send_runtime_command 18922 "$token" "build episode refresh block from task ${refresh_task_id} to output ${refresh_output_id}" 990001
+  OPENCLAW_EPISODE_ARCHIVE_FILE="$ARCHIVE_FILE" sudo -u openclaw "$OPENCLAW_EPISODE_ARCHIVE_TOOL" export-refresh >/dev/null
 }
 
 run_merge() {
-  local topic_output_id refresh_output_id final_output_id token
+  local topic_output_id refresh_output_id final_output_id token pr_output pr_url
   topic_output_id="$(read_config_value "topic_output_id")"
   refresh_output_id="$(read_config_value "refresh_output_id")"
   final_output_id="$(read_config_value "final_output_id")"
   token="$(runtime_token clawbot-bob-runtime)"
   send_runtime_command 18920 "$token" "build final episode package from output stacks/${topic_output_id} and output jennifer/${refresh_output_id} to output ${final_output_id}" 990002
+  OPENCLAW_EPISODE_ARCHIVE_FILE="$ARCHIVE_FILE" sudo -u openclaw "$OPENCLAW_EPISODE_ARCHIVE_TOOL" export-final >/dev/null
+  pr_output="$(OPENCLAW_EPISODE_ARCHIVE_FILE="$ARCHIVE_FILE" sudo -u openclaw "$OPENCLAW_EPISODE_ARCHIVE_TOOL" open-pr)"
+  pr_url="$(printf '%s\n' "$pr_output" | sed -n 's/^.*\(https:\/\/github\.com\/[^ ]*\).*$/\1/p' | tail -n 1)"
+  if [[ -n "$pr_url" ]]; then
+    send_operator_message_via_bob "Episode PR ready: ${pr_url}"
+  fi
 }
 
 case "${1:-}" in
