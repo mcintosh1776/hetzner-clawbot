@@ -5721,6 +5721,16 @@ send_operator_message_via_bob() {
     -d "{\"chat_id\":\"${OPERATOR_TELEGRAM_USER_ID}\",\"text\":$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}" >/dev/null
 }
 
+run_topic() {
+  local topic_task_id topic_output_id token
+  topic_task_id="$(read_config_value "topic_task_id")"
+  topic_output_id="$(read_config_value "topic_output_id")"
+  token="$(runtime_token clawbot-stacks-runtime)"
+  OPENCLAW_EPISODE_ARCHIVE_FILE="$ARCHIVE_FILE" sudo -u openclaw "$OPENCLAW_EPISODE_ARCHIVE_TOOL" init-branch >/dev/null
+  send_runtime_command 18921 "$token" "build episode topic draft from task ${topic_task_id} to output ${topic_output_id}" 990000
+  OPENCLAW_EPISODE_ARCHIVE_FILE="$ARCHIVE_FILE" sudo -u openclaw "$OPENCLAW_EPISODE_ARCHIVE_TOOL" export-topic >/dev/null
+}
+
 run_refresh() {
   local refresh_task_id refresh_output_id token
   refresh_task_id="$(read_config_value "refresh_task_id")"
@@ -5746,10 +5756,11 @@ run_merge() {
 }
 
 case "${1:-}" in
+  topic) run_topic ;;
   refresh) run_refresh ;;
   merge) run_merge ;;
   *)
-    echo "usage: clawbot-episode-schedule <refresh|merge>" >&2
+    echo "usage: clawbot-episode-schedule <topic|refresh|merge>" >&2
     exit 1
     ;;
 esac
@@ -5861,7 +5872,7 @@ ensure_branch() {
 commit_if_changed() {
   local checkout_path="$1"
   local commit_message="$2"
-  if ! git_in_checkout "$checkout_path" diff --quiet -- tenants; then
+  if [[ -n "$(git_in_checkout "$checkout_path" status --porcelain -- tenants)" ]]; then
     git_in_checkout "$checkout_path" add tenants
     git_in_checkout "$checkout_path" commit -m "$commit_message" >/dev/null
     echo "Committed archive update: ${commit_message}"
