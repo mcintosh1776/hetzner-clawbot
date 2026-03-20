@@ -21,6 +21,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Changed
 - _None yet._
 
+## [0.7.61] - 2026-03-20
+
+### Added
+- Added one-shot episode workflow commands for topic-draft, refresh-block, and final package generation so `Stacks`, `Jennifer`, and `Bob` can produce saved episode artifacts in the tenant output store.
+- Added a tenant-owned episode refresh source policy in YAML for approved `news_and_notes`, `bitcoin_price`, `fees_and_mempool`, `nodes_distribution`, and grouped `software_updates` sources.
+- Added bounded Brave-backed news retrieval for Jennifer using the approved domain allowlist.
+- Added direct GitHub release monitoring for grouped Bitcoin and Nostr software watchlists, including human-readable project names, release URLs, publish dates, and release-note excerpts.
+- Added live mempool snapshot support for Jennifer so refresh blocks now include current BTC price, fee tiers, mempool state, and chain tip height from approved sources.
+
+### Fixed
+- Fixed cross-bot episode merge input handling so Bob can merge outputs from `stacks/...` and `jennifer/...` instead of assuming his own output namespace.
+- Fixed `Stacks` access to the episode template and full task body during episode generation.
+- Fixed the episode refresh workflow so tenant template drift can be corrected by syncing the live YAML config without rebuilding the whole node.
+- Fixed Jennifer software-update parsing/rendering so grouped `bitcoin` and `nostr` watchlists are recognized and empty repos/groups are omitted from human-facing output.
+- Fixed bootstrap reproducibility by pinning the bootstrap runner URL to exact commits instead of relying on the moving `main` raw URL.
+
+### Removed
+- _None._
+
+### Security
+- Kept Brave and OpenRouter credentials out of git and stored runtime-only secrets on the node.
+- Kept Jennifer news retrieval bounded to the approved source allowlist and software monitoring bounded to approved GitHub repositories.
+
+### Changed
+- Changed the episode workflow from proposal-heavy experimentation into a working artifact pipeline: `Stacks` produces a topic draft, `Jennifer` produces a Tuesday refresh block, and `Bob` merges both into a final episode package.
+- Changed Jennifer refresh output to prioritize readability by omitting software sections and groups with no releases in the last 7 days.
+
 ## [0.7.60] - 2026-03-18
 
 ### Added
