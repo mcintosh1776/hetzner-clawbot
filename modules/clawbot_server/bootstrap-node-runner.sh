@@ -5820,6 +5820,18 @@ git_in_checkout() {
   git -C "$checkout_path" "$@"
 }
 
+sync_checkout_main() {
+  local checkout_path="$1"
+  require_checkout "$checkout_path"
+  git_in_checkout "$checkout_path" fetch origin >/dev/null
+  if git_in_checkout "$checkout_path" show-ref --verify --quiet refs/heads/main; then
+    git_in_checkout "$checkout_path" checkout main >/dev/null
+  else
+    git_in_checkout "$checkout_path" checkout -b main origin/main >/dev/null
+  fi
+  git_in_checkout "$checkout_path" pull --ff-only origin main >/dev/null
+}
+
 github_repo_path_from_url() {
   local repo_url="$1"
   repo_url="${repo_url#https://github.com/}"
@@ -5857,7 +5869,7 @@ ensure_branch() {
   local checkout_path="$1"
   local branch_name="$2"
   require_checkout "$checkout_path"
-  git_in_checkout "$checkout_path" fetch origin >/dev/null 2>&1 || true
+  sync_checkout_main "$checkout_path"
   if git_in_checkout "$checkout_path" show-ref --verify --quiet "refs/heads/${branch_name}"; then
     git_in_checkout "$checkout_path" checkout "$branch_name" >/dev/null
     return
