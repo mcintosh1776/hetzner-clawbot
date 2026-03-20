@@ -5730,6 +5730,7 @@ set -euo pipefail
 CONFIG_FILE="${OPENCLAW_EPISODE_ARCHIVE_FILE:-/opt/clawbot/tenants/tenant_0/config/templates/episode-archive.yaml}"
 OUTPUT_ROOT="${OPENCLAW_TENANT_OUTPUTS_DIR:-/opt/clawbot/tenants/tenant_0/outputs/bots}"
 TENANT_ID="${OPENCLAW_EPISODE_ARCHIVE_TENANT_ID:-tenant_0}"
+AUTH_TOKEN_FILE="${OPENCLAW_EPISODE_ARCHIVE_AUTH_TOKEN_FILE:-/opt/clawbot/archive/.auth/podcast-pat}"
 
 read_config_value() {
   local key="$1"
@@ -5773,6 +5774,39 @@ git_in_checkout() {
   git -C "$checkout_path" "$@"
 }
 
+github_repo_path_from_url() {
+  local repo_url="$1"
+  repo_url="${repo_url#https://github.com/}"
+  repo_url="${repo_url#git@github.com:}"
+  repo_url="${repo_url%.git}"
+  printf '%s' "$repo_url"
+}
+
+github_api_request() {
+  local method="$1"
+  local path="$2"
+  local payload="${3:-}"
+  local token
+  if [[ ! -f "$AUTH_TOKEN_FILE" ]]; then
+    echo "missing github auth token file: ${AUTH_TOKEN_FILE}" >&2
+    exit 1
+  fi
+  token="$(cat "$AUTH_TOKEN_FILE")"
+  if [[ -n "$payload" ]]; then
+    curl -fsS -X "$method" \
+      -H "Authorization: Bearer ${token}" \
+      -H "Accept: application/vnd.github+json" \
+      -H "Content-Type: application/json" \
+      "https://api.github.com${path}" \
+      -d "$payload"
+    return
+  fi
+  curl -fsS -X "$method" \
+    -H "Authorization: Bearer ${token}" \
+    -H "Accept: application/vnd.github+json" \
+    "https://api.github.com${path}"
+}
+
 ensure_branch() {
   local checkout_path="$1"
   local branch_name="$2"
@@ -5802,6 +5836,7 @@ commit_if_changed() {
 }
 
 load_archive_config() {
+  REPO_URL="$(read_config_value "repo_url")"
   CHECKOUT_PATH="$(read_config_value "checkout_path")"
   TENANT_ID="$(read_config_value "tenant_id")"
   TENANT_ID="${TENANT_ID:-${OPENCLAW_EPISODE_ARCHIVE_TENANT_ID:-tenant_0}}"
@@ -5811,6 +5846,7 @@ load_archive_config() {
   FINAL_OUTPUT_ID="$(read_config_value "final_output_id")"
   EPISODE_NUMBER="$(episode_number_from_slug "$EPISODE_SLUG")"
   BRANCH_NAME="$(branch_name_from_slug "$EPISODE_SLUG")"
+  REPO_PATH="$(github_repo_path_from_url "$REPO_URL")"
 }
 
 run_export() {
@@ -5860,14 +5896,34 @@ run_export_final() {
   commit_if_changed "$CHECKOUT_PATH" "episode ${EPISODE_NUMBER}: add final package"
 }
 
+run_open_pr() {
+  local existing_response existing_url payload create_response pr_url
+  load_archive_config
+  existing_response="$(github_api_request GET "/repos/${REPO_PATH}/pulls?state=open&head=$(printf '%s' "${REPO_PATH%%/*}:${BRANCH_NAME}" | sed 's/:/%3A/')" )"
+  existing_url="$(printf '%s' "$existing_response" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data[0]["html_url"] if data else "")')"
+  if [[ -n "$existing_url" ]]; then
+    printf 'PR already open: %s\n' "$existing_url"
+    return
+  fi
+  payload="$(python3 -c 'import json,sys; repo_path=sys.argv[1]; branch=sys.argv[2]; episode=sys.argv[3]; print(json.dumps({"title": f"Episode {episode}", "head": branch, "base": "main", "body": f"Automated episode branch for episode {episode}."}))' "$REPO_PATH" "$BRANCH_NAME" "$EPISODE_NUMBER")"
+  create_response="$(github_api_request POST "/repos/${REPO_PATH}/pulls" "$payload")"
+  pr_url="$(printf '%s' "$create_response" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("html_url",""))')"
+  if [[ -z "$pr_url" ]]; then
+    echo "failed to create pull request" >&2
+    exit 1
+  fi
+  printf 'Created PR: %s\n' "$pr_url"
+}
+
 case "${1:-}" in
   init-branch) run_branch_init ;;
   export-topic) run_export_topic ;;
   export-refresh) run_export_refresh ;;
   export-final) run_export_final ;;
+  open-pr) run_open_pr ;;
   export) run_export ;;
   *)
-    echo "usage: clawbot-episode-archive <init-branch|export-topic|export-refresh|export-final|export>" >&2
+    echo "usage: clawbot-episode-archive <init-branch|export-topic|export-refresh|export-final|open-pr|export>" >&2
     exit 1
     ;;
 esac
