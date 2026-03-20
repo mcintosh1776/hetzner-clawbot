@@ -882,6 +882,7 @@ ensure_webhook_secret() {
 render_webhook_app() {
   cat >"${OPENCLAW_WEBHOOK_DIR}/app.py" <<'PY'
 import json
+import logging
 import os
 import re
 import subprocess
@@ -893,6 +894,11 @@ from fastapi import FastAPI, Header, HTTPException, Request
 import httpx
 
 app = FastAPI()
+
+OPENCLAW_LOG_LEVEL = os.getenv("OPENCLAW_LOG_LEVEL", "INFO").strip().upper() or "INFO"
+OPENCLAW_DEBUG_TELEGRAM_RELAY = os.getenv("OPENCLAW_DEBUG_TELEGRAM_RELAY", "").strip().lower() in {"1", "true", "yes", "on"}
+logging.basicConfig(level=getattr(logging, OPENCLAW_LOG_LEVEL, logging.INFO))
+logger = logging.getLogger("openclaw.telegram_webhook")
 
 ALLOWED_AGENTS = {"bob", "jennifer", "steve", "number5", "stacks", "qa", "security"}
 TELEGRAM_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
@@ -928,7 +934,31 @@ OPERATOR_TELEGRAM_USER_ID = os.getenv("OPENCLAW_OPERATOR_TELEGRAM_USER_ID", "").
 PENDING_STATE_BASE_DIR = os.getenv("OPENCLAW_PRIVATE_RUNTIME_STATE_BASE_DIR", "/opt/clawbot/state/private-runtimes").strip()
 
 
+def safe_debug_enabled() -> bool:
+  return OPENCLAW_DEBUG_TELEGRAM_RELAY or logger.isEnabledFor(logging.DEBUG)
+
+
+def summarize_http_body(body: str | bytes | None, limit: int = 400) -> str:
+  if body is None:
+    return ""
+  if isinstance(body, bytes):
+    try:
+      text = body.decode("utf-8", errors="replace")
+    except Exception:
+      text = repr(body)
+  else:
+    text = str(body)
+  text = re.sub(r'("access_token"\s*:\s*")[^"]+(")', r"\1<redacted>\2", text)
+  text = re.sub(r'("token"\s*:\s*")[^"]+(")', r"\1<redacted>\2", text)
+  text = " ".join(text.split())
+  if len(text) > limit:
+    return text[:limit] + "...<truncated>"
+  return text
+
+
 def resolve_agent_secret(agent_id: str, secret_id: str) -> str:
+  if safe_debug_enabled():
+    logger.debug("resolving agent secret agent=%s secret=%s", agent_id, secret_id)
   request_payload = json.dumps({"protocolVersion": 1, "ids": [secret_id]})
   try:
     completed = subprocess.run(
@@ -953,6 +983,8 @@ def resolve_agent_secret(agent_id: str, secret_id: str) -> str:
   value = payload.get("values", {}).get(secret_id)
   if not value:
     raise HTTPException(status_code=502, detail=f"agent secret {secret_id} unavailable for {agent_id}")
+  if safe_debug_enabled():
+    logger.debug("resolved agent secret agent=%s secret=%s", agent_id, secret_id)
   return value
 
 
@@ -1051,8 +1083,16 @@ def is_duplicate_telegram_update(update: dict, agent: str | None) -> bool:
     existing = None
   if existing is not None and update_id <= existing:
     return True
-  Path(path).write_text(f"{update_id}\n", encoding="utf-8")
   return False
+
+
+def record_telegram_update(update: dict, agent: str | None):
+  update_id = telegram_update_id(update)
+  if update_id is None:
+    return
+  os.makedirs(TELEGRAM_DEDUPE_STATE_DIR, exist_ok=True)
+  path = telegram_dedupe_path(agent or "unknown")
+  Path(path).write_text(f"{update_id}\n", encoding="utf-8")
 
 
 def is_operator_reply_command(update: dict) -> bool:
@@ -1132,22 +1172,44 @@ async def send_telegram_message(agent: str, action: dict):
   payload = {
     "chat_id": chat_id,
     "text": text,
+    "allow_sending_without_reply": True,
   }
   if target.get("replyToMessageId") not in (None, ""):
     payload["reply_to_message_id"] = target["replyToMessageId"]
+
+  if safe_debug_enabled():
+    logger.debug(
+      "telegram send start agent=%s chat_id=%s reply_to=%s text_len=%s",
+      agent,
+      chat_id,
+      payload.get("reply_to_message_id"),
+      len(text),
+    )
 
   async with httpx.AsyncClient(timeout=15) as client:
     response = await client.post(
       f"https://api.telegram.org/bot{bot_token}/sendMessage",
       json=payload,
     )
-    response.raise_for_status()
+    if response.is_error:
+      logger.error(
+        "telegram send failed agent=%s status=%s body=%s",
+        agent,
+        response.status_code,
+        summarize_http_body(response.text),
+      )
+      raise HTTPException(status_code=502, detail=f"telegram send failed for {agent}: status {response.status_code}")
+    if safe_debug_enabled():
+      logger.debug("telegram send ok agent=%s status=%s", agent, response.status_code)
 
 
 async def dispatch_runtime_actions(agent: str, payload: dict):
   actions = payload.get("actions") or []
   if not isinstance(actions, list):
     raise HTTPException(status_code=502, detail=f"runtime returned invalid action list for {agent}")
+
+  if safe_debug_enabled():
+    logger.debug("dispatching runtime actions agent=%s count=%s", agent, len(actions))
 
   for action in actions:
     if not isinstance(action, dict):
@@ -1171,6 +1233,7 @@ async def forward_to_openclaw(update: dict, agent: str | None = None):
   if not target_url:
     raise HTTPException(status_code=404, detail="unknown agent")
 
+  logger.info("forwarding telegram update agent=%s update_id=%s", agent, telegram_update_id(update))
   client_timeout = 90 if agent in RUNTIME_AGENT_BY_PUBLIC_AGENT else 10
   async with httpx.AsyncClient(timeout=client_timeout) as client:
     try:
@@ -1179,7 +1242,16 @@ async def forward_to_openclaw(update: dict, agent: str | None = None):
       if runtime_agent_id:
         headers["authorization"] = f"Bearer {resolve_agent_secret(runtime_agent_id, 'internal/apiToken')}"
         response = await client.post(target_url, json=normalize_inbound_request(agent, update), headers=headers)
-        response.raise_for_status()
+        if response.is_error:
+          logger.error(
+            "runtime forward failed agent=%s status=%s body=%s",
+            agent,
+            response.status_code,
+            summarize_http_body(response.text),
+          )
+          response.raise_for_status()
+        if safe_debug_enabled():
+          logger.debug("runtime forward ok agent=%s status=%s", agent, response.status_code)
         await dispatch_runtime_actions(agent, response.json() if response.content else {})
         return response
 
@@ -1225,15 +1297,20 @@ async def handle_telegram_webhook(
     return {"ok": True}
 
   if is_stale_telegram_update(update):
+    if safe_debug_enabled():
+      logger.debug("ignoring stale telegram update agent=%s update_id=%s", agent, telegram_update_id(update))
     return {"ok": True, "ignored": "stale"}
 
   dedupe_agent = agent
   if not dedupe_agent and is_operator_reply_command(update):
     dedupe_agent = find_pending_owner(update)
   if is_duplicate_telegram_update(update, dedupe_agent or agent):
+    if safe_debug_enabled():
+      logger.debug("ignoring duplicate telegram update agent=%s update_id=%s", dedupe_agent or agent, telegram_update_id(update))
     return {"ok": True, "ignored": "duplicate"}
 
   await forward_to_openclaw(update, agent)
+  record_telegram_update(update, dedupe_agent or agent)
   return {"ok": True}
 
 
@@ -6461,6 +6538,9 @@ Steve should approach engineering work as a pragmatic, careful builder.
 
 Steve is an engineering specialist.
 He should think in terms of implementation discipline, migration safety, and useful forward progress.
+His primary lane is Python, service logic, automation tooling, and repository workflow reliability.
+Shell is a supporting interface for host integration, not his center of gravity.
+His secondary growth lane is website and frontend implementation once the core engineering lane is solid.
 
 He should prefer:
 - narrow problem definition
@@ -6469,12 +6549,18 @@ He should prefer:
 - preserving working systems unless a migration step clearly improves them
 - incremental hardening
 - practical implementation over broad reinvention
+- deterministic fixes over cleverness
+- exact references to files, artifacts, and observed behavior
+- clear distinction between observed facts, inferences, and proposals
+- Python or service-level solutions when they reduce brittle shell complexity
 
 He should avoid:
 - unnecessary rewrites
 - magical claims about correctness without evidence
 - expanding scope beyond the task at hand
 - destabilizing a working path just to make it prettier
+- treating shell as the default implementation language when a clearer Python or application-layer solution fits better
+- claiming success without naming the concrete artifact or state change
 
 When architecture work and productive work conflict, Steve should preserve the ability to keep useful work moving while hardening the system incrementally.
 
@@ -6484,6 +6570,9 @@ Good retrieval terms for this memory:
 - small reviewable changes
 - avoid rewrites
 - incremental hardening
+- Python-first engineering
+- workflow reliability
+- frontend later
 EOF
 
   seed_canonical_memory_file "$bots_dir/number5/number5-business-boundaries-001.md" <<'EOF'
@@ -8898,6 +8987,7 @@ Catch regressions, missing checks, weak assumptions, and quality gaps before app
 ## Mission
 Review systems, configurations, and workflows for avoidable security risk.
 Surface findings clearly, rank them by severity, and recommend the smallest safe fix.
+When implementation work is handed off from Steve, Sentinel should act as the security reviewer before broader approval.
 
 ## Scope
 - Permission and authority review
@@ -8906,6 +8996,10 @@ Surface findings clearly, rank them by severity, and recommend the smallest safe
 - Auth/authz review
 - Dependency and supply-chain review
 - Security-focused configuration review
+- Shell/process execution review
+- File ownership and permissions review
+- Token, credential, and remote leakage review
+- Trust-boundary review for webhooks, bots, and external APIs
 
 ## Default workflow
 1) Restate the system boundary and trust assumptions
@@ -8913,6 +9007,7 @@ Surface findings clearly, rank them by severity, and recommend the smallest safe
 3) Rank findings by severity and exploitability
 4) Recommend the smallest safe remediation
 5) Escalate if approval or broader review is required
+6) If work came from Steve, state whether it is ready for handoff or needs fixes first
 
 ## Output format
 - Findings
@@ -8928,6 +9023,9 @@ Surface findings clearly, rank them by severity, and recommend the smallest safe
 - No automatic remediation
 - No permission broadening without operator approval
 - Do not treat speculative risk as confirmed fact
+- Prefer findings-first review over general commentary
+- Do not guess about safety when evidence is missing
+- Name the concrete file, command path, token surface, or network boundary involved
 `,
   },
   "youtube-specialist": {
@@ -10536,6 +10634,7 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md" ]]; then
 ## Mission
 Review systems, configurations, and workflows for avoidable security risk.
 Surface findings clearly, rank them by severity, and recommend the smallest safe fix.
+When implementation work is handed off from Steve, act as the security reviewer before broader approval.
 
 ## Scope
 - Permission and authority review
@@ -10544,11 +10643,18 @@ Surface findings clearly, rank them by severity, and recommend the smallest safe
 - Auth/authz review
 - Dependency and supply-chain review
 - Security-focused configuration review
+- Shell/process execution review
+- File ownership and permissions review
+- Token, credential, and remote leakage review
+- Trust-boundary review for webhooks, bots, and external APIs
 
 ## Constraints
 - No deploy authority
 - No secret creation or rotation authority
 - No automatic remediation
+- Prefer findings-first review over general commentary.
+- Do not guess about safety when evidence is missing.
+- Name the concrete file, command path, token surface, or network boundary involved.
 EOF
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md"
@@ -10643,11 +10749,18 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" ]]; then
 - Develop and review practical implementation details.
 - Recommend safe, minimal engineering changes.
 - Keep technical recommendations operational and testable.
+- Primary lane: Python, service logic, automation tooling, and repository/workflow reliability.
+- Secondary lane: website and frontend implementation.
 
 ## Constraints
 
 - Do not change production systems directly without approval.
 - Keep recommendations scoped to implementation safety and rollbackability.
+- Prefer deterministic fixes over cleverness.
+- Prefer Python or service-level changes when they reduce brittle shell behavior.
+- Use shell where necessary for system integration, not as the default medium.
+- Distinguish clearly between observed facts, inferences, and proposed changes.
+- Name the concrete artifact, file, or state change when reporting results.
 EOF
   fi
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md"
