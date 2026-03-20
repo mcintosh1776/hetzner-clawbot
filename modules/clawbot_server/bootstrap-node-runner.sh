@@ -100,6 +100,7 @@ OPENCLAW_MEMORY_REINDEX_TOOL="${OPENCLAW_MEMORY_REINDEX_TOOL:-/usr/local/bin/cla
 OPENCLAW_TEMPLATE_LIBRARY_TOOL="${OPENCLAW_TEMPLATE_LIBRARY_TOOL:-/usr/local/bin/clawbot-template-library}"
 OPENCLAW_WORK_QUEUE_TOOL="${OPENCLAW_WORK_QUEUE_TOOL:-/usr/local/bin/clawbot-work-queue}"
 OPENCLAW_WORK_OUTPUT_TOOL="${OPENCLAW_WORK_OUTPUT_TOOL:-/usr/local/bin/clawbot-work-output}"
+OPENCLAW_EPISODE_SCHEDULE_TOOL="${OPENCLAW_EPISODE_SCHEDULE_TOOL:-/usr/local/bin/clawbot-episode-schedule}"
 OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
 OPENCLAW_QMD_NODE_MAJOR="${OPENCLAW_QMD_NODE_MAJOR:-22}"
 OPENCLAW_PODCAST_RSS_FEED="${OPENCLAW_PODCAST_RSS_FEED:-https://serve.podhome.fm/rss/3d1d205b-b9f7-5253-b09d-df1c8ec4fc25}"
@@ -1320,6 +1321,74 @@ configure_webhook_receiver() {
   write_webhook_systemd_unit
   run_step "Reload systemd for webhook receiver" systemctl daemon-reload
   run_step "Enable webhook receiver service" systemctl enable --now clawbot-telegram-webhook.service
+}
+
+write_episode_schedule_units() {
+  local config_file="$OPENCLAW_TENANT_TEMPLATES_DIR/episode-schedule.yaml"
+  cat >/etc/systemd/system/clawbot-episode-refresh.service <<EOF
+[Unit]
+Description=Clawbot weekly Tuesday episode refresh
+After=network-online.target clawbot-jennifer-runtime.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=OPENCLAW_EPISODE_SCHEDULE_FILE=$config_file
+ExecStart=$OPENCLAW_EPISODE_SCHEDULE_TOOL refresh
+EOF
+
+  cat >/etc/systemd/system/clawbot-episode-refresh.timer <<EOF
+[Unit]
+Description=Run Clawbot weekly Tuesday episode refresh
+
+[Timer]
+Timezone=Europe/Stockholm
+OnCalendar=Tue *-*-* 18:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  cat >/etc/systemd/system/clawbot-episode-merge.service <<EOF
+[Unit]
+Description=Clawbot weekly Tuesday episode merge
+After=network-online.target clawbot-bob-runtime.service clawbot-episode-refresh.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Environment=OPENCLAW_EPISODE_SCHEDULE_FILE=$config_file
+ExecStart=$OPENCLAW_EPISODE_SCHEDULE_TOOL merge
+EOF
+
+  cat >/etc/systemd/system/clawbot-episode-merge.timer <<EOF
+[Unit]
+Description=Run Clawbot weekly Tuesday episode merge
+
+[Timer]
+Timezone=Europe/Stockholm
+OnCalendar=Tue *-*-* 18:10:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+  chmod 0644 /etc/systemd/system/clawbot-episode-refresh.service \
+    /etc/systemd/system/clawbot-episode-refresh.timer \
+    /etc/systemd/system/clawbot-episode-merge.service \
+    /etc/systemd/system/clawbot-episode-merge.timer
+}
+
+configure_episode_schedule() {
+  write_episode_schedule_tool
+  write_episode_schedule_units
+  run_step "Reload systemd for episode schedule" systemctl daemon-reload
+  run_step "Enable episode refresh timer" systemctl enable --now clawbot-episode-refresh.timer
+  run_step "Enable episode merge timer" systemctl enable --now clawbot-episode-merge.timer
 }
 
 private_runtime_dir() {
@@ -5561,6 +5630,64 @@ seed_tenant_template_file() {
   cat >"$target_path"
 }
 
+write_episode_schedule_tool() {
+  cat >"$OPENCLAW_EPISODE_SCHEDULE_TOOL" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+CONFIG_FILE="${OPENCLAW_EPISODE_SCHEDULE_FILE:-/opt/clawbot/tenants/tenant_0/config/templates/episode-schedule.yaml}"
+
+read_config_value() {
+  local key="$1"
+  awk -F': ' -v target="$key" '$1 == target {print $2; exit}' "$CONFIG_FILE" | sed 's/^"//; s/"$//'
+}
+
+runtime_token() {
+  local container="$1"
+  sudo -u openclaw bash -lc "cd /home/openclaw && podman inspect ${container} --format '{{range .Config.Env}}{{println .}}{{end}}'" \
+    | sed -n 's/^OPENCLAW_PRIVATE_RUNTIME_API_TOKEN=//p'
+}
+
+send_runtime_command() {
+  local port="$1"
+  local token="$2"
+  local text="$3"
+  local message_id="$4"
+  curl -fsS -X POST "http://127.0.0.1:${port}/v1/inbound/telegram" \
+    -H "Authorization: Bearer ${token}" \
+    -H "Content-Type: application/json" \
+    -d "{\"event\":{\"chat\":{\"id\":999900,\"type\":\"private\"},\"from\":{\"id\":1619231777,\"is_bot\":false,\"username\":\"mcintosh1776\",\"first_name\":\"McIntosh\"},\"messageId\":${message_id},\"text\":$(printf '%s' "$text" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')}}"
+}
+
+run_refresh() {
+  local refresh_task_id refresh_output_id token
+  refresh_task_id="$(read_config_value "refresh_task_id")"
+  refresh_output_id="$(read_config_value "refresh_output_id")"
+  token="$(runtime_token clawbot-jennifer-runtime)"
+  send_runtime_command 18922 "$token" "build episode refresh block from task ${refresh_task_id} to output ${refresh_output_id}" 990001
+}
+
+run_merge() {
+  local topic_output_id refresh_output_id final_output_id token
+  topic_output_id="$(read_config_value "topic_output_id")"
+  refresh_output_id="$(read_config_value "refresh_output_id")"
+  final_output_id="$(read_config_value "final_output_id")"
+  token="$(runtime_token clawbot-bob-runtime)"
+  send_runtime_command 18920 "$token" "build final episode package from output stacks/${topic_output_id} and output jennifer/${refresh_output_id} to output ${final_output_id}" 990002
+}
+
+case "${1:-}" in
+  refresh) run_refresh ;;
+  merge) run_merge ;;
+  *)
+    echo "usage: clawbot-episode-schedule <refresh|merge>" >&2
+    exit 1
+    ;;
+esac
+EOF
+  chmod 0755 "$OPENCLAW_EPISODE_SCHEDULE_TOOL"
+}
+
 configure_tenant_memory_roots() {
   local shared_dir="$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR/shared"
   local bots_dir="$OPENCLAW_TENANT_CANONICAL_MEMORY_DIR/bots"
@@ -5764,6 +5891,19 @@ sections:
       - name: clark_moody
         url: https://bitcoin.clarkmoody.com/dashboard/
         notes: Supplemental network dashboard source.
+EOF
+
+  seed_tenant_template_file "$templates_dir/episode-schedule.yaml" <<'EOF'
+current_episode_id: ep249
+topic_task_id: stacks-episode-249-topic-draft
+topic_output_id: ep249-topic-draft-v2
+refresh_task_id: jennifer-episode-249-refresh-block
+refresh_output_id: ep249-refresh-block-v10
+final_output_id: ep249-package-v3
+refresh_schedule_timezone: Europe/Stockholm
+refresh_schedule_on_calendar: Tue *-*-* 18:00:00
+merge_schedule_timezone: Europe/Stockholm
+merge_schedule_on_calendar: Tue *-*-* 18:10:00
 EOF
 
   seed_canonical_memory_file "$shared_dir/shared-brand-voice-001.md" <<'EOF'
@@ -9796,6 +9936,7 @@ run_step "Install agent secret sudoers policy" write_agent_secret_sudoers
 run_step "Configure nostr signer services" configure_nostr_signers
 run_step "Configure memory services" configure_memory_services
 run_step "Configure proposal services" configure_proposal_services
+run_step "Configure episode schedule" configure_episode_schedule
 run_step "Prepare bootstrap runtime directory" prepare_runtime_config_directory
 ensure_gateway_token
 
