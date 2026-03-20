@@ -5679,6 +5679,7 @@ CONFIG_FILE="${OPENCLAW_EPISODE_SCHEDULE_FILE:-/opt/clawbot/tenants/tenant_0/con
 ARCHIVE_FILE="${OPENCLAW_EPISODE_ARCHIVE_FILE:-/opt/clawbot/tenants/tenant_0/config/templates/episode-archive.yaml}"
 TELEGRAM_SECRETS_FILE="${OPENCLAW_TELEGRAM_SECRETS_FILE:-/opt/clawbot/config/secrets/telegram.env}"
 OPERATOR_TELEGRAM_USER_ID="${OPENCLAW_OPERATOR_TELEGRAM_USER_ID:-}"
+OPENCLAW_EPISODE_ARCHIVE_TOOL="${OPENCLAW_EPISODE_ARCHIVE_TOOL:-/usr/local/bin/clawbot-episode-archive}"
 
 read_config_value() {
   local key="$1"
