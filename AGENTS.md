@@ -63,7 +63,8 @@ From a stack directory (example: `live/prod/us-east/clawbot`):
 
 ## Bootstrap discipline
 - Do not run validation, smoke tests, or post-build checks against a rebuilt node until bootstrap is complete.
-- Treat bootstrap as complete only after `/var/log/cloud-init-output.log` shows completion. The node usually takes about 6 minutes.
+- Treat bootstrap as complete only after `/var/log/cloud-init-output.log` shows completion.
+- After a rebuild/apply, wait 15 minutes before the first bootstrap-log check unless you already have an explicit completion signal.
 - Prefer waiting for explicit completion markers such as `openclaw node bootstrap complete.` or the final `Cloud-init ... finished` line before testing nginx, certbot, OpenClaw, or Telegram webhook behavior.
 - If `modules/clawbot_server/bootstrap-node-runner.sh` changes, update both of these in `live/prod/fsn1/clawbot/terragrunt.hcl` before any rebuild or apply:
   - `openclaw_bootstrap_runner_sha256`

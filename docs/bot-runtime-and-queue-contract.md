@@ -189,3 +189,16 @@ Do not treat a chat reply alone as proof that queue state changed.
 ## Design rule
 
 Queue/workflow primitives and capability guardrails are foundational infrastructure. They should be treated as platform contracts, not prompt tricks.
+
+## Current Steve status
+
+Steve implementation ownership is currently paused pending runtime enforcement redesign.
+
+Reason:
+- queue/runtime/workspace plumbing is working
+- but freeform coding replies are still able to fabricate unsupported implementation claims
+
+Required before resuming Steve implementation work:
+- evidence-gated coding modes
+- validated file claims
+- later, validated symbol and edit claims

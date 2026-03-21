@@ -2256,10 +2256,39 @@ def looks_like_engineering_file_claim_request(text: str) -> bool:
   return contains_any_phrase(lowered, coding_phrases)
 
 
+def looks_like_engineering_symbol_claim_request(text: str) -> bool:
+  if RUNTIME_AGENT_ID != "engineering":
+    return False
+  lowered = normalize_text(text).lower()
+  if "path:" not in lowered:
+    return False
+  coding_phrases = (
+    "engineering workspace",
+    "exact function",
+    "exact symbol",
+    "function or command path",
+    "path:",
+    "coding",
+    "readiness",
+    "implement",
+    "inspection",
+    "inspect",
+  )
+  return contains_any_phrase(lowered, coding_phrases)
+
+
 def extract_file_claim_line(reply_text: str) -> str:
   for raw_line in str(reply_text or "").splitlines():
     line = raw_line.strip()
     if line.lower().startswith("file:"):
+      return normalize_text(line.split(":", 1)[1])
+  return ""
+
+
+def extract_path_claim_line(reply_text: str) -> str:
+  for raw_line in str(reply_text or "").splitlines():
+    line = raw_line.strip()
+    if line.lower().startswith("path:"):
       return normalize_text(line.split(":", 1)[1])
   return ""
 
@@ -2288,6 +2317,38 @@ def validate_engineering_file_claim(reply_text: str) -> str:
     return "blocked: file claim not verified"
 
   return f"file: {resolved}"
+
+
+def validate_engineering_symbol_claim(reply_text: str) -> str:
+  claimed_symbol = extract_path_claim_line(reply_text)
+  if not claimed_symbol:
+    return "blocked: symbol claim not verified"
+
+  workspace_root = engineering_workspace_root().resolve()
+  if not workspace_root.is_dir():
+    return "blocked: symbol claim not verified"
+
+  try:
+    completed = subprocess.run(
+      [
+        "grep",
+        "-RIn",
+        "--exclude-dir=.git",
+        "--",
+        claimed_symbol,
+        str(workspace_root),
+      ],
+      text=True,
+      capture_output=True,
+      check=False,
+    )
+  except Exception:
+    return "blocked: symbol claim not verified"
+
+  if completed.returncode != 0 or not normalize_text(completed.stdout):
+    return "blocked: symbol claim not verified"
+
+  return f"path: {claimed_symbol}"
 
 
 def is_approval_command(text: str) -> bool:
@@ -4724,6 +4785,8 @@ async def inbound_telegram(
   reply_text = await generate_reply(payload)
   if looks_like_engineering_file_claim_request(text):
     reply_text = validate_engineering_file_claim(reply_text)
+  if looks_like_engineering_symbol_claim_request(text):
+    reply_text = validate_engineering_symbol_claim(reply_text)
   if not reply_text:
     return {"ok": True, "actions": []}
 
