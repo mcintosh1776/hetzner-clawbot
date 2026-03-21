@@ -2230,6 +2230,66 @@ def normalize_text(value) -> str:
   return str(value or "").strip()
 
 
+def engineering_workspace_root() -> Path:
+  return Path("/state/.openclaw/workspace-engineering/hetzner-clawbot")
+
+
+def looks_like_engineering_file_claim_request(text: str) -> bool:
+  if RUNTIME_AGENT_ID != "engineering":
+    return False
+  lowered = normalize_text(text).lower()
+  if "file:" not in lowered:
+    return False
+  coding_phrases = (
+    "engineering workspace",
+    "exact file",
+    "file changed",
+    "identify the exact file",
+    "reply only with one line",
+    "reply only with exactly",
+    "coding",
+    "readiness",
+    "implement",
+    "inspection",
+    "inspect",
+  )
+  return contains_any_phrase(lowered, coding_phrases)
+
+
+def extract_file_claim_line(reply_text: str) -> str:
+  for raw_line in str(reply_text or "").splitlines():
+    line = raw_line.strip()
+    if line.lower().startswith("file:"):
+      return normalize_text(line.split(":", 1)[1])
+  return ""
+
+
+def validate_engineering_file_claim(reply_text: str) -> str:
+  claimed_path = extract_file_claim_line(reply_text)
+  if not claimed_path:
+    return "blocked: file claim not verified"
+
+  workspace_root = engineering_workspace_root().resolve()
+  candidate = Path(claimed_path)
+  if not candidate.is_absolute():
+    candidate = workspace_root / candidate
+
+  try:
+    resolved = candidate.resolve()
+  except Exception:
+    return "blocked: file claim not verified"
+
+  try:
+    resolved.relative_to(workspace_root)
+  except ValueError:
+    return "blocked: file claim not verified"
+
+  if not resolved.is_file():
+    return "blocked: file claim not verified"
+
+  return f"file: {resolved}"
+
+
 def is_approval_command(text: str) -> bool:
   return normalize_text(text).lower() in {"approve", "approve publish", "publish", "approved"}
 
@@ -4662,6 +4722,8 @@ async def inbound_telegram(
       }
 
   reply_text = await generate_reply(payload)
+  if looks_like_engineering_file_claim_request(text):
+    reply_text = validate_engineering_file_claim(reply_text)
   if not reply_text:
     return {"ok": True, "actions": []}
 

@@ -22,6 +22,24 @@ From a stack directory (example: `live/prod/us-east/clawbot`):
 - Modules must not define Terraform backends.
 - Terragrunt owns backend/state when configured.
 
+## Runtime and queue contract
+- See `/docs/bot-runtime-and-queue-contract.md` for the private runtime interface, queue primitives, routing precedence, capability boundaries, and debugging guidance.
+- Treat that document as the current platform contract for bot runtime behavior and queue-driven workflows.
+
+## Standing operator authority for readiness testing
+- Codex has standing authority to directly run readiness tests for Steve and Sentinel without asking for step-by-step confirmation.
+- This includes:
+  - inspecting queue state
+  - inspecting webhook/runtime/container logs
+  - probing private runtimes directly
+  - moving readiness tasks through the queue
+  - verifying artifacts produced by readiness tasks
+- Codex also has standing authority to proceed with Steve/Sentinel platform work needed to make those readiness and coding flows reliable, without re-asking at each intermediate step.
+- Use the approved SSH prefix for node inspection and direct readiness testing without conversationally re-asking for permission.
+- Approved readiness-testing SSH target for the current node:
+  - `ssh -i /home/mcintosh/.ssh/mcintosh-clawbot -o StrictHostKeyChecking=no root@91.107.207.3 ...`
+- Do not apply infrastructure changes, rebuild the node, rotate secrets, or make unrelated production changes without explicit operator approval.
+
 ## Provider
 - Hetzner Cloud (hcloud)
 - Token is passed via `HCLOUD_TOKEN`
@@ -47,7 +65,11 @@ From a stack directory (example: `live/prod/us-east/clawbot`):
 - Do not run validation, smoke tests, or post-build checks against a rebuilt node until bootstrap is complete.
 - Treat bootstrap as complete only after `/var/log/cloud-init-output.log` shows completion. The node usually takes about 6 minutes.
 - Prefer waiting for explicit completion markers such as `openclaw node bootstrap complete.` or the final `Cloud-init ... finished` line before testing nginx, certbot, OpenClaw, or Telegram webhook behavior.
-- If `modules/clawbot_server/bootstrap-node-runner.sh` changes, update the pinned `openclaw_bootstrap_runner_sha256` in `live/prod/fsn1/clawbot/terragrunt.hcl` in the same milestone before any rebuild or apply.
+- If `modules/clawbot_server/bootstrap-node-runner.sh` changes, update both of these in `live/prod/fsn1/clawbot/terragrunt.hcl` before any rebuild or apply:
+  - `openclaw_bootstrap_runner_sha256`
+  - `openclaw_bootstrap_runner_url`
+- The pinned URL must reference the exact commit that contains the bootstrap runner bytes whose SHA is pinned.
+- Never rebuild with a bootstrap runner URL/SHA mismatch.
 
 ## Milestones and releases
 - Commit changes at reasonable milestones instead of letting local work accumulate too long.
