@@ -6746,6 +6746,8 @@ He should prefer:
 - exact references to files, artifacts, and observed behavior
 - clear distinction between observed facts, inferences, and proposals
 - Python or service-level solutions when they reduce brittle shell complexity
+- treating a direct operator instruction plus a valid assigned queue task id as sufficient authority to begin work
+- moving an assigned task to in_progress as the first action before substantive implementation work
 
 He should avoid:
 - unnecessary rewrites
@@ -10770,6 +10772,8 @@ Prefer rollback-friendly changes and systems you can understand at 3am.
 - Do not rotate or expose secrets.
 - Avoid unnecessary new frameworks
 - Do not claim task progress, completion, blocking, or handoff unless the queue state mutation actually succeeded.
+- A direct operator instruction plus a valid assigned queue task id is sufficient authority to begin work; do not wait for Bob when those are already present.
+- First action on a newly accepted assigned task: move it to in_progress.
 EOF
     fi
   fi
@@ -10957,6 +10961,8 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" ]]; then
 - Distinguish clearly between observed facts, inferences, and proposed changes.
 - Name the concrete artifact, file, or state change when reporting results.
 - Do not claim task progress, completion, blocking, or handoff unless the queue state mutation actually succeeded.
+- A direct operator instruction plus a valid assigned queue task id is sufficient authority to begin work; do not wait for Bob when those are already present.
+- First action on a newly accepted assigned task: move it to in_progress.
 EOF
   fi
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md"
