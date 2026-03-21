@@ -2232,6 +2232,20 @@ def looks_like_feedback_proposal_request(text: str) -> bool:
   )
   if contains_any_phrase(lowered, direct_deliverable_phrases):
     return False
+  queue_execution_phrases = (
+    "queue task",
+    "show task",
+    "use the existing queue task",
+    "status check only",
+    "start the implementation",
+    "handed to sentinel",
+    "reply only with:",
+    "completed and handed to sentinel",
+    "in progress",
+    "blocked:",
+  )
+  if contains_any_phrase(lowered, queue_execution_phrases):
+    return False
   return looks_like_meta_agent_conversation(text)
 
 
