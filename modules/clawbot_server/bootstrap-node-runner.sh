@@ -1975,6 +1975,38 @@ async def request_queue_show(task_id: str) -> dict:
     raise HTTPException(status_code=502, detail=f"invalid queue service response: {exc}") from exc
 
 
+async def request_queue_move(task_id: str, status_text: str, owner_text: str = "") -> dict:
+  if not memory_service_configured():
+    raise HTTPException(status_code=503, detail=f"queue service not configured for {RUNTIME_DISPLAY_NAME}")
+
+  transport = httpx.AsyncHTTPTransport(uds=OPENCLAW_PRIVATE_RUNTIME_MEMORY_SOCKET)
+  try:
+    async with httpx.AsyncClient(
+      transport=transport,
+      base_url="http://memory-service",
+      timeout=20,
+    ) as client:
+      payload = {"status": status_text}
+      if owner_text:
+        payload["owner"] = owner_text
+      response = await client.post(
+        f"/v1/queue/tasks/{task_id}/move",
+        headers={"Authorization": f"Bearer {OPENCLAW_PRIVATE_RUNTIME_MEMORY_TOKEN}"},
+        json=payload,
+      )
+      response.raise_for_status()
+  except httpx.HTTPStatusError as exc:
+    detail = exc.response.text.strip() or str(exc)
+    raise HTTPException(status_code=502, detail=f"queue service request failed: {detail}") from exc
+  except httpx.HTTPError as exc:
+    raise HTTPException(status_code=502, detail=f"queue service unavailable: {exc}") from exc
+
+  try:
+    return response.json()
+  except Exception as exc:
+    raise HTTPException(status_code=502, detail=f"invalid queue service response: {exc}") from exc
+
+
 async def request_queue_handoff(task_id: str, to_owner: str, status_text: str, summary_text: str) -> dict:
   if not memory_service_configured():
     raise HTTPException(status_code=503, detail=f"queue service not configured for {RUNTIME_DISPLAY_NAME}")
@@ -2543,6 +2575,79 @@ def extract_queue_handoff_request(text: str) -> dict | None:
     "status": match.group(3).strip(),
     "summary": match.group(4).strip(),
   }
+
+
+def extract_contextual_queue_task_id(text: str) -> str:
+  match = re.search(
+    r"(?im)\buse\s+the\s+existing\s+queue\s+task\s*:\s*([a-z0-9][a-z0-9_-]{1,127})\b",
+    normalize_text(text),
+  )
+  return match.group(1).strip() if match else ""
+
+
+def extract_queue_move_request(text: str) -> dict | None:
+  normalized = normalize_text(text)
+
+  explicit_match = re.match(
+    r"^\s*move\s+task\s+([a-z0-9][a-z0-9_-]{1,127})\s+to\s+([a-z_]{2,64})(?:\s+owner\s+([a-z0-9][a-z0-9_-]{1,63}))?\s*$",
+    normalized,
+    flags=re.IGNORECASE,
+  )
+  if explicit_match:
+    return {
+      "taskId": explicit_match.group(1).strip(),
+      "status": explicit_match.group(2).strip(),
+      "owner": (explicit_match.group(3) or "").strip(),
+    }
+
+  start_match = re.match(
+    r"^\s*start\s+task\s+([a-z0-9][a-z0-9_-]{1,127})\s*$",
+    normalized,
+    flags=re.IGNORECASE,
+  )
+  if start_match:
+    return {
+      "taskId": start_match.group(1).strip(),
+      "status": "in_progress",
+      "owner": "",
+    }
+
+  complete_match = re.match(
+    r"^\s*complete\s+task\s+([a-z0-9][a-z0-9_-]{1,127})\s*$",
+    normalized,
+    flags=re.IGNORECASE,
+  )
+  if complete_match:
+    return {
+      "taskId": complete_match.group(1).strip(),
+      "status": "done",
+      "owner": "",
+    }
+
+  contextual_task_id = extract_contextual_queue_task_id(normalized)
+  if not contextual_task_id:
+    return None
+
+  contextual_move = re.search(
+    r"(?im)\bmove\s+the\s+task\s+to\s+([a-z_]{2,64})(?:\s+in\s+the\s+queue)?\b",
+    normalized,
+  )
+  if contextual_move:
+    return {
+      "taskId": contextual_task_id,
+      "status": contextual_move.group(1).strip(),
+      "owner": "",
+    }
+
+  contextual_start = re.search(r"(?im)\bstart\s+the\s+implementation\b", normalized)
+  if contextual_start:
+    return {
+      "taskId": contextual_task_id,
+      "status": "in_progress",
+      "owner": "",
+    }
+
+  return None
 
 
 def extract_episode_template_request(text: str) -> bool:
@@ -4305,6 +4410,33 @@ async def inbound_telegram(
         ],
       }
 
+    move_request = extract_queue_move_request(text)
+    if move_request:
+      queue_result = await request_queue_move(
+        move_request["taskId"],
+        move_request["status"],
+        move_request.get("owner") or "",
+      )
+      task = (queue_result.get("queue") or {}).get("task") or {}
+      task_id = normalize_text(task.get("task_id") or task.get("taskId") or move_request["taskId"])
+      owner = normalize_text(task.get("current_owner") or task.get("currentOwner") or RUNTIME_PUBLIC_ID)
+      status = normalize_text(task.get("status") or move_request["status"])
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": f"Task {task_id} moved to {status} for {owner}.",
+            },
+          }
+        ],
+      }
+
     handoff_request = extract_queue_handoff_request(text)
     if handoff_request:
       queue_result = await request_queue_handoff(
@@ -5289,6 +5421,42 @@ async def queue_task_handoff(
     "--from",
     RUNTIME_PUBLIC_ID,
   )
+  return {
+    "ok": True,
+    "queue": {
+      "tenantId": TENANT_ID,
+      "botId": RUNTIME_PUBLIC_ID,
+      "task": (result.get("task") or {}),
+    },
+  }
+
+
+@app.post("/v1/queue/tasks/{task_id}/move")
+async def queue_task_move(
+  task_id: str,
+  request: Request,
+  authorization: str | None = Header(default=None),
+):
+  verify_memory_token(authorization)
+  current = queue_json("show", TENANT_ID, task_id)
+  current_task = current.get("task") or {}
+  current_meta = current_task.get("meta") or {}
+  if not queue_is_orchestrator() and str(current_meta.get("current_owner") or current_task.get("current_owner") or "").strip() != RUNTIME_PUBLIC_ID:
+    raise HTTPException(status_code=403, detail="task is not currently assigned to this bot")
+
+  payload = await request.json()
+  status_text = str(payload.get("status") or "").strip()
+  owner_text = str(payload.get("owner") or "").strip()
+  if not status_text:
+    raise HTTPException(status_code=400, detail="status is required")
+
+  args = ["move", TENANT_ID, task_id, status_text]
+  if owner_text:
+    if not queue_is_orchestrator():
+      raise HTTPException(status_code=403, detail="only the orchestrator may change owner during move")
+    args.extend(["--owner", owner_text])
+
+  result = queue_json(*args)
   return {
     "ok": True,
     "queue": {
