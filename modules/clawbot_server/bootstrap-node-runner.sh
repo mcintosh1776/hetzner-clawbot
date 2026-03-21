@@ -2317,7 +2317,19 @@ def validate_engineering_file_claim(reply_text: str) -> str:
   if not resolved.is_file():
     return "blocked: file claim not verified"
 
-  return f"file: {resolved}"
+  lines = []
+  replaced = False
+  for raw_line in str(reply_text or "").splitlines():
+    line = raw_line.strip()
+    if line.lower().startswith("file:"):
+      lines.append(f"file: {resolved}")
+      replaced = True
+      continue
+    if line:
+      lines.append(line)
+  if not replaced:
+    lines.append(f"file: {resolved}")
+  return "\n".join(lines)
 
 
 def validate_engineering_symbol_claim(reply_text: str) -> str:
@@ -2349,7 +2361,19 @@ def validate_engineering_symbol_claim(reply_text: str) -> str:
   if completed.returncode != 0 or not normalize_text(completed.stdout):
     return "blocked: symbol claim not verified"
 
-  return f"path: {claimed_symbol}"
+  lines = []
+  replaced = False
+  for raw_line in str(reply_text or "").splitlines():
+    line = raw_line.strip()
+    if line.lower().startswith("path:"):
+      lines.append(f"path: {claimed_symbol}")
+      replaced = True
+      continue
+    if line:
+      lines.append(line)
+  if not replaced:
+    lines.append(f"path: {claimed_symbol}")
+  return "\n".join(lines)
 
 
 def resolve_engineering_workspace_file(raw_path: str) -> Path | None:
