@@ -104,6 +104,9 @@ OPENCLAW_EPISODE_SCHEDULE_TOOL="${OPENCLAW_EPISODE_SCHEDULE_TOOL:-/usr/local/bin
 OPENCLAW_EPISODE_ARCHIVE_TOOL="${OPENCLAW_EPISODE_ARCHIVE_TOOL:-/usr/local/bin/clawbot-episode-archive}"
 OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR="${OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR:-/opt/clawbot/archive/satoshis-plebs-podcast}"
 OPENCLAW_EPISODE_ARCHIVE_TENANT_ID="${OPENCLAW_EPISODE_ARCHIVE_TENANT_ID:-tenant_0}"
+OPENCLAW_ENGINEERING_WORKSPACE_REPO_URL="${OPENCLAW_ENGINEERING_WORKSPACE_REPO_URL:-https://github.com/mcintosh1776/hetzner-clawbot.git}"
+OPENCLAW_ENGINEERING_WORKSPACE_REPO_REF="${OPENCLAW_ENGINEERING_WORKSPACE_REPO_REF:-main}"
+OPENCLAW_ENGINEERING_WORKSPACE_REPO_NAME="${OPENCLAW_ENGINEERING_WORKSPACE_REPO_NAME:-hetzner-clawbot}"
 OPENCLAW_QMD_NPM_PACKAGE="${OPENCLAW_QMD_NPM_PACKAGE:-@tobilu/qmd@2.0.1}"
 OPENCLAW_QMD_NODE_MAJOR="${OPENCLAW_QMD_NODE_MAJOR:-22}"
 OPENCLAW_PODCAST_RSS_FEED="${OPENCLAW_PODCAST_RSS_FEED:-https://serve.podhome.fm/rss/3d1d205b-b9f7-5253-b09d-df1c8ec4fc25}"
@@ -515,6 +518,10 @@ agent_workspace_host_dir() {
   printf '/opt/clawbot/state/.openclaw/workspace-%s\n' "$agent_id"
 }
 
+engineering_workspace_repo_dir() {
+  printf '%s/%s\n' "$(agent_workspace_host_dir engineering)" "$OPENCLAW_ENGINEERING_WORKSPACE_REPO_NAME"
+}
+
 sync_private_agent_pack_avatar() {
   local repo_dir="$1"
   local agent_id="$2"
@@ -630,6 +637,33 @@ sync_private_agent_pack() {
   find "$OPENCLAW_AGENT_CONFIG_DIR" -type f -exec chmod 640 {} +
 
   sync_private_agent_pack_avatars "$repo_dir"
+}
+
+sync_engineering_workspace_repo() {
+  local workspace_dir
+  local repo_dir
+  local -a git_prefix=()
+
+  workspace_dir="$(agent_workspace_host_dir engineering)"
+  repo_dir="$(engineering_workspace_repo_dir)"
+
+  install -d -m 0750 -o "$OPENCLAW_USER" -g "$OPENCLAW_USER" "$workspace_dir"
+
+  if [[ "$OPENCLAW_ENGINEERING_WORKSPACE_REPO_URL" == git@* || "$OPENCLAW_ENGINEERING_WORKSPACE_REPO_URL" == ssh://* ]]; then
+    if [[ ! -f "$OPENCLAW_AGENT_PACK_SSH_KEY_FILE" ]]; then
+      echo "Engineering workspace repo requires deploy key at $OPENCLAW_AGENT_PACK_SSH_KEY_FILE" >&2
+      return 1
+    fi
+    chmod 600 "$OPENCLAW_AGENT_PACK_SSH_KEY_FILE"
+    git_prefix=(
+      env
+      "GIT_SSH_COMMAND=ssh -i $OPENCLAW_AGENT_PACK_SSH_KEY_FILE -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    )
+  fi
+
+  rm -rf "$repo_dir"
+  "${git_prefix[@]}" git clone --depth 1 --branch "$OPENCLAW_ENGINEERING_WORKSPACE_REPO_REF" "$OPENCLAW_ENGINEERING_WORKSPACE_REPO_URL" "$repo_dir"
+  chown -R "$OPENCLAW_USER:$OPENCLAW_USER" "$repo_dir"
 }
 
 prepare_rootless_runtime_directory() {
@@ -6757,6 +6791,10 @@ He should avoid:
 - treating shell as the default implementation language when a clearer Python or application-layer solution fits better
 - claiming success without naming the concrete artifact or state change
 - claiming task progress, completion, blocking, or handoff unless the queue state mutation actually succeeded
+- inventing file paths, function names, patch points, outputs, or system state when access or evidence is missing
+
+If Steve cannot access or verify the relevant repo, file, function, endpoint, or artifact, he should say he is blocked.
+He must never fabricate a code reference or patch location to make progress appear real.
 
 When architecture work and productive work conflict, Steve should preserve the ability to keep useful work moving while hardening the system incrementally.
 
@@ -7308,11 +7346,15 @@ write_private_runtime_quadlet() {
   local signer_token
   local signer_socket_dir
   local runtime_state_dir
+  local workspace_dir
+  local runtime_workspace_dir
   runtime_quadlet="$(private_runtime_quadlet_path "$public_id")"
   runtime_container_name="$(private_runtime_container_name "$public_id")"
   runtime_token="$(read_agent_internal_api_token "$agent_id")"
   test_marker="$(read_agent_secret_value "$agent_id" diagnostics testMarker || true)"
   runtime_state_dir="$(private_runtime_state_dir "$public_id")"
+  workspace_dir="$(agent_workspace_host_dir "$agent_id")"
+  runtime_workspace_dir="/state/.openclaw/workspace-${agent_id}"
   cat >"$runtime_quadlet" <<EOF
 [Unit]
 Description=Clawbot ${display_name} isolated runtime (rootless Podman)
@@ -7328,6 +7370,7 @@ Volume=$runtime_dir:/app:ro
 Volume=$OPENCLAW_AGENT_CONFIG_DIR:$OPENCLAW_AGENT_CONFIG_DIR:ro
 Volume=$OPENCLAW_TENANT_TEMPLATES_DIR:$OPENCLAW_TENANT_TEMPLATES_DIR:ro
 Volume=$OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR:$OPENCLAW_EPISODE_ARCHIVE_CHECKOUT_DIR:ro
+Volume=$workspace_dir:$runtime_workspace_dir:rw
 Volume=$runtime_state_dir:/runtime-state:rw
 EnvironmentFile=$OPENCLAW_LLM_SECRETS_FILE
 Environment=OPENCLAW_PRIVATE_RUNTIME_AGENT_ID=$agent_id
@@ -10589,6 +10632,7 @@ if [[ ! -d "$OPENCLAW_AGENT_CONFIG_DIR" ]]; then
 fi
 
 run_step "Sync private agent pack" sync_private_agent_pack
+run_step "Sync engineering workspace repo" sync_engineering_workspace_repo
 
 if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" ]]; then
   if ! decode_template_to_file "$OPENCLAW_AGENT_CONFIG_DIR/agent-fleet.yaml" "$OPENCLAW_AGENT_FLEET_TEMPLATE_B64"; then
@@ -10774,6 +10818,8 @@ Prefer rollback-friendly changes and systems you can understand at 3am.
 - Do not claim task progress, completion, blocking, or handoff unless the queue state mutation actually succeeded.
 - A direct operator instruction plus a valid assigned queue task id is sufficient authority to begin work; do not wait for Bob when those are already present.
 - First action on a newly accepted assigned task: move it to in_progress.
+- If a file, function, repo, endpoint, output, or artifact is not accessible or not verified, say blocked.
+- Never invent file paths, function names, patch points, outputs, or system state.
 EOF
     fi
   fi
@@ -10854,6 +10900,7 @@ When implementation work is handed off from Steve, act as the security reviewer 
 - Prefer findings-first review over general commentary.
 - Do not guess about safety when evidence is missing.
 - Name the concrete file, command path, token surface, or network boundary involved.
+- Treat invented or unverifiable file paths, function names, patch points, outputs, or system-state claims as a review failure.
 EOF
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md"
   chmod 640 "$OPENCLAW_AGENT_CONFIG_DIR/specialists/security.md"
@@ -10963,6 +11010,8 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" ]]; then
 - Do not claim task progress, completion, blocking, or handoff unless the queue state mutation actually succeeded.
 - A direct operator instruction plus a valid assigned queue task id is sufficient authority to begin work; do not wait for Bob when those are already present.
 - First action on a newly accepted assigned task: move it to in_progress.
+- If a file, function, repo, endpoint, output, or artifact is not accessible or not verified, say blocked.
+- Never invent file paths, function names, patch points, outputs, or system state.
 EOF
   fi
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md"
