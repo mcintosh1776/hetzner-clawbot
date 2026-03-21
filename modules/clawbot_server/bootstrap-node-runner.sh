@@ -4418,9 +4418,10 @@ async def inbound_telegram(
         move_request.get("owner") or "",
       )
       task = (queue_result.get("queue") or {}).get("task") or {}
-      task_id = normalize_text(task.get("task_id") or task.get("taskId") or move_request["taskId"])
-      owner = normalize_text(task.get("current_owner") or task.get("currentOwner") or RUNTIME_PUBLIC_ID)
-      status = normalize_text(task.get("status") or move_request["status"])
+      meta = task.get("meta") or {}
+      task_id = normalize_text(meta.get("task_id") or task.get("task_id") or task.get("taskId") or move_request["taskId"])
+      owner = normalize_text(meta.get("current_owner") or task.get("current_owner") or task.get("currentOwner"))
+      status = normalize_text(meta.get("status") or task.get("status") or move_request["status"])
       return {
         "ok": True,
         "actions": [
@@ -4446,9 +4447,10 @@ async def inbound_telegram(
         handoff_request["summary"],
       )
       task = (queue_result.get("queue") or {}).get("task") or {}
-      task_id = normalize_text(task.get("task_id") or task.get("taskId") or handoff_request["taskId"])
-      owner = normalize_text(task.get("current_owner") or task.get("currentOwner") or handoff_request["to"])
-      status = normalize_text(task.get("status") or handoff_request["status"])
+      meta = task.get("meta") or {}
+      task_id = normalize_text(meta.get("task_id") or task.get("task_id") or task.get("taskId") or handoff_request["taskId"])
+      owner = normalize_text(meta.get("current_owner") or task.get("current_owner") or task.get("currentOwner") or handoff_request["to"])
+      status = normalize_text(meta.get("status") or task.get("status") or handoff_request["status"])
       return {
         "ok": True,
         "actions": [
