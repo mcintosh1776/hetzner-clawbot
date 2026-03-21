@@ -2413,6 +2413,24 @@ def extract_engineering_show_file_request(text: str) -> str:
   return normalize_text(match.group(1)) if match else ""
 
 
+def extract_engineering_write_request(text: str) -> dict | None:
+  if RUNTIME_AGENT_ID != "engineering":
+    return None
+  normalized = normalize_text(text)
+  match = re.match(
+    r"^\s*write\s+file\s+(.+?)\s+find:\s*(.+?)\s+replace:\s*(.+?)\s*$",
+    normalized,
+    flags=re.IGNORECASE | re.DOTALL,
+  )
+  if not match:
+    return None
+  return {
+    "path": normalize_text(match.group(1)),
+    "find": match.group(2),
+    "replace": match.group(3),
+  }
+
+
 def extract_engineering_search_request(text: str) -> str:
   if RUNTIME_AGENT_ID != "engineering":
     return ""
@@ -2563,6 +2581,39 @@ def engineering_workspace_diff_paths() -> list[Path]:
     seen.add(path_text)
     changed_paths.append(candidate)
   return changed_paths
+
+
+def write_engineering_workspace_file(raw_path: str, find_text: str, replace_text: str) -> tuple[bool, str]:
+  target = resolve_engineering_workspace_file(raw_path)
+  if target is None:
+    return False, "blocked: file not found in engineering workspace"
+
+  source_text = target.read_text(encoding="utf-8", errors="replace")
+  if find_text not in source_text:
+    return False, "blocked: find text not found"
+
+  updated_text = source_text.replace(find_text, replace_text, 1)
+  if updated_text == source_text:
+    return False, "blocked: no verified change"
+
+  target.write_text(updated_text, encoding="utf-8")
+
+  changed_paths = engineering_workspace_diff_paths()
+  try:
+    resolved_target = target.resolve()
+  except Exception:
+    return False, "blocked: no verified change"
+  resolved_changed = []
+  for item in changed_paths:
+    try:
+      resolved_changed.append(item.resolve())
+    except Exception:
+      continue
+  if resolved_target not in resolved_changed:
+    return False, "blocked: no verified change"
+  if len(resolved_changed) != 1:
+    return False, "blocked: multiple changed files not allowed"
+  return True, f"file: {resolved_target}"
 
 
 def task_requires_verified_tiny_edit(task: dict) -> bool:
@@ -4926,6 +4977,29 @@ async def inbound_telegram(
             },
             "message": {
               "text": reply_text,
+            },
+          }
+        ],
+      }
+
+    write_request = extract_engineering_write_request(text)
+    if write_request:
+      ok, reply_text = write_engineering_workspace_file(
+        write_request["path"],
+        write_request["find"],
+        write_request["replace"],
+      )
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": reply_text if ok else reply_text,
             },
           }
         ],
