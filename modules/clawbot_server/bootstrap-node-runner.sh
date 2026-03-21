@@ -3231,6 +3231,10 @@ def build_nostr_draft_instruction(payload: dict, revision_note: str = "", previo
   return "\n\n".join(instruction_lines)
 
 
+def agent_allows_nostr_drafts() -> bool:
+  return RUNTIME_AGENT_ID in {"podcast_media", "research"}
+
+
 def build_nostr_profile_instruction(payload: dict, revision_note: str = "", previous_profile: str = "") -> str:
   event = payload.get("event") or {}
   request_text = normalize_text(event.get("text"))
@@ -4412,7 +4416,7 @@ async def inbound_telegram(
       ],
     }
 
-  if nostr_signer_configured() and looks_like_nostr_profile_request(text):
+  if agent_allows_nostr_drafts() and nostr_signer_configured() and looks_like_nostr_profile_request(text):
     profile_content, profile_preview = await generate_nostr_profile(payload)
     pending_nostr = build_pending_draft(
       payload,
@@ -4441,7 +4445,7 @@ async def inbound_telegram(
       ],
     }
 
-  if nostr_signer_configured() and looks_like_nostr_publish_request(text):
+  if agent_allows_nostr_drafts() and nostr_signer_configured() and looks_like_nostr_publish_request(text):
     draft_text = await generate_nostr_draft(payload)
     if not draft_text:
       return {"ok": True, "actions": []}
