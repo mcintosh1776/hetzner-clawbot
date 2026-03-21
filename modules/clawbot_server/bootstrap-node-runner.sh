@@ -2351,6 +2351,103 @@ def validate_engineering_symbol_claim(reply_text: str) -> str:
   return f"path: {claimed_symbol}"
 
 
+def resolve_engineering_workspace_file(raw_path: str) -> Path | None:
+  workspace_root = engineering_workspace_root().resolve()
+  if not workspace_root.is_dir():
+    return None
+
+  candidate = Path(normalize_text(raw_path))
+  if not str(candidate):
+    return None
+  if not candidate.is_absolute():
+    candidate = workspace_root / candidate
+
+  try:
+    resolved = candidate.resolve()
+  except Exception:
+    return None
+
+  try:
+    resolved.relative_to(workspace_root)
+  except ValueError:
+    return None
+
+  if not resolved.is_file():
+    return None
+  return resolved
+
+
+def extract_engineering_show_file_request(text: str) -> str:
+  if RUNTIME_AGENT_ID != "engineering":
+    return ""
+  match = re.match(
+    r"^\s*show\s+file\s+(.+?)\s*$",
+    normalize_text(text),
+    flags=re.IGNORECASE | re.DOTALL,
+  )
+  return normalize_text(match.group(1)) if match else ""
+
+
+def extract_engineering_search_request(text: str) -> str:
+  if RUNTIME_AGENT_ID != "engineering":
+    return ""
+  match = re.match(
+    r"^\s*search\s+repo\s+(.+?)\s*$",
+    normalize_text(text),
+    flags=re.IGNORECASE | re.DOTALL,
+  )
+  return normalize_text(match.group(1)) if match else ""
+
+
+def format_engineering_file_reply(file_path: Path) -> str:
+  workspace_root = engineering_workspace_root().resolve()
+  try:
+    display_path = "/" + str(file_path.relative_to(workspace_root))
+  except Exception:
+    display_path = str(file_path)
+  body = file_path.read_text(encoding="utf-8", errors="replace")
+  max_chars = 4000
+  if len(body) > max_chars:
+    body = body[:max_chars].rstrip() + "\n...<truncated>"
+  return f"File: {display_path}\n\n{body}"
+
+
+def format_engineering_search_reply(pattern: str) -> str:
+  workspace_root = engineering_workspace_root().resolve()
+  if not workspace_root.is_dir():
+    return "blocked: engineering workspace not available"
+
+  try:
+    completed = subprocess.run(
+      [
+        "grep",
+        "-RIn",
+        "--exclude-dir=.git",
+        "--",
+        pattern,
+        str(workspace_root),
+      ],
+      text=True,
+      capture_output=True,
+      check=False,
+    )
+  except Exception:
+    return "blocked: repo search unavailable"
+
+  if completed.returncode != 0 or not normalize_text(completed.stdout):
+    return "no match"
+
+  lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+  lines = lines[:20]
+  normalized_lines = []
+  for line in lines:
+    if line.startswith(str(workspace_root)):
+      normalized_lines.append("/" + line[len(str(workspace_root)):].lstrip("/"))
+    else:
+      normalized_lines.append(line)
+  return "Matches:\n" + "\n".join(normalized_lines)
+
+
 def is_approval_command(text: str) -> bool:
   return normalize_text(text).lower() in {"approve", "approve publish", "publish", "approved"}
 
@@ -4620,6 +4717,45 @@ async def inbound_telegram(
             },
             "message": {
               "text": f"Task {task_id} handed off to {owner} with status {status}.",
+            },
+          }
+        ],
+      }
+
+    show_file_request = extract_engineering_show_file_request(text)
+    if show_file_request:
+      resolved_file = resolve_engineering_workspace_file(show_file_request)
+      reply_text = format_engineering_file_reply(resolved_file) if resolved_file else "blocked: file not found in engineering workspace"
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": reply_text,
+            },
+          }
+        ],
+      }
+
+    search_request = extract_engineering_search_request(text)
+    if search_request:
+      reply_text = format_engineering_search_reply(search_request)
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": reply_text,
             },
           }
         ],
