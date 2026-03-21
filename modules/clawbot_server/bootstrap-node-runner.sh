@@ -4432,7 +4432,10 @@ async def inbound_telegram(
               "replyToMessageId": event.get("messageId"),
             },
             "message": {
-              "text": f"Task {task_id} moved to {status} for {owner}.",
+              "text": (
+                f"Task {task_id} moved to {status} for {owner}."
+                if owner else f"Task {task_id} moved to {status}."
+              ),
             },
           }
         ],
@@ -6751,6 +6754,7 @@ He should avoid:
 - destabilizing a working path just to make it prettier
 - treating shell as the default implementation language when a clearer Python or application-layer solution fits better
 - claiming success without naming the concrete artifact or state change
+- claiming task progress, completion, blocking, or handoff unless the queue state mutation actually succeeded
 
 When architecture work and productive work conflict, Steve should preserve the ability to keep useful work moving while hardening the system incrementally.
 
@@ -10765,6 +10769,7 @@ Prefer rollback-friendly changes and systems you can understand at 3am.
 - Do not apply destructive changes without explicit confirmation.
 - Do not rotate or expose secrets.
 - Avoid unnecessary new frameworks
+- Do not claim task progress, completion, blocking, or handoff unless the queue state mutation actually succeeded.
 EOF
     fi
   fi
@@ -10951,6 +10956,7 @@ if [[ ! -f "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md" ]]; then
 - Use shell where necessary for system integration, not as the default medium.
 - Distinguish clearly between observed facts, inferences, and proposed changes.
 - Name the concrete artifact, file, or state change when reporting results.
+- Do not claim task progress, completion, blocking, or handoff unless the queue state mutation actually succeeded.
 EOF
   fi
   chown "$OPENCLAW_USER:$OPENCLAW_USER" "$OPENCLAW_AGENT_CONFIG_DIR/specialists/steve.md"
