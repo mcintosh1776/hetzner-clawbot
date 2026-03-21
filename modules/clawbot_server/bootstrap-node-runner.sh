@@ -2424,6 +2424,70 @@ def extract_engineering_search_request(text: str) -> str:
   return normalize_text(match.group(1)) if match else ""
 
 
+def extract_engineering_structured_inspect_request(text: str) -> str:
+  if RUNTIME_AGENT_ID != "engineering":
+    return ""
+  lowered = normalize_text(text).lower()
+  if "search repo" not in lowered:
+    return ""
+  if "reply only with" not in lowered:
+    return ""
+  if "file:" not in lowered or "path:" not in lowered or "patch:" not in lowered:
+    return ""
+  match = re.search(
+    r"search\s+repo\s+(.+?)(?:\.\s+then|\n|$)",
+    normalize_text(text),
+    flags=re.IGNORECASE | re.DOTALL,
+  )
+  return normalize_text(match.group(1)) if match else ""
+
+
+def engineering_search_matches(pattern: str) -> list[tuple[Path, str, str]]:
+  workspace_root = engineering_workspace_root().resolve()
+  if not workspace_root.is_dir():
+    return []
+
+  try:
+    completed = subprocess.run(
+      [
+        "grep",
+        "-RIn",
+        "--exclude-dir=.git",
+        "--",
+        pattern,
+        str(workspace_root),
+      ],
+      text=True,
+      capture_output=True,
+      check=False,
+    )
+  except Exception:
+    return []
+
+  if completed.returncode != 0 or not normalize_text(completed.stdout):
+    return []
+
+  matches = []
+  for raw_line in completed.stdout.splitlines():
+    line = raw_line.strip()
+    if not line:
+      continue
+    parts = line.split(":", 2)
+    if len(parts) < 3:
+      continue
+    file_part, line_number, matched_text = parts
+    candidate = Path(normalize_text(file_part))
+    try:
+      resolved = candidate.resolve()
+      resolved.relative_to(workspace_root)
+    except Exception:
+      continue
+    if not resolved.is_file():
+      continue
+    matches.append((resolved, normalize_text(line_number), normalize_text(matched_text)))
+  return matches
+
+
 def format_engineering_file_reply(file_path: Path) -> str:
   workspace_root = engineering_workspace_root().resolve()
   try:
@@ -2441,36 +2505,31 @@ def format_engineering_search_reply(pattern: str) -> str:
   workspace_root = engineering_workspace_root().resolve()
   if not workspace_root.is_dir():
     return "blocked: engineering workspace not available"
-
-  try:
-    completed = subprocess.run(
-      [
-        "grep",
-        "-RIn",
-        "--exclude-dir=.git",
-        "--",
-        pattern,
-        str(workspace_root),
-      ],
-      text=True,
-      capture_output=True,
-      check=False,
-    )
-  except Exception:
-    return "blocked: repo search unavailable"
-
-  if completed.returncode != 0 or not normalize_text(completed.stdout):
+  matches = engineering_search_matches(pattern)
+  if not matches:
     return "no match"
-
-  lines = [line.strip() for line in completed.stdout.splitlines() if line.strip()]
-  lines = lines[:20]
   normalized_lines = []
-  for line in lines:
-    if line.startswith(str(workspace_root)):
-      normalized_lines.append("/" + line[len(str(workspace_root)):].lstrip("/"))
-    else:
-      normalized_lines.append(line)
+  for resolved, line_number, matched_text in matches[:20]:
+    normalized_lines.append(
+      f"/{resolved.relative_to(workspace_root)}:{line_number}:{matched_text}"
+    )
   return "Matches:\n" + "\n".join(normalized_lines)
+
+
+def format_engineering_structured_inspect_reply(pattern: str) -> str:
+  matches = engineering_search_matches(pattern)
+  if not matches:
+    return "blocked: no verified search match"
+  resolved, _, matched_text = matches[0]
+  if not matched_text:
+    return "blocked: no verified search match"
+  return "\n".join(
+    [
+      f"file: {resolved}",
+      f"path: {matched_text}",
+      f"patch: {resolved}",
+    ]
+  )
 
 
 def is_approval_command(text: str) -> bool:
@@ -4770,6 +4829,25 @@ async def inbound_telegram(
     search_request = extract_engineering_search_request(text)
     if search_request:
       reply_text = format_engineering_search_reply(search_request)
+      return {
+        "ok": True,
+        "actions": [
+          {
+            "type": "telegram.sendMessage",
+            "target": {
+              "chatId": chat.get("id"),
+              "replyToMessageId": event.get("messageId"),
+            },
+            "message": {
+              "text": reply_text,
+            },
+          }
+        ],
+      }
+
+    structured_inspect_request = extract_engineering_structured_inspect_request(text)
+    if structured_inspect_request:
+      reply_text = format_engineering_structured_inspect_reply(structured_inspect_request)
       return {
         "ok": True,
         "actions": [
