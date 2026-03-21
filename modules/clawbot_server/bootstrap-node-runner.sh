@@ -2532,6 +2532,71 @@ def format_engineering_structured_inspect_reply(pattern: str) -> str:
   )
 
 
+def engineering_workspace_diff_paths() -> list[Path]:
+  workspace_root = engineering_workspace_root().resolve()
+  if not workspace_root.is_dir():
+    return []
+  try:
+    completed = subprocess.run(
+      ["git", "-C", str(workspace_root), "status", "--porcelain"],
+      text=True,
+      capture_output=True,
+      check=False,
+    )
+  except Exception:
+    return []
+  if completed.returncode != 0:
+    return []
+
+  changed_paths: list[Path] = []
+  seen: set[str] = set()
+  for raw_line in completed.stdout.splitlines():
+    line = raw_line.rstrip()
+    if len(line) < 4:
+      continue
+    path_text = normalize_text(line[3:])
+    if " -> " in path_text:
+      path_text = normalize_text(path_text.split(" -> ", 1)[1])
+    if not path_text or path_text in seen:
+      continue
+    candidate = workspace_root / path_text
+    seen.add(path_text)
+    changed_paths.append(candidate)
+  return changed_paths
+
+
+def task_requires_verified_tiny_edit(task: dict) -> bool:
+  if RUNTIME_AGENT_ID != "engineering":
+    return False
+  meta = task.get("meta") or {}
+  title = normalize_text(meta.get("title"))
+  body = normalize_text(task.get("body"))
+  combined = f"{title}\n{body}".lower()
+  markers = (
+    "tiny-edit readiness task",
+    "one narrow change",
+    "exact changed file",
+    "diff stays narrow",
+    "no unrelated files changed",
+  )
+  return contains_any_phrase(combined, markers)
+
+
+def enforce_verified_tiny_edit(task: dict, target_status: str) -> str:
+  normalized_status = normalize_text(target_status).lower()
+  if normalized_status not in {"ready_for_approval", "done"}:
+    return ""
+  if not task_requires_verified_tiny_edit(task):
+    return ""
+
+  changed_paths = engineering_workspace_diff_paths()
+  if not changed_paths:
+    return "blocked: no verified change"
+  if len(changed_paths) > 1:
+    return "blocked: multiple changed files not allowed"
+  return ""
+
+
 def is_approval_command(text: str) -> bool:
   return normalize_text(text).lower() in {"approve", "approve publish", "publish", "approved"}
 
@@ -4748,6 +4813,27 @@ async def inbound_telegram(
 
     move_request = extract_queue_move_request(text)
     if move_request:
+      queue_task = {}
+      if normalize_text(move_request["status"]).lower() in {"ready_for_approval", "done"}:
+        queue_preview = await request_queue_show(move_request["taskId"])
+        queue_task = (queue_preview.get("queue") or {}).get("task") or {}
+        enforcement_error = enforce_verified_tiny_edit(queue_task, move_request["status"])
+        if enforcement_error:
+          return {
+            "ok": True,
+            "actions": [
+              {
+                "type": "telegram.sendMessage",
+                "target": {
+                  "chatId": chat.get("id"),
+                  "replyToMessageId": event.get("messageId"),
+                },
+                "message": {
+                  "text": enforcement_error,
+                },
+              }
+            ],
+          }
       queue_result = await request_queue_move(
         move_request["taskId"],
         move_request["status"],
@@ -4779,6 +4865,25 @@ async def inbound_telegram(
 
     handoff_request = extract_queue_handoff_request(text)
     if handoff_request:
+      queue_preview = await request_queue_show(handoff_request["taskId"])
+      queue_task = (queue_preview.get("queue") or {}).get("task") or {}
+      enforcement_error = enforce_verified_tiny_edit(queue_task, handoff_request["status"])
+      if enforcement_error:
+        return {
+          "ok": True,
+          "actions": [
+            {
+              "type": "telegram.sendMessage",
+              "target": {
+                "chatId": chat.get("id"),
+                "replyToMessageId": event.get("messageId"),
+              },
+              "message": {
+                "text": enforcement_error,
+              },
+            }
+          ],
+        }
       queue_result = await request_queue_handoff(
         handoff_request["taskId"],
         handoff_request["to"],
